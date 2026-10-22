@@ -88,6 +88,8 @@ class RUSTER_PT_generation(bpy.types.Panel):
     bl_region_type='UI'
     bl_category='Ruster'
     bl_options={'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls,context):return context.scene.ruster.mode=='MAP' or bool(_job and _job.active)
     def draw(self,context):draw(self.layout,context)
 
 

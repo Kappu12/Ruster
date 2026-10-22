@@ -21,7 +21,7 @@ game = Path(temporary.name) / 'Rust'
 (game / 'RustClient.exe').touch()
 settings.save({'rust_install': str(game)})
 runpy.run_path(str(distribution / 'bootstrap.py'))
-from ruster import app, ui
+from ruster import app, ui, studio
 from tests.fixtures import sample_world
 
 state = {'stage': 0, 'splash': False, 'start': False, 'scene': False}
@@ -42,6 +42,8 @@ bpy.types.WM_MT_splash.draw = checked_draw(bpy.types.WM_MT_splash.draw, 'splash'
 bpy.types.WM_MT_splash_quick_setup.draw = checked_draw(bpy.types.WM_MT_splash_quick_setup.draw, 'splash')
 ui.RUSTER_PT_start.draw = checked_draw(ui.RUSTER_PT_start.draw, 'start')
 bpy.types.SCENE_PT_scene.draw = checked_draw(bpy.types.SCENE_PT_scene.draw, 'scene')
+studio.RUSTER_MT_add.draw=checked_draw(studio.RUSTER_MT_add.draw,'add')
+bpy.types.VIEW3D_PT_tools_active.draw=checked_draw(bpy.types.VIEW3D_PT_tools_active.draw,'toolbar')
 
 
 def step():
@@ -61,8 +63,11 @@ def step():
                 assert window.scene.ruster.mode=='PREFAB' and not list(window.scene.objects)
                 assert not area.spaces.active.show_region_toolbar
                 assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
-                with bpy.context.temp_override(area=area):bpy.ops.wm.call_menu(name='RUSTER_MT_add')
+                area.spaces.active.show_region_toolbar=True
+                with bpy.context.temp_override(area=area):bpy.ops.wm.call_menu(name='VIEW3D_MT_add')
             elif stage == 2:
+                assert state.get('add'),'Blender Add menu did not route to Rust prefab categories'
+                assert state.get('toolbar'),'The stripped placement toolbar did not draw'
                 window.event_simulate(type='ESC',value='PRESS')
                 path = Path(temporary.name) / 'test.map'
                 path.write_bytes(sample_world().write())

@@ -44,9 +44,14 @@ def run():
             bpy.ops.script.execute_preset(filepath=str(theme),menu_idname='USERPREF_MT_interface_theme_presets')
             before=theme_snapshot(bpy.context.preferences.themes[0])
             old_header=bpy.types.VIEW3D_HT_header.draw
+            old_toolbar=bpy.types.VIEW3D_PT_tools_active.draw
             old_navigation=bpy.types.USERPREF_PT_navigation_bar.draw
             old_scene_poll=bpy.types.SCENE_PT_scene.__dict__.get('poll')
             ruster.register()
+            assert bpy.types.VIEW3D_PT_tools_active.draw!=old_toolbar
+            keymap=bpy.context.window_manager.keyconfigs.addon.keymaps['Object Mode']
+            assert any(k.type=='SPACE' and k.idname=='ruster.commands' for k in keymap.keymap_items)
+            assert any(k.type=='A' and k.shift and k.properties.name=='RUSTER_MT_add' for k in keymap.keymap_items if k.idname=='wm.call_menu')
             pref_state=bpy.context.window_manager.ruster_preferences
             pref_state.section='RUSTER_MCP'
             assert preferences.is_rust(bpy.context) and preferences.RUSTER_PT_preferences_mcp.poll(bpy.context)
@@ -106,6 +111,7 @@ def run():
             assert child.poll() is not None and log.closed and app._job is None and app._job_log is None
             assert bpy.types.USERPREF_PT_navigation_bar.draw==old_navigation
             assert bpy.types.VIEW3D_HT_header.draw==old_header
+            assert bpy.types.VIEW3D_PT_tools_active.draw==old_toolbar
             assert bpy.types.SCENE_PT_scene.__dict__.get('poll')==old_scene_poll
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
     print('RUSTER_BLENDER_UI_THEME_ICONS_OK',flush=True)

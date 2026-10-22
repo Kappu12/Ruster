@@ -334,6 +334,8 @@ def register():
         item.properties.name = 'RUSTER_MT_add';_keymaps.append((keymap, item))
         item = keymap.keymap_items.new('ruster.edit_mode', 'TAB', 'PRESS')
         _keymaps.append((keymap, item))
+        item = keymap.keymap_items.new('ruster.commands','SPACE','PRESS')
+        _keymaps.append((keymap,item))
         keymap = config.keymaps.new(name='Curve',space_type='EMPTY')
         item = keymap.keymap_items.new('wm.call_menu','A','PRESS',shift=True)
         item.properties.name = 'RUSTER_MT_add';_keymaps.append((keymap,item))

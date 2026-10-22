@@ -356,6 +356,11 @@ def menus(self,context):
     if is_map(context):self.layout.menu('RUSTER_MT_map')
 
 
+def add_menu(self,context):
+    from .studio import RUSTER_MT_add
+    RUSTER_MT_add.draw(self,context)
+
+
 def view_header(self,context):
     layout=self.layout
     layout.menu('VIEW3D_MT_view',text='View')
@@ -375,6 +380,18 @@ def view_header(self,context):
     space=context.space_data
     layout.prop(space.overlay,'show_overlays',text='',icon=I['overlay'])
     layout.prop(space.shading,'type',text='',expand=True)
+
+
+def placement_toolbar(self,context):
+    column=self.layout.column(align=True)
+    column.scale_y=1.3
+    for tool,icon in [('builtin.select_box','select'),('builtin.cursor','cursor'),
+                      ('builtin.move','move'),('builtin.rotate','rotate'),('builtin.scale','scale')]:
+        tool_button(column,context,tool,'',icon).name=tool
+    if is_map(context):
+        column.separator()
+        for tool,icon in [('ruster.terrain_brush','terrain_brush'),('ruster.prefab_brush','prefab_brush')]:
+            tool_button(column,context,tool,'',icon).name=tool
 
 
 def context_menu(self,context):
@@ -499,6 +516,8 @@ def register():
     patch_draw(bpy.types.TOPBAR_HT_upper_bar,topbar)
     patch_draw(bpy.types.TOPBAR_MT_editor_menus,menus)
     patch_draw(bpy.types.VIEW3D_HT_header,view_header)
+    patch_draw(bpy.types.VIEW3D_MT_add,add_menu)
+    patch_draw(bpy.types.VIEW3D_PT_tools_active,placement_toolbar)
     patch_draw(bpy.types.VIEW3D_MT_object_context_menu,context_menu)
     for cls in (bpy.types.OUTLINER_MT_context_menu,bpy.types.OUTLINER_MT_object,bpy.types.OUTLINER_MT_collection):patch_draw(cls,context_menu)
     for cls in (bpy.types.OUTLINER_MT_id_data,bpy.types.OUTLINER_MT_liboverride,bpy.types.OUTLINER_MT_edit_datablocks):patch_draw(cls,readonly_source_menu)
