@@ -136,18 +136,23 @@ def prefab_records(roots, origin):
         if problem:raise ValueError(root.name + ': ' + problem)
         old = wire.parse(base64.b64decode(root['ruster_record'], validate=True))
         position, rotation, scale = prefab_transform(old)
+        relative = root.matrix_world.copy();relative.translation -= origin
+        baseline = root.get('ruster_prefab_matrix')
+        original=(Matrix([baseline[i*4:i*4+4] for i in range(4)]) if baseline else
+                  Matrix.LocRotScale(scene.to_blender(position),scene.unity_euler(rotation),scene.to_blender(scale)))
+        same_matrix=all(math.isclose(relative[i][j],original[i][j],rel_tol=3e-7,abs_tol=5e-6)
+                        for i in range(4) for j in range(4))
+        if same_matrix:
+            # Original Rust IO tubes can be hundreds of metres long and very
+            # thin. Preserve their exact records before float32 decomposition.
+            records.append(old);continue
         location, quaternion, actual_scale = root.matrix_world.decompose()
         if not all(math.isfinite(v) for v in (*location, *quaternion, *actual_scale)):
             raise ValueError('Prefab has an invalid transform')
-        rebuilt = Matrix.LocRotScale(location, quaternion, actual_scale)
-        if max(abs(rebuilt[i][j] - root.matrix_world[i][j]) for i in range(4) for j in range(4)) > 1e-4:
+        if scene.matrix_has_shear(root.matrix_world):
             raise ValueError('Group scaling introduces shear; use uniform group scale')
         location -= origin
-        baseline = root.get('ruster_prefab_matrix')
-        relative = root.matrix_world.copy();relative.translation -= origin
-        same_matrix = bool(baseline) and all(math.isclose(relative[i][j],baseline[i*4+j],rel_tol=3e-7,abs_tol=5e-6)
-                                           for i in range(4) for j in range(4))
-        unchanged = same_matrix or ((location - scene.to_blender(position)).length < 1e-5
+        unchanged = ((location - scene.to_blender(position)).length < 1e-5
                      and abs(quaternion.dot(scene.unity_euler(rotation))) > 1 - 1e-7
                      and (actual_scale - scene.to_blender(scale)).length < 1e-6)
         records.append(old if unchanged else update_transform(old, scene.to_unity(location),

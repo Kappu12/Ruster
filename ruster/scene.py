@@ -151,6 +151,27 @@ def name_prefab(obj, source):
     obj['ruster_generated_name']=obj.name
 
 
+def model_placeholder(obj):
+    """A wire box for an unresolved placement; never exported as geometry."""
+    if obj.get('ruster_visual') or obj.get('ruster_marker'):
+        return
+    obj.empty_display_type = 'CUBE'
+    obj.empty_display_size = .5
+    if not obj.get('ruster_model_status'):
+        obj['ruster_model_status'] = 'Model not loaded · wireframe placeholder'
+
+
+def model_attached(obj):
+    """Remove the loading box once the original linked model is visible."""
+    obj['ruster_visual'] = True
+    obj['ruster_model_status'] = 'Model loaded'
+    for field in ('ruster_marker', 'ruster_helper_bounds'):
+        if field in obj:
+            del obj[field]
+    obj.empty_display_type = 'PLAIN_AXES'
+    obj.empty_display_size = .0001
+
+
 def root_object(fields, collection):
     uid = prefab_id(fields)
     obj = bpy.data.objects.new(f'Prefab {uid}', None)
@@ -165,8 +186,7 @@ def root_object(fields, collection):
     obj.rotation_mode = 'XYZ'
     obj.rotation_euler = unity_euler(rotation).to_euler('XYZ')
     obj.scale = to_blender(scale)
-    obj.empty_display_type = 'PLAIN_AXES'
-    obj.empty_display_size = .25
+    model_placeholder(obj)
     obj.color = (1, .36, .08, 1)
     return obj
 
@@ -219,6 +239,7 @@ def restore_map_tools():
             editing.configure_path(obj,fields)
     for root in prefab_roots():
         from .protection import protect_root
+        model_placeholder(root)
         protect_root(root)
     editing.refresh()
 
@@ -226,6 +247,8 @@ def restore_map_tools():
 def attach_visual(root,force=False):
     if root.get('ruster_visual') and not force:
         return True
+    # Also upgrade unresolved placements restored from older saved projects.
+    model_placeholder(root)
     path = cache_dir() / 'prefabs' / f"{root['ruster_uid']}.json.gz"
     if not path.exists():
         return bool(root.get('ruster_visual'))
@@ -258,8 +281,7 @@ def attach_visual(root,force=False):
         asset_name=existing.get('ruster_asset_name',root.name)
         from .protection import freeze
         root.instance_collection = freeze(existing,root['ruster_uid'])
-        root['ruster_visual'] = True
-        root.empty_display_type='PLAIN_AXES';root.empty_display_size=.15
+        model_attached(root)
         name_prefab(root,asset_name)
         return True
     from .protection import library_path,linked_collection
@@ -269,7 +291,7 @@ def attach_visual(root,force=False):
         if model.get('ruster_asset_key')!=asset_key or not model.get('ruster_model_verified') or model.get('ruster_model_version')!=VERSION:
             raise ValueError('Cached prefab model does not match the original asset; refresh its assets')
         root.instance_type='COLLECTION';root.instance_collection=model
-        root['ruster_visual']=True;root.empty_display_type='PLAIN_AXES';root.empty_display_size=.15
+        model_attached(root)
         name_prefab(root,model.get('ruster_asset_name',root.name))
         return True
     with gzip.open(path, 'rt') as stream:
@@ -443,13 +465,30 @@ def attach_visual(root,force=False):
     root.instance_type = 'COLLECTION'
     from .protection import freeze
     root.instance_collection = freeze(collection,root['ruster_uid'],asset_key,verified=True)
-    root['ruster_visual'] = True
-    root.empty_display_type='PLAIN_AXES';root.empty_display_size=.15
+    model_attached(root)
     return True
 
 
 def prefab_roots():
     return [o for o in bpy.context.scene.objects if o.get('ruster_kind') == 'PREFAB']
+
+
+def matrix_has_shear(matrix):
+    """Check normalized transform axes, independently of their scale/position.
+
+    A Rust placement can have a very long, thin source scale. Comparing its
+    decomposed matrix in world units mistakes float32 roundoff for shear.
+    Degenerate and nonfinite axes are also not representable Rust transforms.
+    """
+    axes = []
+    for column in range(3):
+        values = tuple(float(matrix[row][column]) for row in range(3))
+        length = math.sqrt(sum(value * value for value in values))
+        if not math.isfinite(length) or length < 1e-7:
+            return True
+        axes.append(tuple(value / length for value in values))
+    return any(abs(sum(a * b for a, b in zip(axes[i], axes[j]))) > 1e-5
+               for i, j in ((0, 1), (0, 2), (1, 2)))
 
 
 def validate():
@@ -480,8 +519,7 @@ def validate():
             if obj.constraints or obj.modifiers or obj.animation_data:
                 errors.append(f'{obj.name}: bake constraints/modifiers/animation before exporting')
             loc, rot, scale = obj.matrix_world.decompose()
-            rebuilt=Matrix.LocRotScale(loc,rot,scale)
-            if max(abs(rebuilt[i][j]-obj.matrix_world[i][j]) for i in range(4) for j in range(4))>1e-4:
+            if matrix_has_shear(obj.matrix_world):
                 errors.append(f'{obj.name}: group transforms introduce shear; use uniform group scale')
             if not all(math.isfinite(v) for v in (*loc, *rot, *scale)):
                 errors.append(f'{obj.name}: invalid transform')
