@@ -14,6 +14,7 @@ still need validation against an installed game and a live test server.
 | MCP | Optional built-in community Blender MCP adaptation; shared Blender Preferences section and native toggle, bundled stdio client adapter, 32 typed tools; complete paginated catalog discovery, cached model dimensions, atomic composition batches, groups, reusable assemblies, terrain samples, typed paths, viewport PNG feedback, two resource guides and two workflow prompts, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
 | Projects | Self-contained `.ruster`, atomic saves, source map retention, packed model previews, integrity checks |
 | Terrain | Full-resolution edits; independent adjustable viewport detail; height and slope masks |
+| 2D Maps | Native Image Editor workspace; height, water, spawn height, slope, splat, biome, topology and holes; composite/channel views, bounded previews, pan/zoom and edit/undo refresh |
 | Height tools | Raise, lower, flatten, smooth, erode, sharpen, terrace, noise, pinch, twist, slope plane |
 | Clone | Fixed-source clone brush; other RustEdit clone movement modes remain below |
 | Stamps | Grayscale image stamp, brush rotation, positive/negative stamp, radius, strength and falloff |

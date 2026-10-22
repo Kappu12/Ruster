@@ -34,6 +34,7 @@ jobs:
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_protection.py
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_ui.py
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_mcp.py
+          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_maps.py
       - name: Test mouse-driven terrain and prefab tools
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
@@ -49,3 +50,8 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_mcp.py
+      - name: Test 2D map layers and undo
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_maps.py

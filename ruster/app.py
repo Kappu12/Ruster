@@ -650,6 +650,8 @@ def register():
     painting.register()
     from . import layers
     layers.register()
+    from . import maps
+    maps.register()
     from . import mcp_bridge
     mcp_bridge.register()
     ui.register()
@@ -697,6 +699,8 @@ def unregister():
     mcp_bridge.unregister()
     ui.unregister()
     from . import layers
+    from . import maps
+    maps.unregister()
     layers.unregister()
     from . import protection,browser,painting
     painting.unregister()

@@ -368,6 +368,9 @@ def topbar(self,context):
     else:
         bpy.types.TOPBAR_MT_editor_menus.draw_collapsible(context,layout)
         layout.separator();layout.label(text='Rust Map',icon=I['world'])
+        row=layout.row(align=True)
+        row.operator('ruster.map_view',text='3D Map',depress=context.workspace.get('ruster_workspace')!='MAPS').view='3D'
+        row.operator('ruster.map_view',text='Maps',depress=context.workspace.get('ruster_workspace')=='MAPS').view='MAPS'
 
 
 def close_map_timeline():
@@ -412,10 +415,13 @@ def refresh_panels(classes):
 
 def map_workspace():
     for window in bpy.context.window_manager.windows:
-        window.workspace.name='Rust Map'
+        if window.workspace.get('ruster_workspace')!='MAPS':
+            window.workspace.name='Rust Map';window.workspace['ruster_workspace']='3D'
         for area in window.screen.areas:
             if area.type=='PROPERTIES':area.spaces.active.context='SCENE'
             area.tag_redraw()
+    from . import maps
+    maps.ensure_workspace()
     if not bpy.app.background and not bpy.app.timers.is_registered(close_map_timeline):
         bpy.app.timers.register(close_map_timeline,first_interval=.1)
 

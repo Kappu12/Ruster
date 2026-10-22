@@ -107,6 +107,17 @@ Use **Recover Autosaved Session** on the start screen after a crash. Recovery do
 not replace the normal project save destination. Recent projects are listed there
 as well. Native file drops support `.map` and `.ruster`.
 
+## 2D map views
+
+The top bar has **3D Map** and **Maps** workspace tabs. Maps uses Blender's native
+Image Editor to inspect height, water, spawn height, slope, splat, biome, topology
+and terrain-hole data as flat images. Choose a composite or an individual channel,
+zoom/pan normally, and use Frame Map to fit the image. Previews are capped at
+512/1024/2048 pixels independently of the authoritative map resolution. They are
+read-only and follow committed edits and undo. A missing source layer is reported
+explicitly. Editing the preview image does not edit the map; use terrain brushes
+or import a full-resolution layer mask.
+
 ## MCP / AI editor connection
 
 Open **Edit → Preferences → Rust MCP** and turn on **Enable MCP**. It is off by default.
