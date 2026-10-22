@@ -65,6 +65,9 @@ the Effects or Gameplay category also includes that category's helpers. Browser
 redraws reuse their current page. Loading progress and cancellation stay beside
 the search controls. Model completion follows prefab IDs, so renaming or deleting
 a placement while loading cannot lose or redirect its model.
+Opening a prefab remembers the bundle directories and root locations encountered
+for that request. Later requests reuse those small metadata records; a changed
+game installation invalidates them. This never starts a full asset index.
 Blender's normal toolbar is visible, with Rust brushes added in map mode. New
 prefabs start in Material Preview so loaded textures are visible. Texture previews
 read a source mip up to 2048px without decoding larger levels. Space and F3

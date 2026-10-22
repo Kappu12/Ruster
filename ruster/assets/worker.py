@@ -339,11 +339,13 @@ def extract_batch(UnityPy, install, cache, ids):
     failures, done = [], 0
     current_bundle, env = None, None
     with connect(cache) as db:
-        cab_bundles = dict(db.execute('SELECT name,bundle FROM serialized_files'))
         source=db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='catalog_metadata'").fetchone()
         catalog_source=db.execute('SELECT value FROM catalog_metadata').fetchall() if source else []
         catalog_signature=hashlib.sha256(repr((catalog_source,[(str(p.relative_to(root)),p.stat().st_size,p.stat().st_mtime_ns)
                                                               for p in bundle_files(root)])).encode()).hexdigest()
+    from ruster.assets import locations
+    cab_bundles=locations.prepare(cache,catalog_signature)
+    discovered_cabs={};discovered_roots=[]
     candidates=iter(sorted(bundle_files(root),key=lambda p:('/shared/' not in p.as_posix(),p.as_posix())))
 
     class LocalEnvironment(UnityPy.Environment):
@@ -367,7 +369,9 @@ def extract_batch(UnityPy, install, cache, ids):
                         directory_env=directory_unity.load(str(candidate))
                         for container in directory_env.files.values():
                             for node in getattr(container,'files',{}):
-                                cab_bundles[node.rsplit('/',1)[-1].lower()]=str(candidate.relative_to(root))
+                                cab=node.rsplit('/',1)[-1].lower()
+                                location=str(candidate.relative_to(root))
+                                cab_bundles[cab]=location;discovered_cabs[cab]=location
                         if clean in cab_bundles:break
                 bundle=cab_bundles.get(clean)
             if bundle:
@@ -398,7 +402,14 @@ def extract_batch(UnityPy, install, cache, ids):
                     current_bundle = bundle
                 if file_name.startswith('@scene:'):
                     data=env.get_cab('BuildPlayer-'+file_name[7:])
-                    reader=next((o for o in data.objects.values() if o.type.name=='GameObject' and o.read().m_Name.lower()==asset_path.lower()),None) if data else None
+                    reader=None
+                    if data:
+                        for candidate in data.objects.values():
+                            if candidate.type.name!='GameObject':continue
+                            name=candidate.read().m_Name.lower()
+                            if name.startswith('assets/') and name.endswith('.prefab'):
+                                discovered_roots.append(('BuildPlayer-'+file_name[7:],candidate.path_id,name,bundle))
+                            if name==asset_path.lower():reader=candidate;break
                 else:
                     # Parse only the requested serialized node, even with an old
                     # fully indexed catalog.
@@ -413,6 +424,7 @@ def extract_batch(UnityPy, install, cache, ids):
             done += 1
         except Exception as error:
             failures.append({'uid': uid, 'error': str(error)})
+    locations.remember(cache,discovered_cabs,discovered_roots)
     return {'failures': failures, 'done': done}
 
 
