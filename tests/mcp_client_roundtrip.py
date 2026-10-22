@@ -1,9 +1,14 @@
 """External MCP SDK client used by the native GUI integration test."""
-import asyncio,base64,json,os,struct,sys
+import asyncio,base64,json,os,site,struct,sys
 from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+APP_ROOT=Path(os.environ.get('RUSTER_MCP_APP_ROOT',ROOT)).resolve()
+sys.path.insert(0,str(APP_ROOT))
+modules=APP_ROOT/'python_modules'
+if modules.is_dir():
+    sys.path.insert(0,str(modules));site.addsitedir(str(modules))
 from mcp import ClientSession,StdioServerParameters
 from mcp.client.stdio import stdio_client
-ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from ruster.core import settings,mcp_config
 from ruster import __version__
 from ruster.assets import CONVERTER_VERSION
@@ -13,7 +18,7 @@ from ruster.vendor.blender_mcp_client import BlenderConnection
 async def run():
     directory=Path(os.environ['RUSTER_MCP_TEST_STATE'])
     config=settings.load();port=mcp_config.port(config);token=config['mcp_token']
-    params=StdioServerParameters(command=sys.executable,args=[str(ROOT/'mcp_server.py')],env={'RUSTER_USER_DIR':str(settings.user_root())})
+    params=StdioServerParameters(command=sys.executable,args=[str(APP_ROOT/'mcp_server.py')],env={'RUSTER_USER_DIR':str(settings.user_root()),'PYTHONIOENCODING':'utf-8'})
     async with stdio_client(params) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
@@ -22,7 +27,9 @@ async def run():
                 assert not result.isError,result
                 return result.structuredContent or json.loads(result.content[0].text)
             exposed={tool.name for tool in (await session.list_tools()).tools}
-            assert len(exposed)==43 and not {'paint_terrain','sample_surface','generate_map','create_path','execute_code'} & exposed
+            assert len(exposed)==43,sorted(exposed)
+            assert not {'paint_terrain','sample_surface','snap_objects_to_terrain','generate_map','get_generation_status','cancel_generation','create_path','update_path','get_path_info','execute_code'} & exposed
+            assert {'get_objects_info','get_prefabs_details','get_selection','array_objects','align_objects','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=exposed
             assert (await call('get_scene_info'))['mode']=='PREFAB'
             assert (await call('search_prefabs',query=''))['prefabs'][0]['id']==123456
             status=await call('get_editor_status')
@@ -72,11 +79,16 @@ async def run():
             assert (await call('validate_map'))['valid']
             await call('save_project',path=str(directory/'ai.ruster'))
             await call('export_map',path=str(directory/'ai.map'))
-            for test_token,kind,values in [('wrong-token','get_scene_info',{}),(token,'execute_code',{'code':'raise Exception("must not execute")'})]:
+            from ruster.core.rust_map import RustMap
+            exported=RustMap.load(directory/'ai.map')
+            assert len(exported.prefabs)==1 and not exported.paths and not exported.layers
+            for output in ('stdio.glb','stdio.prefab','ai.ruster','ai.map'):
+                assert (directory/output).stat().st_size>0
+            for test_token,kind,values,expected_error in [('wrong-token','get_scene_info',{},'authentication failed'),(token,'execute_code',{'code':'raise Exception("must not execute")'},'Unsupported')]:
                 client=BlenderConnection('127.0.0.1',port,test_token)
                 try:
                     try:client.send_command(kind,values)
-                    except Exception:pass
+                    except Exception as error:assert expected_error in str(error),str(error)
                     else:raise AssertionError('Unsafe/unauthenticated command succeeded')
                 finally:client.disconnect()
             (directory/'ready.json').write_text(json.dumps({'object':name}))

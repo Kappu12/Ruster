@@ -18,6 +18,11 @@ import tarfile
 import urllib.request
 import zipfile
 
+if __package__:
+    from .native_checks import run_suite
+else:
+    from native_checks import run_suite
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -121,12 +126,8 @@ def main():
     if system == 'Windows':
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller==6.16.0'], check=True)
         print('Runtime identity:',brand_windows_runtime(executable,output/'ruster/branding/ruster.ico'),flush=True)
-    # Fail packaging if the exact distribution cannot register and round-trip a scene.
-    for test in ('blender_prefab_product.py','blender_protection.py','blender_ui.py','blender_mcp.py',
-                 'blender_studio.py','blender_catalog.py','blender_placeholders.py','blender_prefab_transforms.py',
-                 'blender_construction.py'):
-        subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
-                        '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
+    # Exercise the exact distribution with the same prefab contract as CI.
+    run_suite(executable, app_root=output)
     python=next(p for p in sorted((output/'runtime').glob('*/python/bin/python*'))
         if p.is_file() and '-config' not in p.name and (system!='Windows' or p.name=='python.exe'))
     subprocess.run([str(python),str(ROOT/'tests/mcp_stdio_smoke.py'),str(output)],check=True)

@@ -36,14 +36,10 @@ mouse_x = mouse_y = 0
 
 
 def verify_branding():
-    """Read native handles and preview registrations in this disposable process."""
-    import ctypes
-    from ctypes import wintypes as w
+    """Check shared previews everywhere, plus Windows-native identity on Windows."""
     from types import SimpleNamespace
     from ruster import branding, __version__
-    assert sys.platform == 'win32'
-    branding.refresh_windows()
-    assert len(branding._handles) == 2 and all(branding._handles)
+    assert bpy.app.version[:2] == (5, 2), 'Run welcome checks against the pinned Blender 5.2 runtime'
     previews = {name: branding._previews[name].icon_id
                 for name in ('black', 'white', 'welcome-black', 'welcome-white')}
     assert all(previews.values()) and len(set(previews.values())) == 4
@@ -55,6 +51,20 @@ def verify_branding():
                            'welcome':branding.icon_id(fake_context, welcome=True)}
         assert variants[theme]['icon'] == previews[color]
         assert variants[theme]['welcome'] == previews['welcome-' + color]
+    evidence={'pid':os.getpid(),'version':__version__,'platform':sys.platform,
+              'previews':previews,'theme_variants':variants,'windows':[]}
+    print('RUSTER_BRANDING_PREVIEWS_OK '+json.dumps(evidence),flush=True)
+    if sys.platform != 'win32':
+        # HICON, WM_GETICON and taskbar AppID are Windows APIs. Linux still
+        # exercises the same branded native popup, theme variants and clicks.
+        evidence['native_identity_skipped']='Windows-native handles are not available on this platform'
+        if destination := os.environ.get('RUSTER_BRANDING_EVIDENCE'):
+            Path(destination).write_text(json.dumps(evidence,indent=2),encoding='utf8')
+        return
+    import ctypes
+    from ctypes import wintypes as w
+    branding.refresh_windows()
+    assert len(branding._handles) == 2 and all(branding._handles)
     user = ctypes.WinDLL('user32', use_last_error=True)
     user.IsWindow.argtypes=[w.HWND];user.IsWindow.restype=w.BOOL
     user.GetWindowThreadProcessId.argtypes=[w.HWND,ctypes.POINTER(w.DWORD)]
@@ -71,7 +81,7 @@ def verify_branding():
         assert 'Ruster' in title.value and __version__ in title.value
         windows.append({'hwnd':int(hwnd),'title':title.value,'small_icon':int(small),'big_icon':int(big)})
     assert windows, 'No native Ruster window was verified'
-    evidence={'pid':os.getpid(),'version':__version__,'windows':windows,'previews':previews,'theme_variants':variants}
+    evidence['windows']=windows
     if destination := os.environ.get('RUSTER_BRANDING_EVIDENCE'):
         Path(destination).write_text(json.dumps(evidence,indent=2),encoding='utf8')
     print('RUSTER_NATIVE_BRANDING_OK '+json.dumps(evidence),flush=True)

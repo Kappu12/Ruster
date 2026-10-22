@@ -1,4 +1,4 @@
-"""Exercise the real bootstrap, native splash and Scene tabs on a desktop."""
+"""Exercise bootstrap, prefab startup, native menus and Preferences on a desktop."""
 import os
 from pathlib import Path
 import runpy
@@ -26,10 +26,14 @@ try:
     if '--' in sys.argv:sys.argv=sys.argv[:sys.argv.index('--')]
     runpy.run_path(str(distribution / 'bootstrap.py'))
 finally:sys.argv=original_argv
-from ruster import app, ui, studio
+from ruster import app, ui, studio, preferences
 from tests.fixtures import sample_world
 
-state = {'stage': 0, 'splash': False, 'start': False, 'scene': False}
+assert bpy.app.version[:2] == (5, 2), 'Run startup checks against the pinned Blender 5.2 runtime'
+# This is metadata/UI coverage. Importing the fixture must not launch asset work.
+app.request_missing_visuals = lambda _objects: None
+state = {'stage': 0, 'welcome': False, 'start': False, 'scene': False,
+         'preferences': set()}
 
 
 def checked_draw(original, key):
@@ -43,12 +47,30 @@ def checked_draw(original, key):
     return draw
 
 
-bpy.types.WM_MT_splash.draw = checked_draw(bpy.types.WM_MT_splash.draw, 'splash')
-bpy.types.WM_MT_splash_quick_setup.draw = checked_draw(bpy.types.WM_MT_splash_quick_setup.draw, 'splash')
+ui.RUSTER_PT_welcome.draw = checked_draw(ui.RUSTER_PT_welcome.draw, 'welcome')
 ui.RUSTER_PT_start.draw = checked_draw(ui.RUSTER_PT_start.draw, 'start')
 bpy.types.SCENE_PT_scene.draw = checked_draw(bpy.types.SCENE_PT_scene.draw, 'scene')
 studio.RUSTER_MT_add.draw=checked_draw(studio.RUSTER_MT_add.draw,'add')
 bpy.types.VIEW3D_PT_tools_active.draw=checked_draw(bpy.types.VIEW3D_PT_tools_active.draw,'toolbar')
+for cls in (preferences.RUSTER_PT_preferences_assets, preferences.RUSTER_PT_preferences_mcp):
+    def checked_preferences(original, section):
+        def draw(self, context, layout):
+            try:
+                original(self, context, layout)
+                state['preferences'].add(section)
+            except Exception:
+                traceback.print_exc()
+                os._exit(1)
+        return draw
+    cls.draw_centered = checked_preferences(cls.draw_centered, cls.section)
+
+
+def prefab_workspace(window):
+    assert window.scene.ruster.mode == 'PREFAB'
+    assert not ui.is_map(bpy.context)
+    assert not window.scene.ruster.source_map and window.scene.ruster.terrain_state is None
+    assert not any(obj.get('ruster_kind') in {'TERRAIN', 'WATER', 'PATH', 'PATH_PREVIEW'}
+                   for obj in window.scene.objects)
 
 
 def step():
@@ -56,9 +78,11 @@ def step():
         window = bpy.context.window_manager.windows[0]
         with bpy.context.temp_override(window=window):
             stage = state['stage']
-            print('Startup/Scene regression stage', stage, flush=True)
+            print('Prefab startup regression stage', stage, flush=True)
             if stage == 0:
-                assert state['splash'], 'Native Ruster splash did not draw'
+                assert state['welcome'], 'Native Ruster welcome panel did not draw'
+                prefab_workspace(window)
+                assert not window.scene.objects, 'Startup did not create an empty prefab composition'
                 window.event_simulate(type='ESC', value='PRESS')
             elif stage == 1:
                 if any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas):
@@ -69,7 +93,8 @@ def step():
                 area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
                 region = next(r for r in area.regions if r.type == 'UI')
                 assert area.spaces.active.show_region_ui and region.active_panel_category == 'Ruster'
-                assert window.scene.ruster.mode=='PREFAB' and not list(window.scene.objects)
+                prefab_workspace(window)
+                assert not window.scene.objects
                 assert area.spaces.active.show_region_toolbar
                 assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
                 area.spaces.active.show_region_toolbar=True
@@ -82,7 +107,9 @@ def step():
                 path.write_bytes(sample_world().write())
                 app.open_path(path)
             elif stage==3:
-                assert ui.is_map(bpy.context)
+                prefab_workspace(window)
+                assert len(app.scene.prefab_roots()) == 2
+                assert len(window.scene.objects) == 2, '.map opening created objects other than prefab placements'
                 if bpy.app.timers.is_registered(ui.close_map_timeline):bpy.app.timers.unregister(ui.close_map_timeline)
                 props=next(a for a in window.screen.areas if a.type=='OUTLINER')
                 props.type='PROPERTIES';props.spaces.active.context='SCENE'
@@ -95,13 +122,36 @@ def step():
                 next(a for a in window.screen.areas if a.type=='PROPERTIES').type='OUTLINER'
                 bpy.ops.ruster.new('EXEC_DEFAULT')
             elif stage==10:
-                assert window.scene.ruster.mode=='PREFAB' and not list(window.scene.objects)
+                prefab_workspace(window)
+                assert not window.scene.objects
                 assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
+                assert not state['scene'], 'Unrelated native Scene panels leaked into the prefab editor'
+                labels = {item[0]:item[1] for item in preferences.SECTIONS if item}
+                assert labels['RUSTER_ASSETS'] == 'Assets' and labels['RUSTER_MCP'] == 'MCP'
+                bpy.ops.ruster.preferences('EXEC_DEFAULT', section='RUSTER_ASSETS')
+            elif stage==11:
+                assert 'RUSTER_ASSETS' in state['preferences'], 'Assets preferences did not draw'
+                bpy.ops.ruster.preferences('EXEC_DEFAULT', section='RUSTER_MCP')
+            elif stage==12:
+                assert 'RUSTER_MCP' in state['preferences'], 'MCP preferences did not draw'
+                bpy.ops.ruster.preferences('EXEC_DEFAULT', section='INTERFACE')
+                assert bpy.context.preferences.active_section == 'INTERFACE'
+            elif stage==13:
+                bpy.ops.ruster.preferences('EXEC_DEFAULT', section='THEMES')
+                assert bpy.context.preferences.active_section == 'THEMES'
+            elif stage==14:
+                preference_windows = [candidate for candidate in bpy.context.window_manager.windows
+                    if candidate != window and any(area.type == 'PREFERENCES' for area in candidate.screen.areas)]
+                assert preference_windows, 'Preferences did not open a native window'
+                for candidate in preference_windows:
+                    with bpy.context.temp_override(window=candidate):bpy.ops.wm.window_close()
             else:
+                assert len(bpy.context.window_manager.windows) == 1
+                assert app._job is None and not app._visual_queue, 'Startup UI test launched asset work'
                 import ruster
                 ruster.unregister()
                 temporary.cleanup()
-                print('RUSTER_GUI_NATIVE_SPLASH_START_SCENE_TABS_OK', flush=True)
+                print('RUSTER_GUI_PREFAB_STARTUP_PREFERENCES_OK', flush=True)
                 bpy.ops.wm.quit_blender()
                 return None
             state['stage'] += 1
