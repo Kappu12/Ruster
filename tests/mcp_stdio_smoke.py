@@ -1,8 +1,9 @@
 """Check the actual packaged stdio entry point using its bundled SDK/Python."""
-import asyncio,json,os,sys,tempfile
+import asyncio,json,os,site,sys,tempfile
 from pathlib import Path
 root=Path(sys.argv[1]).resolve()
 sys.path.insert(0,str(root/'python_modules'))
+site.addsitedir(str(root/'python_modules'))
 from mcp import ClientSession,StdioServerParameters
 from mcp.client.stdio import stdio_client
 
