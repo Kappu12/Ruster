@@ -7,6 +7,9 @@ ASSETS=Path(__file__).with_name('branding')
 _previews=None
 _handles=[]
 _windows={}
+_window_properties={}
+_property_types=None
+APP_ID='Ruster.PrefabStudio'
 
 
 def configure():
@@ -17,7 +20,118 @@ def configure():
         shell=ctypes.WinDLL('shell32')
         shell.SetCurrentProcessExplicitAppUserModelID.argtypes=[ctypes.c_wchar_p]
         shell.SetCurrentProcessExplicitAppUserModelID.restype=ctypes.c_long
-        shell.SetCurrentProcessExplicitAppUserModelID('Ruster.PrefabStudio')
+        shell.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+
+
+def relaunch_properties():
+    """Taskbar identity points at the Ruster launcher, never a bare engine."""
+    import subprocess
+    root=ASSETS.parent.parent
+    launcher=root/'Ruster.exe'
+    if launcher.is_file():command=subprocess.list2cmdline([str(launcher)])
+    else:
+        # Development checkouts have no frozen launcher. Bootstrap the same
+        # application with this Blender, without replaying its current file.
+        import bpy
+        command=subprocess.list2cmdline([bpy.app.binary_path,'--factory-startup','--disable-autoexec',
+                                        '--python',str(root/'bootstrap.py')])
+    return {2:command,3:str(ASSETS/'ruster.ico')+',0',4:'Ruster Prefab Studio',5:APP_ID}
+
+
+def _property_store(hwnd):
+    """Small ctypes IPropertyStore wrapper; no COM framework/runtime dependency."""
+    global _property_types
+    import ctypes
+    from ctypes import wintypes as w
+    import uuid
+    if _property_types is None:
+        class GUID(ctypes.Structure):
+            _fields_=[('bytes',ctypes.c_ubyte*16)]
+        class KEY(ctypes.Structure):
+            _fields_=[('fmtid',GUID),('pid',w.DWORD)]
+        class VALUE(ctypes.Union):
+            _fields_=[('pointer',ctypes.c_void_p),('storage',ctypes.c_ubyte*16)]
+        class VARIANT(ctypes.Structure):
+            _anonymous_=('value',)
+            _fields_=[('vt',ctypes.c_ushort),('reserved',ctypes.c_ushort*3),('value',VALUE)]
+        _property_types=(GUID,KEY,VARIANT)
+    GUID,KEY,VARIANT=_property_types
+    def guid(value):return GUID((ctypes.c_ubyte*16).from_buffer_copy(uuid.UUID(value).bytes_le))
+    fmtid=guid('9f4c2855-9f79-4b39-a8d0-e1d42de1d5f3')
+    iid=guid('886d8eeb-8cf2-4446-8d02-cdba1dbdcf99')
+    shell=ctypes.WinDLL('shell32');ole=ctypes.WinDLL('ole32')
+    shell.SHGetPropertyStoreForWindow.argtypes=[w.HWND,ctypes.POINTER(GUID),ctypes.POINTER(ctypes.c_void_p)]
+    shell.SHGetPropertyStoreForWindow.restype=ctypes.c_long
+    ole.PropVariantClear.argtypes=[ctypes.POINTER(VARIANT)];ole.PropVariantClear.restype=ctypes.c_long
+    pointer=ctypes.c_void_p()
+    result=shell.SHGetPropertyStoreForWindow(hwnd,ctypes.byref(iid),ctypes.byref(pointer))
+    if result<0:raise OSError(result,'Could not access native window identity')
+    table=ctypes.cast(pointer,ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    release=ctypes.WINFUNCTYPE(w.ULONG,ctypes.c_void_p)(table[2])
+    get=ctypes.WINFUNCTYPE(ctypes.c_long,ctypes.c_void_p,ctypes.POINTER(KEY),ctypes.POINTER(VARIANT))(table[5])
+    set_=ctypes.WINFUNCTYPE(ctypes.c_long,ctypes.c_void_p,ctypes.POINTER(KEY),ctypes.POINTER(VARIANT))(table[6])
+    class Store:
+        def get(self,pid):
+            value=VARIANT();result=get(pointer,ctypes.byref(KEY(fmtid,pid)),ctypes.byref(value))
+            if result<0:raise OSError(result,'Could not read native window identity')
+            return value
+        def set(self,pid,value):
+            result=set_(pointer,ctypes.byref(KEY(fmtid,pid)),ctypes.byref(value))
+            if result<0:raise OSError(result,'Could not write native window identity')
+        def string(self,pid,text):
+            buffer=ctypes.create_unicode_buffer(text);value=VARIANT();value.vt=31
+            value.pointer=ctypes.cast(buffer,ctypes.c_void_p);self.set(pid,value)
+        def clear(self,value):ole.PropVariantClear(ctypes.byref(value))
+        def close(self):release(pointer)
+    return Store()
+
+
+def window_properties(hwnd):
+    """Read back the taskbar identity for focused native diagnostics."""
+    import ctypes
+    store=_property_store(hwnd)
+    try:
+        result={}
+        for pid in (2,3,4,5):
+            value=store.get(pid)
+            try:result[pid]=ctypes.wstring_at(value.pointer) if value.vt==31 and value.pointer else None
+            finally:store.clear(value)
+        return result
+    finally:store.close()
+
+
+def _brand_window_properties(hwnd):
+    if hwnd in _window_properties:return
+    store=_property_store(hwnd);original={}
+    try:
+        wanted=relaunch_properties()
+        for pid in wanted:original[pid]=store.get(pid)
+        # Relaunch properties must precede AppID so Explorer groups/pins the
+        # host window using the complete Ruster identity from its first use.
+        for pid,value in wanted.items():store.string(pid,value)
+        _window_properties[hwnd]=original
+    except Exception:
+        for pid,value in original.items():
+            try:store.set(pid,value)
+            finally:store.clear(value)
+        raise
+    finally:store.close()
+
+
+def _restore_window_properties(hwnd,alive=True):
+    import ctypes
+    original=_window_properties.pop(hwnd,{})
+    if not original:return
+    store=None
+    try:
+        if alive:store=_property_store(hwnd)
+        if store:
+            for pid,value in original.items():store.set(pid,value)
+    finally:
+        ole=ctypes.WinDLL('ole32');variant_type=_property_types[2]
+        ole.PropVariantClear.argtypes=[ctypes.POINTER(variant_type)]
+        for value in original.values():ole.PropVariantClear(ctypes.byref(value))
+        if store:store.close()
 
 
 def icon_id(context=None,*,welcome=False):
@@ -66,6 +180,7 @@ def refresh_windows():
         if process.value!=os.getpid():return True
         kind=ctypes.create_unicode_buffer(128);user.GetClassNameW(hwnd,kind,len(kind))
         if kind.value!='GHOST_WindowClass':return True
+        _brand_window_properties(hwnd)
         if hwnd not in _windows:
             _windows[hwnd]=(user.SendMessageW(hwnd,0x80,0,_handles[0]),user.SendMessageW(hwnd,0x80,1,_handles[1]))
         caption=ctypes.create_unicode_buffer(512);user.GetWindowTextW(hwnd,caption,len(caption))
@@ -100,8 +215,13 @@ def unregister():
         from ctypes import wintypes as w
         user=ctypes.WinDLL('user32')
         user.SendMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM]
+        user.IsWindow.argtypes=[w.HWND];user.IsWindow.restype=w.BOOL
         for hwnd,(small,big) in _windows.items():
-            user.SendMessageW(hwnd,0x80,0,small);user.SendMessageW(hwnd,0x80,1,big)
+            alive=bool(user.IsWindow(hwnd))
+            try:_restore_window_properties(hwnd,alive)
+            finally:
+                if alive:
+                    user.SendMessageW(hwnd,0x80,0,small);user.SendMessageW(hwnd,0x80,1,big)
         user.DestroyIcon.argtypes=[w.HICON]
         for handle in _handles:user.DestroyIcon(handle)
     _windows.clear();_handles.clear()

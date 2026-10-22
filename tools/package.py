@@ -31,6 +31,45 @@ def fetch(url, target, digest):
         raise ValueError('Blender archive SHA256 verification failed')
 
 
+def brand_windows_runtime(executable, icon):
+    """Replace every executable icon group without changing engine code/version.
+
+    PyInstaller is a build-time dependency only. Updating every original group
+    also covers Blender's native class-icon resource, not just Explorer's first
+    icon. All non-icon PE resources, including version/licensing, are retained.
+    Call this on a staged executable, never the user's running engine.
+    """
+    from PyInstaller.compat import win32api
+    from PyInstaller.utils.win32.icon import IconFile
+    executable,icon=Path(executable).resolve(),Path(icon).resolve()
+    source=IconFile(str(icon))
+    if source.header.idType!=1 or not 1<=len(source.images)<=256 or any(
+            len(image)!=entry.dwBytesInRes or not image for image,entry in zip(source.images,source.entries)):
+        raise ValueError('Invalid Ruster ICO resource')
+    module=win32api.LoadLibraryEx(str(executable),0,2)
+    try:
+        try:groups=win32api.EnumResourceNames(module,14)
+        except OSError:groups=[]
+        targets=[(name,language) for name in groups for language in win32api.EnumResourceLanguages(module,14,name)]
+        try:existing=win32api.EnumResourceNames(module,3)
+        except OSError:existing=[]
+        first=max((name for name in existing if isinstance(name,int)),default=0)+1
+    finally:win32api.FreeLibrary(module)
+    if first+len(source.images)>65536:raise ValueError('Executable icon resource IDs are exhausted')
+    if not targets:targets=[(1,0)]
+    languages={language for _name,language in targets}
+    group=source.grp_icon_dir()+source.grp_icondir_entries(first)
+    handle=win32api.BeginUpdateResource(str(executable),False)
+    try:
+        for language in languages:
+            for index,image in enumerate(source.images,first):win32api.UpdateResource(handle,3,index,image,language)
+        for name,language in targets:win32api.UpdateResource(handle,14,name,group,language)
+    except Exception:
+        win32api.EndUpdateResource(handle,True);raise
+    else:win32api.EndUpdateResource(handle,False)
+    return {'executable':str(executable),'icon':str(icon),'icon_groups':len(targets),'images':len(source.images)}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--archive', action='store_true', help='Also create a distributable ZIP')
@@ -79,6 +118,9 @@ def main():
                     '--target', str(output/'python_modules'), '-r', str(ROOT/'requirements-assets.txt'),
                     '-r',str(ROOT/'requirements-mcp.txt')], check=True)
     executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
+    if system == 'Windows':
+        subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller==6.16.0'], check=True)
+        print('Runtime identity:',brand_windows_runtime(executable,output/'ruster/branding/ruster.ico'),flush=True)
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
     for test in ('blender_prefab_product.py','blender_protection.py','blender_ui.py','blender_mcp.py',
                  'blender_studio.py','blender_catalog.py','blender_placeholders.py','blender_prefab_transforms.py'):
@@ -88,7 +130,6 @@ def main():
         if p.is_file() and '-config' not in p.name and (system!='Windows' or p.name=='python.exe'))
     subprocess.run([str(python),str(ROOT/'tests/mcp_stdio_smoke.py'),str(output)],check=True)
     if system == 'Windows':
-        subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller==6.16.0'], check=True)
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',
                         '--name', 'Ruster', '--distpath', str(output),
                         '--icon',str(ROOT/'ruster/branding/ruster.ico'),
