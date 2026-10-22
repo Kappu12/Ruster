@@ -63,7 +63,7 @@ def run():
                 assert bpy.ops.ruster.setup('EXEC_DEFAULT')=={'FINISHED'}
                 assert jobs==['index']
                 from ruster.core import settings
-                assert settings.load()['rust_install']==str(game)
+                assert settings.load()['rust_install']==str(game.resolve())
             finally:app.start_job=previous
             for name in ui_style.ACTIONS:
                 group,operator=name.split('.')
