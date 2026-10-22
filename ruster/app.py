@@ -234,7 +234,6 @@ def load_visuals():
                 loaded=scene.attach_visual(obj,force=True)
                 if loaded and not obj.get('ruster_marker'):
                     obj['ruster_model_status']='Model loaded'
-                    if 'ruster_model_error' in obj:del obj['ruster_model_error']
                 elif not loaded:
                     obj['ruster_model_status']='Model unavailable — retry loading'
             except Exception as error:

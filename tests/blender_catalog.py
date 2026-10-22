@@ -42,6 +42,13 @@ def run():
         assert roots[0]['ruster_model_status']=='Model unavailable'
         assert roots[0]['ruster_model_error']=='Missing source mesh'
         assert not roots[0].get('ruster_visual')
+        # Partial conversion warnings still matter when the remaining mesh links.
+        native_attach=scene.attach_visual
+        scene.attach_visual=lambda *args,**kwargs:True
+        try:
+            app.load_visuals()
+            assert roots[0]['ruster_model_error']=='Missing source mesh'
+        finally:scene.attach_visual=native_attach
         app._pending_asset_ids.clear()
         assert app.request_assets(range(101)) is False
         class ActiveJob:
