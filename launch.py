@@ -51,8 +51,8 @@ def main():
             command.insert(1, '--background')
         if args.project:
             path = Path(args.project).expanduser().resolve()
-            if path.suffix.lower() not in ('.map', '.ruster') or not path.is_file():
-                parser.error('Choose an existing .map or .ruster file')
+            if path.suffix.lower() not in ('.map', '.prefab', '.ruster') or not path.is_file():
+                parser.error('Choose an existing .map, .prefab or .ruster file')
             command += ['--', str(path)]
         log_path = user_root() / 'logs' / 'startup.log'
         log_path.parent.mkdir(parents=True, exist_ok=True)

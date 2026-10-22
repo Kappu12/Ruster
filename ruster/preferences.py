@@ -13,7 +13,7 @@ _refreshed=[]
 _original_navigation=None
 _owner=object()
 NATIVE_ITEMS=tuple((i.identifier,i.name,i.description,i.icon,i.value) for i in bpy.types.Preferences.bl_rna.properties['active_section'].enum_items
-    if i.identifier!='EXPERIMENTAL' or bpy.app.version_cycle=='alpha')
+    if i.identifier in {'INTERFACE','THEMES','VIEWPORT','NAVIGATION','INPUT','KEYMAP','SYSTEM','SAVE_LOAD'})
 NATIVE_IDS={item[0] for item in NATIVE_ITEMS}
 SECTIONS=(*NATIVE_ITEMS,None,('RUSTER_ASSETS','Rust Assets','Local Rust installation and assets','NONE',100),('RUSTER_MCP','Rust MCP','AI editor connection','NONE',101))
 

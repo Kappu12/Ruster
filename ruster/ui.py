@@ -25,7 +25,7 @@ class MapPanel:
 
 
 class RUSTER_PT_start(bpy.types.Panel):
-    bl_label='Ruster'
+    bl_label='Prefab Studio'
     bl_space_type='VIEW_3D'
     bl_region_type='UI'
     bl_category='Ruster'
@@ -37,12 +37,13 @@ class RUSTER_PT_start(bpy.types.Panel):
         from . import __version__
         layout=self.layout
         layout.label(text=f'Ruster {__version__}',icon=I['world'])
-        wrapped(layout,context,'Open or create a Rust map to use terrain, prefabs, paths and map views.')
-        for op in ('ruster.new_map','ruster.generate_map','ruster.open','ruster.welcome'):
-            action(layout,op)
-        layout.separator()
-        wrapped(layout,context,context.scene.ruster.asset_status,icon='info')
-        action(layout,'ruster.preferences')
+        wrapped(layout,context,context.scene.ruster.title,icon='prefab')
+        layout.label(text=f'{len(scene.prefab_roots()):,} prefab placements')
+        layout.menu('RUSTER_MT_add',text='Add Rust Prefab · Shift+A',icon=I['prefab'])
+        action(layout,'ruster.prefab_import')
+        action(layout,'ruster.prefab_export')
+        action(layout,'ruster.model_export')
+        action(layout,'ruster.save')
 
 
 class RUSTER_MT_file(bpy.types.Menu):
@@ -54,6 +55,8 @@ class RUSTER_MT_file(bpy.types.Menu):
         action(layout,'ruster.save')
         action(layout,'ruster.save',text='Save Project As…',icon='save_as').save_as=True
         if is_map(context):action(layout,'ruster.export_map')
+        layout.separator()
+        for op in ('ruster.prefab_import','ruster.prefab_export','ruster.model_export'):action(layout,op)
         layout.separator()
         action(layout,'ruster.setup')
         layout.separator()
@@ -69,7 +72,7 @@ class RUSTER_MT_edit(bpy.types.Menu):
         action(layout,'ruster.duplicate');action(layout,'ruster.delete')
         layout.separator()
         action(layout,'ruster.group');action(layout,'ruster.ungroup')
-        action(layout,'ruster.surface_snap')
+        if is_map(context):action(layout,'ruster.surface_snap')
         layout.separator()
         action(layout,'ruster.preferences')
 
@@ -117,6 +120,8 @@ class RUSTER_PT_map(MapPanel,bpy.types.Panel):
 class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
     bl_label='Prefab Browser'
     icon='prefab'
+    @classmethod
+    def poll(cls,context):return True
     def draw(self,context):
         layout=self.layout;state=context.scene.ruster
         layout.prop(state,'query',text='',icon=I['search'])
@@ -151,7 +156,7 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
             row.operator('ruster.favorite',text='',icon=I['favorite_on' if uid in favorites else 'favorite_off'],emboss=False).uid=str(uid)
             body=row.row(align=True);body.enabled=bool(available)
             body.operator('ruster.place',text=path.rsplit('/',1)[-1].removesuffix('.prefab'),icon=I['prefab']).uid=str(uid)
-            body.operator('ruster.paint_asset',text='',icon=I['prefab_brush']).uid=str(uid)
+            if is_map(context):body.operator('ruster.paint_asset',text='',icon=I['prefab_brush']).uid=str(uid)
             row.operator('ruster.copy_prefab',text='',icon=I['duplicate']).uid=str(uid)
         if matches:
             row=layout.row(align=True)
@@ -166,6 +171,8 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
 class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
     bl_label='Placement'
     icon='prefab'
+    @classmethod
+    def poll(cls,context):return True
     def draw(self,context):
         layout=self.layout;obj=context.active_object
         if not obj or obj.get('ruster_kind') not in {'PREFAB','GROUP'}:
@@ -173,6 +180,8 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
         wrapped(layout,context,obj.name,icon='group' if obj.get('ruster_kind')=='GROUP' else 'prefab')
         if obj.get('ruster_kind')=='PREFAB':
             layout.label(text='Prefab ID: '+obj.get('ruster_uid','?'))
+            if obj.get('ruster_has_io'):
+                action(layout,'ruster.io_settings')
             from .protection import model_error
             if model_error(obj):
                 wrapped(layout,context,'Restore this prefab model before exporting.',icon='error')
@@ -186,13 +195,14 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
         fields.prop(obj,'scale')
         row=layout.row(align=True)
         action(row,'ruster.duplicate',text='Duplicate');action(row,'ruster.delete',text='Delete')
-        action(layout,'ruster.surface_snap')
+        if is_map(context):action(layout,'ruster.surface_snap')
         body=section(layout,'ruster_placement_more','Placement Tools','settings')
         if body is not None:
-            action(body,'ruster.select_same');action(body,'ruster.replace');action(body,'ruster.scatter')
+            action(body,'ruster.select_same');action(body,'ruster.replace')
+            if is_map(context):action(body,'ruster.scatter')
             row=body.row(align=True)
             action(row,'ruster.group',text='Group');action(row,'ruster.ungroup',text='Ungroup')
-            action(body,'ruster.assembly_import');action(body,'ruster.assembly_export')
+            action(body,'ruster.prefab_import');action(body,'ruster.prefab_export')
             action(body,'ruster.restore_models')
 
 
@@ -337,21 +347,20 @@ class RUSTER_PT_paths(MapPanel,bpy.types.Panel):
 def patch_draw(cls,replacement):
     original=cls.draw;_draws.append((cls,original))
     def draw(self,context):
-        if is_map(context):replacement(self,context)
-        else:
-            original(self,context)
-            if cls==bpy.types.TOPBAR_MT_editor_menus:self.layout.menu('RUSTER_MT_file',text='Ruster')
+        replacement(self,context)
     cls.draw=draw
 
 
 def menus(self,context):
-    for menu in ('RUSTER_MT_file','RUSTER_MT_edit','RUSTER_MT_map','RUSTER_MT_assets'):self.layout.menu(menu)
+    for menu in ('RUSTER_MT_file','RUSTER_MT_edit','RUSTER_MT_assets'):self.layout.menu(menu)
+    if is_map(context):self.layout.menu('RUSTER_MT_map')
 
 
 def view_header(self,context):
     layout=self.layout
     layout.menu('VIEW3D_MT_view',text='View')
     layout.menu('VIEW3D_MT_select_edit_curve' if context.mode=='EDIT_CURVE' else 'VIEW3D_MT_select_object',text='Select')
+    layout.menu('RUSTER_MT_add',text='Add Prefab')
     if context.mode=='EDIT_CURVE':
         layout.operator('object.mode_set',text='Finish Path',icon=I['finish_path']).mode='OBJECT'
     layout.separator()
@@ -382,6 +391,14 @@ def readonly_source_menu(self,context):
 def properties_header(self,context):self.layout.label(text='Rust Map',icon=I['world'])
 
 
+def outliner_header(self,context):
+    layout=self.layout
+    layout.label(text='Placements',icon=I['group'])
+    layout.separator_spacer()
+    layout.prop(context.space_data,'filter_text',text='',icon=I['search'])
+    layout.prop(context.space_data,'show_restrict_column_select',text='',icon=I['select'])
+
+
 def topbar(self,context):
     layout=self.layout
     if context.region.alignment=='RIGHT':
@@ -389,10 +406,11 @@ def topbar(self,context):
         layout.label(text=context.scene.ruster.title,icon=I['world'])
     else:
         bpy.types.TOPBAR_MT_editor_menus.draw_collapsible(context,layout)
-        layout.separator();layout.label(text='Rust Map',icon=I['world'])
-        row=layout.row(align=True)
-        row.operator('ruster.map_view',text='3D Map',depress=context.workspace.get('ruster_workspace')!='MAPS').view='3D'
-        row.operator('ruster.map_view',text='Maps',depress=context.workspace.get('ruster_workspace')=='MAPS').view='MAPS'
+        layout.separator();layout.label(text='Rust Map' if is_map(context) else 'Prefab Studio',icon=I['world'])
+        if is_map(context):
+            row=layout.row(align=True)
+            row.operator('ruster.map_view',text='3D Map',depress=context.workspace.get('ruster_workspace')!='MAPS').view='3D'
+            row.operator('ruster.map_view',text='Maps',depress=context.workspace.get('ruster_workspace')=='MAPS').view='MAPS'
 
 
 def close_map_timeline():
@@ -400,15 +418,16 @@ def close_map_timeline():
     if editing.stroke_active or painting.stroke_active:return .5
     # Joining areas rebuilds region state. Focus the sidebar on a later tick.
     for window in bpy.context.window_manager.windows:
-        if window.scene.ruster.mode!='MAP':continue
         for area in window.screen.areas:
-            if area.type=='DOPESHEET_EDITOR' and area.ui_type=='TIMELINE':
+            if area.type=='PROPERTIES' or (area.type=='DOPESHEET_EDITOR' and area.ui_type=='TIMELINE'):
                 with bpy.context.temp_override(window=window,area=area):bpy.ops.screen.area_close()
                 return .2
     retry=False
     for window in bpy.context.window_manager.windows:
         for area in list(window.screen.areas):
             if area.type=='VIEW_3D':
+                area.spaces.active.show_region_toolbar=False
+                area.spaces.active.show_region_ui=True
                 region=next((r for r in area.regions if r.type=='UI'),None)
                 if region and region.active_panel_category!='Ruster':
                     try:region.active_panel_category='Ruster';area.tag_redraw()
@@ -420,11 +439,16 @@ def close_map_timeline():
 def start_workspace():
     for window in bpy.context.window_manager.windows:
         with bpy.context.temp_override(window=window):
-            if not is_map(bpy.context):window.workspace.name='Ruster'
+            if not is_map(bpy.context):
+                window.workspace.name='Prefab Studio'
+                window.workspace['ruster_workspace']='PREFAB'
             for area in window.screen.areas:
                 with bpy.context.temp_override(area=area):
-                    if area.type=='VIEW_3D' and not area.spaces.active.show_region_ui:
+                    if area.type=='IMAGE_EDITOR' and not is_map(bpy.context):area.type='VIEW_3D'
+                    if area.type=='VIEW_3D':
                         area.spaces.active.show_region_ui=True
+                        area.spaces.active.show_region_toolbar=False
+                        area.spaces.active.show_gizmo=True
                     area.tag_redraw()
     if not bpy.app.background and not bpy.app.timers.is_registered(close_map_timeline):
         bpy.app.timers.register(close_map_timeline,first_interval=.1)
@@ -479,11 +503,13 @@ def register():
     for cls in (bpy.types.OUTLINER_MT_context_menu,bpy.types.OUTLINER_MT_object,bpy.types.OUTLINER_MT_collection):patch_draw(cls,context_menu)
     for cls in (bpy.types.OUTLINER_MT_id_data,bpy.types.OUTLINER_MT_liboverride,bpy.types.OUTLINER_MT_edit_datablocks):patch_draw(cls,readonly_source_menu)
     patch_draw(bpy.types.PROPERTIES_HT_header,properties_header)
+    patch_draw(bpy.types.OUTLINER_HT_header,outliner_header)
     panels=[]
     for name in dir(bpy.types):
         cls=getattr(bpy.types,name)
         if not isinstance(cls,type) or not issubclass(cls,bpy.types.Panel) or name.startswith('RUSTER_'):continue
-        if getattr(cls,'bl_space_type','')!='PROPERTIES':continue
+        if not (getattr(cls,'bl_space_type','')=='PROPERTIES' or
+                (getattr(cls,'bl_space_type','')=='VIEW_3D' and getattr(cls,'bl_region_type','')=='UI')):continue
         panels.append(cls)
     # Snapshot before changing parents, so inherited polls retain their originals.
     originals=[(cls,cls.__dict__.get('poll'),getattr(cls,'poll',None)) for cls in panels]
@@ -496,7 +522,7 @@ def register():
     for cls,own_poll,original in originals:
         _polls.append((cls,own_poll))
         def make_poll(original):
-            def poll(panel,context):return False if is_map(context) else (original(context) if original else True)
+            def poll(panel,context):return False
             return poll
         cls.poll=classmethod(make_poll(original))
     _refreshed_panels.extend(cls for cls in panels if cls in refresh)

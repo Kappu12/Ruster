@@ -39,7 +39,8 @@ def query_changed(state,context):
 
 
 class RUSTER_PG_project(bpy.types.PropertyGroup):
-    mode: EnumProperty(items=[('BLENDER', 'Blender', ''), ('MAP', 'Rust map', '')], default='BLENDER')
+    mode: EnumProperty(items=[('BLENDER', 'Legacy project', ''), ('MAP', 'Rust map', ''),
+                             ('PREFAB', 'Rust prefab', '')], default='PREFAB')
     title: StringProperty(default='Untitled')
     project_path: StringProperty(subtype='FILE_PATH')
     source_map: StringProperty(subtype='FILE_PATH')
@@ -275,34 +276,30 @@ class RUSTER_OT_welcome(bpy.types.Operator):
 
 class RUSTER_OT_new(bpy.types.Operator):
     bl_idname = 'ruster.new'
-    bl_label = 'New Project'
-    bl_description = 'Start with the normal Blender workspace'
+    bl_label = 'New Prefab'
+    bl_description = 'Start an empty Rust prefab composition'
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event, title='Create a new project?',
             message='Save your current project first. Unsaved changes will be discarded.')
 
     def execute(self, context):
-        # Reload the standard scene/workspaces, retaining the current preferences.
-        bpy.ops.wm.read_homefile(app_template='',use_factory_startup=True,use_splash=False)
-        context.preferences.filepaths.use_scripts_auto_execute = False
-        context.preferences.view.show_splash = False
-        # Python registrations persist across read_homefile.
-        context.scene.ruster.mode = 'BLENDER'
-        context.scene.ruster.title = 'Untitled'
-        context.scene.ruster.project_path = ''
-        from . import ui
-        # read_homefile invalidates the window context until the next event tick.
-        # Updating region visibility here can dereference a null workspace in C++.
-        if not bpy.app.background:
-            bpy.app.timers.register(ui.start_workspace, first_interval=.1)
+        from .studio import new_prefab
+        new_prefab()
         return {'FINISHED'}
 
 
 def open_path(path):
     global _pending_project
     path = Path(path).resolve()
-    if path.suffix.lower() == '.map':
+    if path.suffix.lower() == '.prefab':
+        from .studio import new_prefab, import_prefab
+        from .core.rustedit_prefab import RustEditPrefab
+        RustEditPrefab.load(path)  # Validate before replacing the current project.
+        new_prefab()
+        import_prefab(path)
+        bpy.context.scene.ruster.title = path.stem
+    elif path.suffix.lower() == '.map':
         scene.import_map(path)
         from . import ui
         ui.map_workspace()
@@ -327,8 +324,12 @@ def open_path(path):
             scene.restore_map_tools()
             from . import ui
             ui.map_workspace()
+        else:
+            state.mode = 'PREFAB'
+            from . import ui
+            if not bpy.app.background:bpy.app.timers.register(ui.start_workspace, first_interval=.1)
     else:
-        raise ValueError('Choose a Rust .map or Ruster .ruster file')
+        raise ValueError('Choose a Rust .map, RustEdit .prefab or Ruster .ruster file')
     # File import and post-load source relocation must be an undo baseline.
     # Otherwise the first brush undo can restore the old scene or a stale source.
     if bpy.context.preferences.edit.use_global_undo:
@@ -381,8 +382,8 @@ def recovery_tick():
 
 class RUSTER_OT_open(bpy.types.Operator, ImportHelper):
     bl_idname = 'ruster.open'
-    bl_label = 'Open Map or Project'
-    filter_glob: StringProperty(default='*.map;*.ruster', options={'HIDDEN'})
+    bl_label = 'Open Map, Prefab or Project'
+    filter_glob: StringProperty(default='*.map;*.prefab;*.ruster', options={'HIDDEN'})
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event, title='Open a map or project?',
@@ -514,9 +515,9 @@ class RUSTER_OT_catalog_page(bpy.types.Operator):
 
 class RUSTER_FH_project(bpy.types.FileHandler):
     bl_idname='RUSTER_FH_project'
-    bl_label='Ruster Map or Project'
+    bl_label='Ruster Map, Prefab or Project'
     bl_import_operator='ruster.open'
-    bl_file_extensions='.map;.ruster'
+    bl_file_extensions='.map;.prefab;.ruster'
     @classmethod
     def poll_drop(cls,context):return context.area is not None and context.area.type=='VIEW_3D'
 
@@ -615,6 +616,9 @@ def startup():
         with bpy.context.temp_override(window=windows[0]):
             return startup()
     from . import ui
+    if not _pending_project and bpy.context.scene.ruster.mode == 'PREFAB':
+        from .studio import new_prefab
+        new_prefab()
     ui.start_workspace()
     config = settings.load()
     try:
@@ -672,6 +676,8 @@ def register():
     ui.register()
     from . import preferences
     preferences.register()
+    from . import studio
+    studio.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
@@ -689,7 +695,8 @@ def register():
 
 def unregister():
     global _job,_job_log,_job_action,_job_cancelled
-    from . import ui,preferences
+    from . import ui,preferences,studio
+    studio.unregister()
     preferences.unregister()
     from . import generation
     generation.unregister()

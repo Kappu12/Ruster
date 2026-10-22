@@ -108,23 +108,20 @@ def run():
         with db:db.execute('INSERT INTO names VALUES(?,?)',(333333,'assets/test/unconverted.prefab'))
         db.close()
         from ruster import browser
-        assert any(item[0]=='assets/test' for item in browser.category_items(None,None))
-        bpy.context.scene.ruster.category='assets/test'
+        assert any(item[0]=='@OTHER' for item in browser.category_items(None,None))
+        bpy.context.scene.ruster.category='@OTHER'
         db=catalog.connect(scene.cache_dir())
         with db:db.execute('INSERT INTO names VALUES(?,?)',(333334,'assets/aaa/earlier-category.prefab'))
         db.close()
-        assert bpy.context.scene.ruster.category=='assets/test','Adding a category changed the active filter'
+        assert bpy.context.scene.ruster.category=='@OTHER','Adding a category changed the active filter'
         count=len(scene.prefab_roots())
         assert bpy.ops.ruster.place(uid='333333')=={'FINISHED'}
         assert len(scene.prefab_roots())==count+1 and not bpy.context.object.get('ruster_visual')
         assert 'Could not start asset loading' in bpy.context.scene.ruster.asset_status
-        # A normal Blender project retains ordinary editable custom meshes.
+        # New starts a Rust composition and retains Rust command routing.
         assert bpy.ops.ruster.new('EXEC_DEFAULT')=={'FINISHED'}
-        cube=bpy.data.objects['Cube'];placement.select([cube])
-        assert bpy.ops.object.mode_set(mode='EDIT')=={'FINISHED'}
-        assert bpy.ops.mesh.subdivide()=={'FINISHED'}
-        assert bpy.ops.object.mode_set(mode='OBJECT')=={'FINISHED'}
-        assert not bpy.ops.ruster.commands.poll()
+        assert not list(bpy.context.scene.objects)
+        assert bpy.ops.ruster.commands.poll()
         ruster.unregister()
     print('RUSTER_PREFAB_PROTECTION_OK',flush=True)
 

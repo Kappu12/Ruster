@@ -169,7 +169,8 @@ def dispatch(server,kind,p,bridge):
         finally:
             render.image_settings.file_format=old_format
             render.resolution_x,render.resolution_y,render.resolution_percentage=old_size
-    bridge.require_idle();bridge.require_map()
+    bridge.require_idle();bridge.require_editor()
+    if kind in {'snap_objects_to_terrain','create_path','update_path'}:bridge.require_map()
     if kind=='request_prefab_assets':
         ids=p['uids']
         if not isinstance(ids,list) or not 1<=len(ids)<=100:raise ValueError('Request 1–100 prefab IDs')

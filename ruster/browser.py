@@ -28,8 +28,9 @@ def category_items(_state,_context):
     key=(str(path),path.stat().st_mtime_ns if path.exists() else 0)
     if key!=_category_key:
         try:
-            items=[('ALL','All Categories','',0)]+[(prefix,f"{prefix.removeprefix('assets/')} ({count})",prefix,
-                1+(zlib.crc32(prefix.encode())%2147483646)) for prefix,count in catalog.categories(scene.cache_dir())]
+            from .core.asset_categories import GROUPS
+            items=[('ALL','All Categories','',0)]+[('@'+key,label,'',index+1)
+                for index,(key,label,_patterns) in enumerate(GROUPS)]
             if items!=_category_items:
                 _category_history.append(_category_items)  # RNA may retain callback string references.
                 _category_items=items

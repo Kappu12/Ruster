@@ -31,8 +31,13 @@ def filters(query='',category='',favorites=None,available_only=False):
     conditions=["n.path LIKE ? ESCAPE char(92)"]
     args=['%'+literal(query)+'%']
     if category:
-        conditions.append("n.path LIKE ? ESCAPE char(92)")
-        args.append(literal(category.rstrip('/')+'/')+'%')
+        from ruster.core.asset_categories import LABELS, sql_case
+        if category.startswith('@'):
+            if category[1:] not in LABELS:raise ValueError('Unknown Rust prefab category')
+            conditions.append(sql_case()+'=?');args.append(category[1:])
+        else:
+            conditions.append("n.path LIKE ? ESCAPE char(92)")
+            args.append(literal(category.rstrip('/')+'/')+'%')
     if favorites is not None:
         ids=list(favorites)
         if len(ids)>512:raise ValueError('A favorite palette supports at most 512 prefabs')

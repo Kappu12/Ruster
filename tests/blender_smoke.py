@@ -27,7 +27,7 @@ def run():
         os.environ['RUSTER_USER_DIR'] = str(directory/'user')
         ruster.register()
         assert hasattr(bpy.context.scene, 'ruster')
-        assert bpy.context.scene.ruster.mode == 'BLENDER'
+        assert bpy.context.scene.ruster.mode == 'PREFAB'
         assert 'Modeling' in bpy.data.workspaces
         source = directory/'source.map'
         source.write_bytes(sample_world().write())
@@ -94,12 +94,12 @@ def run():
         bpy.ops.mesh.primitive_cube_add()
         assert any('custom objects' in e for e in scene.validate()[0])
         assert bpy.ops.ruster.new('EXEC_DEFAULT') == {'FINISHED'}
-        assert bpy.context.scene.ruster.mode == 'BLENDER'
+        assert bpy.context.scene.ruster.mode == 'PREFAB'
         assert 'Modeling' in bpy.data.workspaces
         assert bpy.ops.ruster.save(filepath=str(directory/'blank.ruster')) == {'FINISHED'}
         app.open_path(directory/'blank.ruster')
-        assert bpy.context.scene.ruster.mode == 'BLENDER'
-        assert bpy.data.objects.get('Cube')
+        assert bpy.context.scene.ruster.mode == 'PREFAB'
+        assert not list(bpy.context.scene.objects)
         ruster.unregister()
         assert not hasattr(bpy.types.Scene,'ruster')
         ruster.register()

@@ -10,7 +10,8 @@ still need validation against an installed game and a live test server.
 | Area | Ruster support |
 |---|---|
 | Application | Separate Windows/Linux app package; isolated Blender configuration; native Blender styling and bundled icon pack; shared action labels, collapsible sections, distinct terrain/prefab toolbar icons; preserve dark/light theme on New Project |
-| Startup | Automatic validated Rust discovery from standard Steam paths, Windows registry, secondary libraries and manifests; manual fallback; open `.map` / `.ruster`, normal Blender projects, new Rust maps, recent files |
+| Startup | Blender 5.2; native splash; automatic validated Rust discovery; manual fallback; open `.map` / `.prefab` / `.ruster`, empty prefab compositions, new Rust maps, recent files |
+| Rust workspace | Rust menus and sidebar, viewport and placement hierarchy; hidden general Properties, timeline, modeling menus, workspace tabs and unrelated sidebar tabs; Shift+A broad categories with typed prefab search |
 | MCP | Optional built-in community Blender MCP adaptation; shared Blender Preferences section and native toggle, bundled stdio client adapter, 35 typed tools; complete paginated catalog discovery, cached model dimensions, atomic composition batches, groups, reusable assemblies, terrain samples, typed paths, viewport PNG feedback, asynchronous generation/status/cancel, two resource guides and two workflow prompts, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
 | Projects | Self-contained `.ruster`, atomic saves, source map retention, packed model previews, integrity checks |
 | Terrain | Full-resolution edits; independent adjustable viewport detail; height and slope masks |
@@ -33,6 +34,9 @@ still need validation against an installed game and a live test server.
 | Prefab browser | Indexed case-insensitive lookup; category, available-local and favorite filters; literal search; result/page counts; full-path/ID tooltips; copy-ID action; stale-page recovery |
 | Prefab paint | Continuous placement, single/favorite/selected-type palettes, random scale/rotation, alignment, origin spacing, slope and alpha-hole filters; stroke undo/cancel |
 | Prefab assemblies | Group/ungroup, group transforms, `.rusterprefab` import/export |
+| RustEdit prefabs | Current installed 1.2.19 serializer interoperability, native version-1 `.prefab` import/export, current checksum, byte-exact unchanged round trips, unknown-field retention, IO endpoint movement with identity/order checks; validated locally with 1,730-placement Maze |
+| IO settings | Edit existing imported card access, door effect, timer, frequency, turret, branch, counter, camera, elevator and phone settings; preserve unknown fields and connections |
+| Model export | GLB, glTF, FBX, OBJ, PLY, STL, USD/USDA/USDC, Alembic and Blender model library; actual exporter checks, temporary realized copies and cleanup, protected originals |
 | Placement tools | Terrain snap, surface alignment, seeded scatter, spacing/slope filters, select same type, replacement |
 | Paths | Create/edit road, river, rail and powerline polylines; extend/delete nodes with Blender curve tools |
 | Path settings | Width, padding, fades, offsets, flags, splat/topology masks; preserve unknown fields |
@@ -51,7 +55,7 @@ still need validation against an installed game and a live test server.
 - [ ] Confirm real current-game asset coverage: monuments, nested prefabs, foliage,
   skinned meshes, terrain materials, shaders and changing manifests.
 - [ ] Confirm exports in current Rust dedicated server and maintain real-map fixtures.
-- [ ] RustEdit `.prefab` compatibility, monument breaking/unpacking and monument
+- [ ] Remaining `.prefab` extension authoring and reference remapping, monument breaking/unpacking and monument
   terrain/splat/topology/biome stamps and placement masks.
 - [ ] Prefab thumbnails, palette presets and game-collider placement collision checks.
 - [ ] Clone follow/snap modes, ridge erosion, additional terrain processing and
@@ -63,7 +67,7 @@ still need validation against an installed game and a live test server.
 - [ ] Validate RustDedicated generation with current game builds; investigate a
   compatible standalone generation-only runtime. Selectable RustEdit-style passes,
   presets and customization of the existing world's generation pipeline are not implemented.
-- [ ] IO connection authoring, puzzle configuration and compatible per-entity data.
+- [ ] New IO connection authoring and complete puzzle configuration beyond imported scalar settings.
 - [ ] Loot profiles, vending profiles, NPC/vehicle spawners and spawn settings.
 - [ ] Cargo ship ocean paths, Bradley APC patrols and server extension integration.
 - [ ] Resolve extension references correctly when linked entities are cloned,
@@ -74,9 +78,11 @@ still need validation against an installed game and a live test server.
 
 ## Reference inventory
 
-The inventory is based on the editor's own documentation and public SDK, checked
-2026-10-22. RustEdit also has undocumented and version-specific behavior, so this
-list must grow when comparison testing finds gaps.
+Current custom-prefab contracts are verified by inspecting the user's installed
+RustEdit 1.2.19 assemblies and invoking its serializer locally, rather than relying
+on the obsolete 2019 repository. The wider inventory also uses the editor's own
+documentation and public SDK, checked 2026-10-22. Comparison testing must continue
+for undocumented and version-specific behavior.
 
 - https://github.com/k1lly0u/RustEdit_Docs
 - https://rustedit.rusthq.com/terrain/height-tools

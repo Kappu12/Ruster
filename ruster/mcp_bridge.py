@@ -37,6 +37,10 @@ def require_map():
     if bpy.context.scene.ruster.mode!='MAP':raise ValueError('Open or create a Rust map first')
 
 
+def require_editor():
+    if bpy.context.scene.ruster.mode not in {'MAP','PREFAB'}:raise ValueError('Open a Rust map or prefab composition first')
+
+
 def require_idle():
     if bpy.context.window_manager.is_interface_locked or editing.stroke_active or painting.stroke_active or bpy.context.mode!='OBJECT':
         raise ValueError('Finish the active brush, path edit or operation before MCP changes the map')
@@ -185,7 +189,8 @@ class RusterMCPServer(BlenderMCPServer):
             result=getattr(bpy.ops.ed,kind)()
             if result!={'FINISHED'}:raise ValueError('Nothing to '+kind)
             return {'finished':True}
-        require_map()
+        if kind=='paint_terrain':require_map()
+        else:require_editor()
         if kind=='place_prefab':obj=place_prefab(**params);result=object_info(self,obj.name)
         elif kind=='transform_object':
             values=dict(params);obj=map_object(values.pop('name'))

@@ -58,23 +58,31 @@ def step():
                 area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
                 region = next(r for r in area.regions if r.type == 'UI')
                 assert area.spaces.active.show_region_ui and region.active_panel_category == 'Ruster'
-                props = next(a for a in window.screen.areas if a.type == 'PROPERTIES')
-                props.spaces.active.context = 'SCENE'
+                assert window.scene.ruster.mode=='PREFAB' and not list(window.scene.objects)
+                assert not area.spaces.active.show_region_toolbar
+                assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
+                with bpy.context.temp_override(area=area):bpy.ops.wm.call_menu(name='RUSTER_MT_add')
             elif stage == 2:
-                assert state['scene'], 'Scene properties did not draw'
+                window.event_simulate(type='ESC',value='PRESS')
                 path = Path(temporary.name) / 'test.map'
                 path.write_bytes(sample_world().write())
                 app.open_path(path)
-            elif 3 <= stage <= 12:
-                # Click through every native Properties context, including Scene,
-                # before and after returning from map mode. This catches stale RNA
-                # panel pointers that headless registration tests cannot exercise.
-                if stage == 8:
-                    bpy.ops.ruster.new('EXEC_DEFAULT')
-                    state['stage'] += 1
-                    return .6  # The previous window/screen references are invalid.
-                props = next(a for a in window.screen.areas if a.type == 'PROPERTIES')
-                props.spaces.active.context = ('SCENE', 'WORLD', 'VIEW_LAYER', 'RENDER', 'OUTPUT')[(stage - 3) % 5]
+            elif stage==3:
+                assert ui.is_map(bpy.context)
+                if bpy.app.timers.is_registered(ui.close_map_timeline):bpy.app.timers.unregister(ui.close_map_timeline)
+                props=next(a for a in window.screen.areas if a.type=='OUTLINER')
+                props.type='PROPERTIES';props.spaces.active.context='SCENE'
+            elif 4 <= stage <= 8:
+                # Explicitly recreate Properties to regression-test Scene context
+                # callbacks even though the pared-down workspace removes it.
+                props=next(a for a in window.screen.areas if a.type=='PROPERTIES')
+                props.spaces.active.context=('SCENE','WORLD','VIEW_LAYER','RENDER','OUTPUT')[stage-4]
+            elif stage==9:
+                next(a for a in window.screen.areas if a.type=='PROPERTIES').type='OUTLINER'
+                bpy.ops.ruster.new('EXEC_DEFAULT')
+            elif stage==10:
+                assert window.scene.ruster.mode=='PREFAB' and not list(window.scene.objects)
+                assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
             else:
                 import ruster
                 ruster.unregister()

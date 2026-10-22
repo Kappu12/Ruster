@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: 0.8 development preview, with local MCP control, automatic Rust discovery and protected map editing.**
+**Status: 0.8 development preview on Blender 5.2, with native RustEdit prefab interchange.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -40,16 +40,19 @@ sidebar keeps the start controls available after dismissing the splash.
 
 The start screen offers:
 
-- **Open Map or Project** — open a Rust `.map` in 3D, or resume a `.ruster` project.
-- **New Project** — start with the standard Blender scene, workspaces and tools.
+- **Open Map, Prefab or Project** — open `.map`, RustEdit `.prefab`, or `.ruster`.
+- **New Prefab** — start an empty Rust composition with only placement tools.
 
-Map mode switches to a Rust-focused workspace with a prefab browser, placement
-properties, local asset status and map validation. It keeps Blender's standard
-styling. Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
+The workspace exposes Rust actions, the viewport, placement hierarchy and Ruster
+sidebar. General Blender workspaces, Properties, animation timeline, modeling
+menus and unrelated sidebar tabs are hidden. Map mode adds terrain and path tools.
+Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
+**Shift+A** opens broad Rust prefab categories; choose a category and type to
+search. It reads catalog names without loading models. Models load on demand.
 Menus, dialogs, section headers and tools share Blender's bundled icon pack.
 Terrain and prefab paint have distinct toolbar icons; advanced options live in
 native collapsible sections. Ruster follows the selected dark/light theme and UI
-scale, and New Project preserves those preferences. Rust installation and MCP
+scale, and New Prefab preserves those preferences. Rust installation and MCP
 settings live in the same Preferences window under **Rust Assets** and **Rust MCP**
 in the left-hand navigation; there is no separate Ruster settings dialog.
 The prefab browser places objects at the 3D cursor. Its duplicate/delete actions
@@ -59,7 +62,18 @@ Save your work with **Ruster → Save Project** (`Ctrl+S`). A `.ruster` file con
 the Blender scene, packed preview assets and the original map data. It can be
 reopened without the original `.map` file. **Export Rust Map** writes prefab
 placements, terrain layers and paths to a separate `.map`; validation blocks unsupported custom meshes.
-New Blender projects can contain arbitrary geometry and save it in `.ruster`.
+**Export RustEdit Prefab** writes the current native `.prefab` format, independently
+verified against installed RustEdit 1.2.19. Unchanged imports retain every original
+byte. IO positions and connection targets follow placement movements when their
+identities and order remain intact. Ambiguous or unsupported linked-data edits
+are blocked. Existing IO entities expose **Rust IO Settings** in Placement.
+See [the compatibility contract](docs/rustedit-prefabs.md) for exact limits.
+
+**Export Models** offers GLB, glTF, FBX, OBJ, PLY, STL, USD, USDA, USDC, Alembic
+and a Blender model library when those exporters are present. Exports use temporary
+realized mesh copies; the source Rust libraries remain protected. Geometry must
+be loaded before model export. Large selections exceeding the bounded copy budget
+must be exported in smaller parts.
 
 Use **Ruster → New Rust Map** to begin with editable flat terrain. In the Terrain
 panel, select a layer and tool, then click **Paint Terrain in Viewport** and drag on the

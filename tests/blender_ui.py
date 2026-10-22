@@ -95,7 +95,7 @@ def run():
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
             assert bpy.ops.ruster.new('EXEC_DEFAULT')=={'FINISHED'}
             assert not ui.is_map(bpy.context)
-            assert bpy.data.objects.get('Cube') and 'Modeling' in bpy.data.workspaces
+            assert bpy.context.scene.ruster.mode=='PREFAB' and not list(bpy.context.scene.objects)
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
             # A background worker inherits the log handle. Unregister must reap
             # the process and release both handles, including on Windows.

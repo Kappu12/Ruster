@@ -28,7 +28,7 @@ def atomic_write(path, data):
 
 
 def save(path, blend_path, mode, source_map=None, title='Untitled'):
-    if mode not in ('BLENDER', 'MAP'):
+    if mode not in ('BLENDER', 'MAP', 'PREFAB'):
         raise FormatError('Invalid project mode')
     files = {'scene.blend': Path(blend_path)}
     if source_map:
@@ -74,7 +74,7 @@ def unpack(path, destination):
         manifest = json.loads(archive.read('manifest.json'))
         if manifest.get('format') != 'ruster' or manifest.get('schema') != SCHEMA:
             raise FormatError('Unsupported .ruster project version')
-        if manifest.get('mode') not in ('BLENDER', 'MAP'):
+        if manifest.get('mode') not in ('BLENDER', 'MAP', 'PREFAB'):
             raise FormatError('Invalid project mode')
         hashes = manifest.get('files', {})
         expected = set(names) - {'manifest.json'}
