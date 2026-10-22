@@ -170,7 +170,7 @@ def poll_job():
             state.asset_status = progress.get('error', 'Asset operation failed')
         elif phase == 'READY':
             if _job_action=='index':state.asset_status=f"{progress.get('ids',0):,} prefab names ready · models load on demand"
-            else:state.asset_status = f"{progress.get('extracted', 0)} models loaded · {progress.get('failures', 0)} reported issues"
+            else:state.asset_status = f"{progress.get('extracted', 0)} prefabs ready · {progress.get('failures', 0)} reported issues"
         elif phase=='EXTRACTING' and progress.get('item'):
             from .core.asset_names import display_name
             state.asset_status='Loading '+display_name(progress['item'])+'…'
@@ -234,6 +234,7 @@ def load_visuals():
                 loaded=scene.attach_visual(obj,force=True)
                 if loaded and not obj.get('ruster_marker'):
                     obj['ruster_model_status']='Model loaded'
+                    frame_first_model(obj)
                 elif not loaded:
                     obj['ruster_model_status']='Model unavailable — retry loading'
             except Exception as error:
@@ -243,6 +244,21 @@ def load_visuals():
     bpy.context.scene.ruster.busy=bool(_visual_queue or _pending_asset_ids or (_job is not None and _job.poll() is None))
     redraw()
     return .05 if _visual_queue else None
+
+
+def frame_first_model(obj):
+    if not obj.get('ruster_frame_on_load'):return
+    del obj['ruster_frame_on_load']
+    if bpy.app.background or not obj.get('ruster_visual') or bpy.context.view_layer.objects.active!=obj or not obj.select_get():return
+    bpy.context.view_layer.update()
+    for window in bpy.context.window_manager.windows:
+        if window.scene!=bpy.context.scene:continue
+        for area in window.screen.areas:
+            if area.type!='VIEW_3D':continue
+            region=next((region for region in area.regions if region.type=='WINDOW'),None)
+            if region:
+                with bpy.context.temp_override(window=window,area=area,region=region):
+                    bpy.ops.view3d.view_selected(use_all_regions=False)
 
 
 class RUSTER_OT_setup(bpy.types.Operator):
@@ -587,13 +603,16 @@ class RUSTER_OT_place(bpy.types.Operator):
             fields = wire.replace(fields, 3, 2, wire.set_vector(None, scene.to_unity(context.scene.cursor.location)))
             fields = wire.replace(fields, 5, 2, wire.set_vector(None, (1.,1.,1.)))
             collection = bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs')
+            first=context.scene.ruster.mode=='PREFAB' and not any(root.get('ruster_visual') for root in scene.prefab_roots())
             obj = scene.root_object(fields, collection)
+            if first:obj['ruster_frame_on_load']=True
             scene.name_prefab(obj,found[0])
             scene.attach_visual(obj)
             for item in context.selected_objects:
                 item.select_set(False)
             obj.select_set(True)
             context.view_layer.objects.active = obj
+            if obj.get('ruster_visual'):frame_first_model(obj)
             if not obj.get('ruster_visual') and not obj.get('ruster_marker'):request_assets([uid])
             return {'FINISHED'}
         except Exception as error:

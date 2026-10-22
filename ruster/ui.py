@@ -198,6 +198,8 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
             from .protection import model_error
             if obj.get('ruster_marker')=='SOUND':
                 wrapped(layout,context,'Sound effect — no visible mesh in Rust.',icon='info')
+            elif obj.get('ruster_marker'):
+                wrapped(layout,context,obj.get('ruster_model_status','Rust helper — no static model'),icon='info')
             elif not obj.get('ruster_visual'):
                 wrapped(layout,context,obj.get('ruster_model_status','Model not loaded'),icon='info')
                 if obj.get('ruster_model_error'):

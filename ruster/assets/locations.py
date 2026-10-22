@@ -9,6 +9,8 @@ def prepare(cache,signature):
         old=db.execute("SELECT value FROM lookup_state WHERE key='signature'").fetchone()
         if not old or old[0]!=signature:
             db.execute('DELETE FROM serialized_files')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='guid_paths'").fetchone():
+                db.execute('DELETE FROM guid_paths')
             # Only locators learned from shipped asset scenes are reset here.
             db.execute("UPDATE assets SET file='@scene:'||substr(file,13),path_id=0 WHERE file LIKE 'BuildPlayer-%'")
             db.execute("INSERT OR REPLACE INTO lookup_state VALUES('signature',?)",(signature,))

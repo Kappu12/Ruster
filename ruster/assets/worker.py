@@ -195,6 +195,7 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
     excluded_renderers=set()
     sound_effect=False
     seen = set()
+    sound_components=[]
     base = Path(output).parent
     texture_dir = base / 'textures'
     texture_dir.mkdir(parents=True, exist_ok=True)
@@ -213,7 +214,7 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
             target=texture_dir/f'{token}.png'
             if not target.exists():
                 from ruster.assets.textures import preview_image
-                with preview_image(tex_reader.read()) as image:image.save(target)
+                with preview_image(tex_reader.read()) as image:image.save(target,compress_level=1)
             entry[field]=str(target.relative_to(base))
         except Exception as error:
             traceback.print_exc()
@@ -233,57 +234,72 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         entry['roughness']=max(0.,min(1.,1-floats.get('_Smoothness',floats.get('_Glossiness',.2))))
         entry['metallic']=max(0.,min(1.,floats.get('_Metallic',0.)))
         mode=floats.get('_Mode',0)
-        entry['alpha_clip']=bool(floats.get('_AlphaClip',0) or mode==1)
-        entry['alpha_blend']=bool(mode in (2,3) or floats.get('_Surface',0)==1)
-        entry['alpha_cutoff']=max(0.,min(1.,floats.get('_Cutoff',.5)))
+        tags=dict(getattr(data,'m_StringTagMap',[]) or [])
+        keywords=set(getattr(data,'m_ValidKeywords',[]) or [])
+        keywords.update(str(getattr(data,'m_ShaderKeywords','')).split())
+        queue=getattr(data,'m_CustomRenderQueue',-1)
+        entry['alpha_clip']=bool(floats.get('_AlphaClip',0) or floats.get('_AlphaCutoffEnable',0) or mode==1 or
+            '_ALPHATEST_ON' in keywords or tags.get('RenderType')=='TransparentCutout' or queue==2450)
+        entry['alpha_blend']=bool(mode in (2,3) or floats.get('_Surface',0)==1 or floats.get('_SurfaceType',0)==1 or tags.get('RenderType')=='Transparent')
+        entry['alpha_cutoff']=max(0.,min(1.,floats.get('_AlphaCutoff',floats.get('_Cutoff',.5))))
         entry['gloss_map_scale']=max(0.,min(1.,floats.get('_GlossMapScale',1.)))
         colors = dict(data.m_SavedProperties.m_Colors)
         color = colors.get('_BaseColor', colors.get('_Color'))
         if color:
             entry['color'] = [color.r, color.g, color.b, color.a]
-        emission=colors.get('_EmissionColor')
+        emission=colors.get('_EmissiveColor',colors.get('_EmissionColor'))
         if emission:entry['emission']=[emission.r,emission.g,emission.b,1.]
         textures = dict(data.m_SavedProperties.m_TexEnvs)
-        texture(entry,'texture',textures.get('_BaseMap',textures.get('_MainTex')),data.m_Name)
-        texture(entry,'metallic_gloss_texture',textures.get('_MetallicGlossMap'),data.m_Name)
-        texture(entry,'emission_texture',textures.get('_EmissionMap'),data.m_Name)
+        def mapped(*names):
+            return next((textures[name] for name in names if name in textures and textures[name].m_Texture.path_id),None)
+        texture(entry,'texture',mapped('_BaseColorMap','_BaseMap','_MainTex','_AlbedoMap','_AlbedoTex','_DiffuseMap','_BaseTex'),data.m_Name)
+        texture(entry,'metallic_gloss_texture',mapped('_MetallicGlossMap','_MaskMap'),data.m_Name)
+        texture(entry,'emission_texture',mapped('_EmissiveColorMap','_EmissionMap'),data.m_Name)
         return ident
 
     def mesh(pointer):
         reader = pointer.deref()
         ident = key(reader)
         if ident not in meshes:
-            handler = MeshHandler(reader.read())
-            handler.process()
-            triangles = handler.get_triangles()
-            meshes[ident] = {'vertices': handler.m_Vertices or [],
-                             'uv': handler.m_UV0 or [], 'submeshes': triangles}
+            from ruster.assets import geometry
+            token=hashlib.sha256((ident+':'+cache_signature).encode()).hexdigest()[:24]
+            target=base/'meshes'/f'{token}.mesh.gz'
+            if target.exists():spec=geometry.info(target)
+            else:
+                handler = MeshHandler(reader.read())
+                handler.process()
+                spec=geometry.write(target,handler.m_Vertices or [],handler.m_UV0 or [],handler.get_triangles())
+            spec['buffer']=str(target.relative_to(base))
+            if not spec['vertices'] or not spec['faces']:return None
+            meshes[ident]=spec
         return ident
 
-    def walk(reader, parent=None, depth=0,lod_managed=False):
+    def walk(reader, parent=None, depth=0,lod_managed=False,prefab_root=False):
         nonlocal sound_effect
         if depth > 128 or len(nodes) > 20000:
             raise ValueError('Prefab hierarchy exceeds the supported limit')
         ident = key(reader)
         if ident in seen:
             return
-        seen.add(ident)
         go = reader.read()
-        if parent is not None and not go.m_IsActive:
+        if parent is not None and not prefab_root and not go.m_IsActive:
             return
         # Prefab instances retain one visible LOD, not all overlapping LOD meshes.
-        if not lod_managed and re.search(r'(?:_|\b)lod[1-9]\d*(?:_|\b)', go.m_Name.lower()):
+        if parent is not None and not prefab_root and not lod_managed and re.search(r'(?:_|\b)lod[1-9]\d*(?:_|\b)', go.m_Name.lower()):
             return
+        seen.add(ident)
         components = {}
         component_keys={}
         for pointer in component_pointers(go):
+            if not pointer or not pointer.path_id:continue
             component_reader = pointer.deref()
             if component_reader:
-                components[component_reader.type.name] = component_reader.read()
-                if (component_reader.type.name=='AudioSource' or
-                    getattr(components[component_reader.type.name],'soundDefinition',None)):
-                    sound_effect=True
-                component_keys[component_reader.type.name]=key(component_reader)
+                kind=component_reader.type.name
+                if kind=='AudioSource':sound_effect=True
+                elif kind=='MonoBehaviour':sound_components.append(component_reader)
+                elif kind in ('Transform','RectTransform','MeshRenderer','MeshFilter','SkinnedMeshRenderer','LODGroup'):
+                    components[kind]=component_reader.read()
+                    component_keys[kind]=key(component_reader)
         lods=getattr(components.get('LODGroup'),'m_LODs',None)
         if lods:
             first=set()
@@ -321,13 +337,49 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
 
     walk(root_reader)
     marker=''
+    helper_bounds=None
+    if not meshes:
+        for reader in sound_components:
+            data=reader.read()
+            if getattr(data,'soundDefinition',None):sound_effect=True
+            if hasattr(data,'HeightMap') and hasattr(data,'size'):
+                marker='TERRAIN';helper_bounds=xyz(data.size)
+            # Tree/entity templates often contain no geometry at all. Their
+            # visual is a separate GameObjectRef, resolved by GUID at runtime.
+            for field in ('model','prefab','modelPrefab','worldModelPrefab'):
+                value=getattr(data,field,None)
+                target=None
+                if value and getattr(value,'path_id',0):
+                    component=value.deref()
+                    if component.type.name=='GameObject':target=component
+                    else:
+                        component_data=component.read()
+                        if getattr(component_data,'m_GameObject',None):target=component_data.m_GameObject.deref()
+                elif value and getattr(value,'guid','') and hasattr(env,'resolve_prefab'):
+                    target=env.resolve_prefab(value.guid)
+                    if target is None:warnings.append(f'Visual prefab reference could not be resolved: {value.guid}')
+                if target:
+                    walk(target,parent=0,depth=1,prefab_root=True)
+                    if meshes:break
+            if meshes:break
     if not meshes and not warnings and sound_effect:
         marker='SOUND'
+    if not meshes and not marker and not warnings:marker='HELPER'
     if not meshes and not marker:
-        raise ValueError('Prefab has no readable triangle meshes; ' + '; '.join(warnings[:3]))
+        raise ValueError('Prefab geometry could not be read; ' + '; '.join(warnings[:3]))
     result = {'schema': 1, 'uid': uid, 'path': asset_path, 'nodes': nodes,
-              'meshes': meshes, 'materials': materials, 'warnings': warnings, 'marker':marker}
-    atomic_write(output, gzip.compress(json.dumps(result).encode(), compresslevel=3))
+              'meshes': meshes, 'materials': materials, 'warnings': warnings, 'marker':marker,
+              'helper_bounds':helper_bounds}
+    # Geometry lives in bounded per-mesh buffers; don't allocate another giant
+    # JSON string/UTF-8 copy of a whole monument during cache serialization.
+    from tempfile import mkstemp
+    descriptor,temporary=mkstemp(prefix='.prefab-',dir=base);os.close(descriptor)
+    try:
+        with gzip.open(temporary,'wt',compresslevel=1,encoding='utf-8') as stream:
+            json.dump(result,stream,separators=(',',':'))
+        os.replace(temporary,output)
+    finally:
+        if os.path.exists(temporary):os.unlink(temporary)
     return warnings
 
 
@@ -360,6 +412,31 @@ def extract_batch(UnityPy, install, cache, ids):
     candidates=iter(sorted(bundle_files(root),key=lambda p:('/shared/' not in p.as_posix(),p.as_posix())))
 
     class LocalEnvironment(UnityPy.Environment):
+        def resolve_prefab(self,guid):
+            from ruster.assets.references import guid_path
+            from contextlib import closing
+            asset_path=guid_path(self,cache,root,guid)
+            if not asset_path:return None
+            with closing(connect(cache)) as db:
+                entry=db.execute('SELECT bundle,file,path_id FROM assets WHERE path=? COLLATE NOCASE',(asset_path,)).fetchone()
+            if not entry:return None
+            bundle,file_name,path_id=entry
+            if not self.get_cab(file_name if not file_name.startswith('@scene:') else 'BuildPlayer-'+file_name[7:]):
+                self.load_file(str(root/bundle),is_dependency=True)
+            name='BuildPlayer-'+file_name[7:] if file_name.startswith('@scene:') else file_name
+            data=self.get_cab(name)
+            if not data:return None
+            if not file_name.startswith('@scene:'):return data.objects.get(path_id)
+            objects=data.objects
+            readers=objects.of_type('GameObject') if hasattr(objects,'of_type') else objects.values()
+            for candidate in readers:
+                if candidate.type.name!='GameObject':continue
+                name=candidate.peek_name().lower()
+                if name.startswith('assets/') and name.endswith('.prefab'):
+                    discovered_roots.append(('BuildPlayer-'+file_name[7:],candidate.path_id,name,bundle))
+                if name==asset_path:return candidate
+            return None
+
         def find_file(self, name, is_dependency=True):
             clean = name.replace('\\', '/').rsplit('/',1)[-1].lower()
             existing = self.get_cab(clean)
@@ -415,7 +492,9 @@ def extract_batch(UnityPy, install, cache, ids):
                     data=env.get_cab('BuildPlayer-'+file_name[7:])
                     reader=None
                     if data:
-                        for candidate in data.objects.values():
+                        objects=data.objects
+                        candidates_=objects.of_type('GameObject') if hasattr(objects,'of_type') else objects.values()
+                        for candidate in candidates_:
                             if candidate.type.name!='GameObject':continue
                             name=candidate.read().m_Name.lower()
                             if name.startswith('assets/') and name.endswith('.prefab'):
@@ -434,7 +513,7 @@ def extract_batch(UnityPy, install, cache, ids):
                     failures.append({'uid': uid, 'error': '; '.join(warnings)})
             done += 1
         except Exception as error:
-            failures.append({'uid': uid, 'error': str(error)})
+            failures.append({'uid': uid, 'error': str(error) or type(error).__name__})
     locations.remember(cache,discovered_cabs,discovered_roots)
     return {'failures': failures, 'done': done}
 

@@ -64,6 +64,10 @@ def test_modern_lod_material_and_texture_conversion(tmp_path,monkeypatch):
     assert material['roughness']==.75 and material['metallic']==.4
     assert material['uv_scale']==[2,3] and material['uv_offset']==[.2,.3]
     assert (tmp_path/material['texture']).is_file()
+    from ruster.assets import geometry
+    mesh=next(iter(result['meshes'].values()))
+    assert isinstance(mesh['vertices'],int) and mesh['vertices']==3
+    assert len(geometry.read(tmp_path/mesh['buffer'])[0])==3
 
 
 def test_texture_cache_revision_changes_filename(tmp_path,monkeypatch):
@@ -118,3 +122,67 @@ def test_concrete_preserves_packed_metallic_gloss_map(tmp_path,monkeypatch):
     spec=next(iter(json.loads(gzip.decompress(output.read_bytes()))['materials'].values()))
     assert spec['metallic_gloss_texture']==spec['texture']
     assert spec['metallic_gloss_texture_uv_scale']==[2,3] and spec['gloss_map_scale']==.7
+
+
+def test_entity_follows_its_separate_visual_prefab_reference(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    target=graph();target.read().m_IsActive=False
+    target_transform=target.read().m_Component[0].component
+    target_transform.read().m_GameObject=Pointer(target)
+    transform=Reader('Transform',S(m_LocalPosition=S(x=0,y=0,z=0),m_LocalRotation=S(w=1,x=0,y=0,z=0),
+        m_LocalScale=S(x=1,y=1,z=1),m_Children=[target_transform]))
+    entity=Reader('MonoBehaviour',S(prefab=S(guid='tree-model-guid')))
+    audio=Reader('AudioSource',S())
+    root=Reader('GameObject',S(m_Name='Tree entity',m_IsActive=False,
+        m_Component=[ComponentPair(component=Pointer(c)) for c in (transform,entity,audio)]))
+    requests=[]
+    env=S(resolve_prefab=lambda guid:requests.append(guid) or target)
+    output=tmp_path/'tree.json.gz'
+    assert not export_prefab(env,root,output,44,'assets/tree.prefab')
+    asset=json.loads(gzip.decompress(output.read_bytes()))
+    assert requests==['tree-model-guid'] and len(asset['meshes'])==1
+    assert asset['nodes'][1]['parent']==0 and not asset['marker']
+
+
+def test_explicitly_selected_lod_prefab_is_not_filtered_out(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();root.read().m_Name='assets/props/model_lod1.prefab'
+    output=tmp_path/'lod-prefab.json.gz'
+    assert not export_prefab(None,root,output,48,'assets/props/model_lod1.prefab')
+    asset=json.loads(gzip.decompress(output.read_bytes()))
+    assert len(asset['meshes'])==1 and not asset['marker']
+
+
+def test_terrain_stamp_is_a_named_helper_not_a_failed_model(tmp_path):
+    transform=Reader('Transform',S(m_LocalPosition=S(x=0,y=0,z=0),m_LocalRotation=S(w=1,x=0,y=0,z=0),
+        m_LocalScale=S(x=1,y=1,z=1),m_Children=[]))
+    modifier=Reader('MonoBehaviour',S(HeightMap=1,size=S(x=1000,y=75,z=1000)))
+    root=Reader('GameObject',S(m_Name='Canyon',m_IsActive=False,
+        m_Component=[ComponentPair(component=Pointer(c)) for c in (transform,modifier)]))
+    output=tmp_path/'canyon.json.gz'
+    assert not export_prefab(None,root,output,45,'assets/canyon.prefab')
+    asset=json.loads(gzip.decompress(output.read_bytes()))
+    assert asset['marker']=='TERRAIN' and asset['helper_bounds']==[1000,75,1000] and not asset['meshes']
+
+
+def test_cutout_shader_tags_preserve_foliage_transparency(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();mat=first_material(root)
+    mat.m_StringTagMap=[('RenderType','TransparentCutout')]
+    output=tmp_path/'foliage.json.gz'
+    assert not export_prefab(None,root,output,46,'assets/foliage.prefab')
+    spec=next(iter(json.loads(gzip.decompress(output.read_bytes()))['materials'].values()))
+    assert spec['alpha_clip'] and not spec['alpha_blend']
+
+
+def test_current_rust_base_color_and_mask_properties_are_loaded(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();mat=first_material(root)
+    base=mat.m_SavedProperties.m_TexEnvs[0][1]
+    mat.m_SavedProperties.m_TexEnvs=[('_BaseColorMap',base),('_MaskMap',base)]
+    mat.m_SavedProperties.m_Floats=[('_AlphaCutoffEnable',1),('_AlphaCutoff',.35)]
+    output=tmp_path/'tree.json.gz'
+    assert not export_prefab(None,root,output,47,'assets/tree.prefab')
+    spec=next(iter(json.loads(gzip.decompress(output.read_bytes()))['materials'].values()))
+    assert spec['texture'] and spec['metallic_gloss_texture']
+    assert spec['alpha_clip'] and spec['alpha_cutoff']==.35

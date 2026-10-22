@@ -109,6 +109,21 @@ class SliceStream(io.RawIOBase):
         self.position += len(result)
         return result
 
+    def readinto(self,buffer):
+        data=self.read(len(buffer));buffer[:len(data)]=data
+        return len(data)
+
+
+class BufferedSlice(io.BufferedReader):
+    """Buffer metadata's tiny reads without allowing an unbounded read-all."""
+    def __init__(self,raw):super().__init__(raw,buffer_size=16*1024)
+
+    def read(self,size=-1):
+        remaining=self.raw.length-self.tell()
+        requested=remaining if size is None or size<0 else min(size,remaining)
+        if requested>MAX_READ:raise ValueError('Asset read exceeds the 32 MiB per-object limit')
+        return super().read(size)
+
 
 @contextmanager
 def streamed_bundles(node_filter=None,skip_containers=False):
@@ -123,6 +138,11 @@ def streamed_bundles(node_filter=None,skip_containers=False):
     original_fs, original_files = BundleFile.read_fs, BundleFile.read_files
     original_legacy = BundleFile.read_web_raw
     original_parse = ObjectReader.parse_as_object
+    original_serialized=SerializedFile.__init__
+
+    def parse_serialized(file,reader,parent=None,name=None,**kwargs):
+        from .serialized import parse
+        return parse(file,reader,parent,name,original_serialized,kwargs)
 
     def parse_object(reader,*args,**kwargs):
         if skip_containers and reader.type.name=='AssetBundle':
@@ -140,6 +160,8 @@ def streamed_bundles(node_filter=None,skip_containers=False):
             self.parsed=None
         def load(self):
             if self.parsed is None:
+                if isinstance(self.reader.stream,SliceStream):
+                    self.reader=EndianBinaryReader(BufferedSlice(self.reader.stream))
                 self.reader.Position=0
                 self.parsed=ImportHelper.parse_file(self.reader,self.parent,self.name,is_dependency=True)
                 self.parsed.flags=self.flags
@@ -190,8 +212,10 @@ def streamed_bundles(node_filter=None,skip_containers=False):
 
     def read_files(bundle, stream, nodes):
         for node in nodes:
-            reader = EndianBinaryReader(SliceStream(stream, node.offset, node.size))
-            if node_filter is not None and not node_filter(node.path):
+            source=SliceStream(stream,node.offset,node.size)
+            eager=node_filter is None or node_filter(node.path)
+            reader = EndianBinaryReader(BufferedSlice(source) if eager else source)
+            if not eager:
                 parsed = reader
                 if not node.path.lower().endswith(('.ress','.resource')):
                     parsed = LazyNode(reader,bundle,node.path)
@@ -208,10 +232,12 @@ def streamed_bundles(node_filter=None,skip_containers=False):
     BundleFile.read_fs, BundleFile.read_files = read_fs, read_files
     BundleFile.read_web_raw = reject_legacy
     ObjectReader.parse_as_object=parse_object
+    if skip_containers:SerializedFile.__init__=parse_serialized
     try:
         yield UnityPy
     finally:
         BundleFile.read_fs, BundleFile.read_files = original_fs, original_files
         BundleFile.read_web_raw = original_legacy
         ObjectReader.parse_as_object=original_parse
+        SerializedFile.__init__=original_serialized
         for stream in streams:stream.close()

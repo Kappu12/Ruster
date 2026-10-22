@@ -80,7 +80,15 @@ Blender's normal toolbar is visible, with Rust brushes added in map mode. New
 prefabs start in textured Solid view so loaded textures appear promptly with
 Blender's lightweight studio lighting. Material Preview remains available from
 the viewport shading controls. Texture previews
-read a source mip up to 2048px without decoding larger levels. Space and F3
+target 512px previews, reading a source mip when present. Non-mipped sources up
+to 2048px may be resized; larger sources need a smaller mip. Meshes are written
+and linked one at a time through compact binary buffers; the converter keeps
+the original vertex/triangle data without accumulating a whole monument's mesh
+arrays in Python. CAB object metadata also stays compact, and only requested
+objects become UnityPy readers. Entity templates with a separate visual prefab
+follow the game's GUID references. Terrain stamps and other prefabs with no
+static model are explicitly labeled as helpers, rather than failing model loads.
+The first loaded model in a new prefab scene is framed automatically. Space and F3
 open Rust commands; Space does not start Blender animation playback.
 Menus, dialogs, section headers and tools share Blender's bundled icon pack.
 Terrain and prefab paint have distinct toolbar icons; advanced options live in

@@ -231,7 +231,7 @@ def attach_visual(root,force=False):
     token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
     # Display-only changes rebuild the small Blender preview from cached data;
     # existing packed originals remain valid for offline projects.
-    asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view3'
+    asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view4'
     collection_name = 'RusterAsset:' + asset_key
     matches=[c for c in bpy.data.collections if c.name==collection_name]
     from .protection import VERSION
@@ -259,13 +259,20 @@ def attach_visual(root,force=False):
         asset = json.load(stream)
     if asset.get('schema') != 1:
         return False
-    if asset.get('marker')=='SOUND' and not asset['meshes']:
-        name_prefab(root,asset['path'])
+    if asset.get('marker') and not asset['meshes']:
+        marker=asset['marker']
+        suffix={'TERRAIN':' (Terrain Stamp)','HELPER':' (Helper)'}
+        name_prefab(root,display_name(asset['path'])+suffix.get(marker,''))
         root.instance_type='NONE';root.instance_collection=None
         root['ruster_visual']=False
-        root['ruster_marker']='SOUND'
-        root['ruster_model_status']='Sound effect · this prefab has no visible mesh'
-        root.empty_display_type='SPHERE';root.empty_display_size=.25
+        root['ruster_marker']=marker
+        root['ruster_model_status']={'SOUND':'Sound effect · this prefab has no visible mesh',
+            'TERRAIN':'Terrain stamp · modifies map terrain; this prefab has no static model',
+            'HELPER':'Rust helper · this prefab contains no static model'}[marker]
+        root.empty_display_type='CUBE' if marker=='TERRAIN' else 'SPHERE'
+        root.empty_display_size=.5 if marker=='TERRAIN' else .25
+        root.show_name=True
+        if asset.get('helper_bounds'):root['ruster_helper_bounds']=asset['helper_bounds']
         if 'ruster_model_error' in root:del root['ruster_model_error']
         return True
     # Collection instances make the whole prefab clickable as one placement and
@@ -352,6 +359,28 @@ def attach_visual(root,force=False):
         name = 'Rust ' + asset_key + ' ' + hashlib.sha256(ident.encode()).hexdigest()[:16]
         # Rebuild from source rather than trusting editable legacy preview data.
         mesh = bpy.data.meshes.new(name)
+        if spec.get('buffer'):
+            import numpy as np
+            from .assets import geometry
+            source=(path.parent/spec['buffer']).resolve()
+            if not source.is_relative_to(path.parent.resolve()):raise ValueError('Invalid mesh buffer path')
+            points,coords,indices,counts=geometry.read(source)
+            # Fill native arrays directly. Python tuples for every vertex/loop
+            # used several times more memory than Blender's actual mesh data.
+            vertices=np.ascontiguousarray(points[:,[0,2,1]],dtype='f4')
+            loops=np.ascontiguousarray(indices[:,::-1].reshape(-1),dtype='i4')
+            mesh.vertices.add(len(points));mesh.vertices.foreach_set('co',vertices.reshape(-1))
+            mesh.loops.add(len(loops));mesh.loops.foreach_set('vertex_index',loops)
+            mesh.polygons.add(len(indices))
+            mesh.polygons.foreach_set('loop_start',np.arange(len(indices),dtype='i4')*3)
+            mesh.polygons.foreach_set('loop_total',np.full(len(indices),3,dtype='i4'))
+            mesh.polygons.foreach_set('material_index',np.repeat(np.arange(len(counts),dtype='i4'),counts))
+            mesh.update(calc_edges=True)
+            if len(coords):
+                layer=mesh.uv_layers.new()
+                layer.data.foreach_set('uv',np.ascontiguousarray(coords[loops]).reshape(-1))
+            meshes[ident]=mesh
+            continue
         faces, slots = [], []
         for slot, triangles in enumerate(spec['submeshes']):
             # Coordinate basis changes handedness, so reverse winding.

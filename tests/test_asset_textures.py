@@ -19,14 +19,14 @@ def test_large_texture_reads_only_selected_mip(monkeypatch):
         reads.append((path,offset,size));return bytes(size)
     monkeypatch.setattr(ResourceReader,'get_resource_data',read)
     monkeypatch.setattr(Texture2DConverter,'parse_image_data',lambda data,w,h,*args:(w,h,len(data)))
-    assert preview_image(texture())==(2048,2048,2048*2048//2)
-    assert reads==[('source.resS',123+4096*4096//2,2048*2048//2)]
+    assert preview_image(texture())==(512,512,512*512//2)
+    assert reads==[('source.resS',123+(4096*4096+2048*2048+1024*1024)//2,512*512//2)]
 
 
 def test_large_texture_without_mip_is_rejected_before_read(monkeypatch):
     from UnityPy.helpers import ResourceReader
     monkeypatch.setattr(ResourceReader,'get_resource_data',lambda *args:pytest.fail('Must not read the full texture'))
-    with pytest.raises(ValueError,match='2048px'):preview_image(texture(mips=1))
+    with pytest.raises(ValueError,match='512px'):preview_image(texture(mips=1))
 
 
 def test_truncated_texture_stream_is_rejected():

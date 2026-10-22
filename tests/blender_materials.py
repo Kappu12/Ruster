@@ -19,11 +19,21 @@ def run():
         image.filepath_raw=str(cache/'textures/test.png');image.file_format='PNG';image.save()
         bpy.data.images.remove(image)
         asset=triangle_asset(42)
+        from ruster.assets import geometry
+        source_mesh=asset['meshes']['mesh']
+        mesh_path=cache/'meshes/fixture.mesh.gz'
+        asset['meshes']['mesh']=geometry.write(mesh_path,source_mesh['vertices'],[[0,0],[1,0],[0,1]],source_mesh['submeshes'])
+        asset['meshes']['mesh']['buffer']='meshes/fixture.mesh.gz'
         asset['materials']['mat'].update(texture='textures/test.png',metallic_gloss_texture='textures/test.png',
             emission=[0,1.0353,1.498,1],alpha_blend=True,color=[0,.97,1,.75],gloss_map_scale=.7)
         (cache/'42.json.gz').write_bytes(gzip.compress(json.dumps(asset).encode()))
         root=scene.root_object([wire.encode(2,0,42)],bpy.context.scene.collection)
         assert scene.attach_visual(root) and not protection.model_error(root)
+        mesh=root.instance_collection.objects[0].data
+        assert len(mesh.vertices)==3 and len(mesh.polygons)==1 and len(mesh.uv_layers)==1
+        assert tuple(mesh.polygons[0].vertices)==(2,1,0)
+        assert tuple(mesh.vertices[2].co)==(0,1,2)
+        assert tuple(mesh.uv_layers[0].data[0].uv)==(0,1)
         mat=root.instance_collection.objects[0].material_slots[0].material
         bsdf=mat.node_tree.nodes.get('Principled BSDF')
         assert bsdf.inputs['Emission Strength'].default_value==1

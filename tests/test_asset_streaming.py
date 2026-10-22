@@ -10,7 +10,7 @@ import sys
 import lz4.block
 import pytest
 
-from ruster.assets.streaming import BlockStream, MAX_READ, SliceStream, streamed_bundles
+from ruster.assets.streaming import BlockStream, MAX_READ, SliceStream, BufferedSlice, streamed_bundles
 
 
 def test_builtin_resources_resolve_only_game_files_with_size_limit(tmp_path):
@@ -80,6 +80,29 @@ def test_slice_crosses_blocks_and_clamps_eof():
     view.seek(-2, 2)
     assert view.read() == b'XY'
     with pytest.raises(ValueError):SliceStream(stream, 2, 20)
+
+
+def test_buffered_metadata_reads_still_reject_read_all_above_limit():
+    class Source:
+        length=MAX_READ+100
+        def seek(self,*args):pass
+        def read(self,*args):pytest.fail('An oversized read must fail before touching the source')
+    stream=BufferedSlice(SliceStream(Source(),0,Source.length))
+    with pytest.raises(ValueError,match='32 MiB'):stream.read()
+    with pytest.raises(ValueError,match='32 MiB'):stream.read(MAX_READ+1)
+
+
+def test_small_metadata_reads_share_a_bounded_buffer():
+    class Source(io.BytesIO):
+        length=65536
+        reads=0
+        def read(self,size=-1):
+            self.reads+=1
+            return super().read(size)
+    source=Source(b'abcd'*16384)
+    stream=BufferedSlice(SliceStream(source,0,source.length))
+    for _ in range(1000):assert stream.read(4)==b'abcd'
+    assert source.reads==1
 
 
 def test_oversized_and_truncated_blocks_are_rejected_before_allocation():

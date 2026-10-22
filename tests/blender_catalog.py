@@ -89,6 +89,7 @@ def run():
         with closing(catalog.connect(scene.cache_dir())) as db:
             db.executemany('INSERT INTO names VALUES(?,?)',[
                 (42,'assets/test/sound/trigger.prefab'),
+                (44,'assets/bundled/prefabs/autospawn/canyon/canyon_1.prefab'),
                 (43,'assets/bundled/prefabs/modding/cubes/tiled/cube_tiled_dev_01.prefab')])
             db.execute('INSERT INTO assets VALUES(?,?,?,?)',('assets/bundled/prefabs/modding/cubes/tiled/cube_tiled_dev_01.prefab','bundle','file',1))
             db.commit()
@@ -104,6 +105,12 @@ def run():
         assert bpy.ops.ruster.place(uid='42')=={'FINISHED'}
         assert bpy.context.active_object.name==sound.name+' 2'
         assert '.' not in bpy.context.active_object.name and '_' not in bpy.context.active_object.name
+        (cache/'44.json.gz').write_bytes(gzip.compress(json.dumps({'schema':1,'marker':'TERRAIN','meshes':{},
+            'path':'assets/bundled/prefabs/autospawn/canyon/canyon_1.prefab','helper_bounds':[1000,75,1000]}).encode()))
+        assert bpy.ops.ruster.place(uid='44')=={'FINISHED'}
+        terrain=bpy.context.active_object
+        assert terrain.get('ruster_marker')=='TERRAIN' and terrain.name=='canyon 1 (Terrain Stamp)'
+        assert 'no static model' in terrain['ruster_model_status'] and app._job is None
         from ruster import browser
         calls=[];native_page=catalog.page
         catalog.page=lambda *args,**kwargs:calls.append(1) or native_page(*args,**kwargs)

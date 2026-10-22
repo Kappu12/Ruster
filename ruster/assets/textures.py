@@ -1,5 +1,5 @@
 """Read a bounded texture mip directly, without decoding larger source levels."""
-MAX_TEXTURE_EDGE = 2048
+MAX_TEXTURE_EDGE = 512
 
 
 def preview_image(texture):
@@ -21,7 +21,14 @@ def preview_image(texture):
         if size is None:break
         offset+=size;width=max(1,width//2);height=max(1,height//2)
     if max(width,height)>MAX_TEXTURE_EDGE:
-        raise ValueError(f'Texture {texture.m_Name} has no readable mip within {MAX_TEXTURE_EDGE}px')
+        # Some small uncompressed textures have no mip chain. A bounded source
+        # decode is still safe; never decode a full 4K/8K source as a fallback.
+        if max(width,height)>2048:
+            raise ValueError(f'Texture {texture.m_Name} has no readable mip within {MAX_TEXTURE_EDGE}px')
+        from PIL import Image
+        image=texture.image
+        image.thumbnail((MAX_TEXTURE_EDGE,MAX_TEXTURE_EDGE),Image.Resampling.LANCZOS)
+        return image
     size=level_size(width,height)
     if size is None:
         # Small platform/crunched textures still use UnityPy's native decoder.
