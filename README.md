@@ -14,7 +14,7 @@ work toward RustEdit parity.
 
 On first launch, Ruster checks standard Steam locations, Windows Steam registry
 entries and Steam's secondary library folders for Rust. It validates the game
-executable and `Bundles` folder, remembers the location and starts indexing.
+executable and `Bundles` folder, remembers the location and reads the prefab catalog.
 Your saved valid location takes priority. If discovery fails, choose **Preferences → Rust Assets** from the Ruster start
 screen. Choose the folder and click **Apply Installation**,
 for example:
@@ -24,11 +24,15 @@ C:\Program Files (x86)\Steam\steamapps\common\Rust
 ```
 
 Choose the game folder containing `Bundles`, rather than the Steam directory.
-Ruster remembers this location and indexes the installed Unity AssetBundles in a
-separate process. Change it later with **Edit → Preferences → Rust Assets**.
-Indexing reads metadata through a seekable, block-based UnityFS reader; it does
-not expand entire bundles or decode game meshes/textures. A single bundle or
-requested prefab runs in its own short-lived child process. On Windows each
+Ruster remembers this location. Change it later with **Edit → Preferences → Rust Assets**.
+Browsing reads the game's `AssetSceneManifest.json` and your installed RustEdit's
+`stringpool.txt`; there is no full-bundle object index. RustEdit's standard install
+folder is detected automatically, or can be selected in Preferences. These local
+metadata files are never bundled with Ruster. A cold catalog on this installation
+loaded 17,140 IDs in about 0.24 seconds. Models load only on demand, from their
+named asset scene and required dependencies. Catalog refresh and map opening do
+not start bulk conversion. **Load Selected Models** accepts up to 100 different
+model IDs per request. A requested prefab runs in its own short-lived child process. On Windows each
 asset child has a 768 MiB allocation limit and its supervisor tree has a 1 GiB
 limit. The editor process tree has a 4 GiB allocation limit. Limits apply to
 private committed process memory, not GPU allocations or shared system pages.
@@ -36,7 +40,8 @@ Oversized/unsupported assets stay as placeholders with an error report. Worker
 watchdogs and Windows jobs stop child work if the owning editor exits or crashes.
 
 The native Blender splash artwork appears above Ruster's start buttons. The Ruster
-sidebar keeps the start controls available after dismissing the splash.
+sidebar keeps the start controls available after dismissing the splash. Empty
+executables from development fixtures are rejected by automatic install selection.
 
 The start screen offers:
 

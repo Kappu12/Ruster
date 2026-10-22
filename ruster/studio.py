@@ -265,7 +265,7 @@ class RUSTER_MT_add(bpy.types.Menu):
         for key, label, _patterns in GROUPS:
             layout.operator('ruster.add_prefab', text=label).category = '@' + key
         layout.separator()
-        layout.operator('ruster.assets', text='Index Local Rust Assets', icon='IMPORT')
+        layout.operator('ruster.assets', text='Refresh Prefab Catalog', icon='IMPORT').rebuild=True
 
 
 class RUSTER_OT_prefab_import(bpy.types.Operator, ImportHelper):

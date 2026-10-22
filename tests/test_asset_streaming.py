@@ -13,12 +13,12 @@ import pytest
 from ruster.assets.streaming import BlockStream, MAX_READ, SliceStream, streamed_bundles
 
 
-def bundle(path, at_end=False, count=512):
+def bundle(path, at_end=False, count=512,node=b'CAB-test.resS'):
     block = b'abcd' * 16384
     packed = lz4.block.compress(block, store_size=False)
     info = (bytes(16) + struct.pack('>i', count)
             + struct.pack('>IIH', len(block), len(packed), 2) * count
-            + struct.pack('>iqqI', 1, 0, count * len(block), 0) + b'CAB-test.resS\0')
+            + struct.pack('>iqqI', 1, 0, count * len(block), 0) + node+b'\0')
     prefix = b'UnityFS\0' + struct.pack('>I', 7) + b'5.x.x\0' + b'2022.3.1f1\0'
     header_size = (len(prefix) + 20 + 15) // 16 * 16
     size = header_size + len(info) + len(packed) * count
@@ -73,9 +73,46 @@ def test_oversized_and_truncated_blocks_are_rejected_before_allocation():
     from UnityPy.streams import EndianBinaryReader
     source = EndianBinaryReader(b'1234')
     with pytest.raises(ValueError, match='16 MiB'):
-        BlockStream(source, [(100 * 1024 * 1024, 4, 0)], lambda *_args: pytest.fail(), 4)
+        BlockStream(source, [(100 * 1024 * 1024, 4, 2)], lambda *_args: pytest.fail(), 4)
     with pytest.raises(ValueError, match='beyond'):
         BlockStream(source, [(5, 5, 0)], lambda *_args: pytest.fail(), 4)
+
+
+def test_large_raw_block_reads_only_requested_bytes(tmp_path):
+    from UnityPy.streams import EndianBinaryReader
+    path=tmp_path/'large-raw'
+    with path.open('wb') as output:
+        output.seek(64*1024*1024);output.write(b'end')
+    with path.open('rb') as input_:
+        stream=BlockStream(EndianBinaryReader(input_),[(path.stat().st_size,path.stat().st_size,0)],
+                           lambda *_args: pytest.fail('Raw data must never decompress'),path.stat().st_size)
+        stream.seek(-3,2)
+        assert stream.read(3)==b'end' and stream.cached==b''
+
+
+def test_unselected_serialized_node_waits_for_pointer_access(tmp_path,monkeypatch):
+    from UnityPy.helpers import ImportHelper
+    from types import SimpleNamespace
+    path=tmp_path/'bundle';bundle(path,count=1,node=b'CAB-delayed')
+    calls=[]
+    with streamed_bundles(node_filter=lambda _name:False) as UnityPy:
+        env=UnityPy.load(str(path));container=next(iter(env.files.values()))
+        lazy=container.files['CAB-delayed']
+        monkeypatch.setattr(ImportHelper,'parse_file',lambda *_args,**_kwargs:
+                            calls.append('parsed') or SimpleNamespace(objects={42:'mesh'}))
+        assert not calls
+        assert lazy.objects[42]=='mesh'
+        assert lazy.objects[42]=='mesh' and calls==['parsed']
+
+
+def test_extraction_can_skip_unused_bundle_container_and_restore_hook():
+    from UnityPy.files.ObjectReader import ObjectReader
+    from types import SimpleNamespace
+    original=ObjectReader.parse_as_object
+    with streamed_bundles(skip_containers=True):
+        result=ObjectReader.parse_as_object(SimpleNamespace(type=SimpleNamespace(name='AssetBundle')))
+        assert result.m_Container==[] and result.m_PreloadTable==[]
+    assert ObjectReader.parse_as_object is original
 
 
 def test_isolated_bundle_worker_uses_the_streaming_adapter(tmp_path):

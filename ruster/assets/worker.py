@@ -1,8 +1,8 @@
 """Run in a separate Python process: no bpy, no UI thread work, no game injection.
 
-Reads Unity AssetBundles using UnityPy. Catalogs prefab containers and the
-official embedded ID lookup. Exports hierarchy, triangle meshes, UVs and base
-color textures. Unity shaders/behaviours are not executed.
+Reads shipped catalog metadata without loading bundles. A requested model reads
+only its asset scene and required serialized dependencies through UnityPy.
+Unity shaders/behaviours are not executed.
 """
 import argparse
 import gzip
@@ -113,7 +113,7 @@ def index_bundle(install, cache, key):
         db.close()
 
 
-def index(install, cache):
+def deep_index(install, cache):
     root = validate_install(install)
     files = list(bundle_files(root))
     if not files:
@@ -298,7 +298,12 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
 
 def extract_one(install, cache, uid):
     from ruster.assets.streaming import streamed_bundles
-    with streamed_bundles() as UnityPy:
+    entry=find(cache,uid)
+    selected=set()
+    if entry and entry[2] and entry[2].startswith('@scene:'):
+        selected.add('buildplayer-'+entry[2][7:].lower())
+    with streamed_bundles(lambda name: name.lower() in selected or name.lower().endswith(('.ress','.resource')),
+                          skip_containers=True) as UnityPy:
         return extract_batch(UnityPy, install, cache, [uid])
 
 
@@ -311,7 +316,11 @@ def extract_batch(UnityPy, install, cache, ids):
     current_bundle, env = None, None
     with connect(cache) as db:
         cab_bundles = dict(db.execute('SELECT name,bundle FROM serialized_files'))
-        catalog_signature=hashlib.sha256(repr(db.execute('SELECT path,size,mtime FROM bundles ORDER BY path').fetchall()).encode()).hexdigest()
+        source=db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='catalog_metadata'").fetchone()
+        catalog_source=db.execute('SELECT value FROM catalog_metadata').fetchall() if source else []
+        catalog_signature=hashlib.sha256(repr((catalog_source,[(str(p.relative_to(root)),p.stat().st_size,p.stat().st_mtime_ns)
+                                                              for p in bundle_files(root)])).encode()).hexdigest()
+    candidates=iter(sorted(bundle_files(root),key=lambda p:('/shared/' not in p.as_posix(),p.as_posix())))
 
     class LocalEnvironment(UnityPy.Environment):
         def find_file(self, name, is_dependency=True):
@@ -320,12 +329,25 @@ def extract_batch(UnityPy, install, cache, ids):
             if existing:
                 return existing
             bundle = cab_bundles.get(clean)
+            if not bundle:
+                # Dependency location needs only UnityFS directory headers, not
+                # an object/mesh index. Resolve them once per isolated request.
+                from ruster.assets.streaming import streamed_bundles
+                with streamed_bundles(lambda _name:False) as directory_unity:
+                    for candidate in candidates:
+                        if candidate.suffix.lower()!='.bundle':continue
+                        directory_env=directory_unity.load(str(candidate))
+                        for container in directory_env.files.values():
+                            for node in getattr(container,'files',{}):
+                                cab_bundles[node.rsplit('/',1)[-1].lower()]=str(candidate.relative_to(root))
+                        if clean in cab_bundles:break
+                bundle=cab_bundles.get(clean)
             if bundle:
                 self.load_file(str(root/bundle), is_dependency=True)
                 existing = self.get_cab(clean)
                 if existing:
                     return existing
-            return super().find_file(name, is_dependency)
+            return None
     # Group by bundle to avoid reloading it for every prefab in the same batch.
     jobs = []
     for uid in sorted(set(ids)):
@@ -346,7 +368,14 @@ def extract_batch(UnityPy, install, cache, ids):
                 if bundle != current_bundle:
                     env = LocalEnvironment(str(path))
                     current_bundle = bundle
-                reader = next((o for o in env.objects if o.path_id == path_id and o.assets_file.name == file_name), None)
+                if file_name.startswith('@scene:'):
+                    data=env.get_cab('BuildPlayer-'+file_name[7:])
+                    reader=next((o for o in data.objects.values() if o.type.name=='GameObject' and o.read().m_Name.lower()==asset_path.lower()),None) if data else None
+                else:
+                    # Parse only the requested serialized node, even with an old
+                    # fully indexed catalog.
+                    data=env.get_cab(file_name)
+                    reader=data.objects.get(path_id) if data and hasattr(data,'objects') else None
                 if reader is None:
                     raise ValueError('Prefab object is no longer in the indexed bundle; rebuild the catalog')
                 warnings = export_prefab(env, reader, output, uid, asset_path,signature)
@@ -357,6 +386,14 @@ def extract_batch(UnityPy, install, cache, ids):
         except Exception as error:
             failures.append({'uid': uid, 'error': str(error)})
     return {'failures': failures, 'done': done}
+
+
+def index(install,cache,rustedit=None):
+    from ruster.assets.metadata import refresh
+    root=validate_install(install)
+    status(cache,state='CATALOG',current=0,total=1,item='Reading shipped prefab metadata')
+    result=refresh(root,cache,rustedit)
+    status(cache,state='READY',failures=0,current=1,total=1,**result)
 
 
 def extract(install, cache, ids):
@@ -392,6 +429,7 @@ def main():
     parser.add_argument('--bundle')
     parser.add_argument('--uid', type=int)
     parser.add_argument('--report')
+    parser.add_argument('--rustedit')
     parser.add_argument('--parent-pid', type=int)
     args = parser.parse_args()
     try:
@@ -407,7 +445,7 @@ def main():
             result = extract_one(args.install, args.cache, args.uid)
             atomic_write(args.report, json.dumps(result).encode())
         elif args.action == 'index':
-            index(args.install, args.cache)
+            index(args.install, args.cache,args.rustedit)
         else:
             ids = json.loads(Path(args.ids_file).read_text())
             extract(args.install, args.cache, ids)

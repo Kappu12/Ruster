@@ -27,6 +27,7 @@ _session_dirs = []
 _pending_project = None
 _job_cancelled = False
 _pending_asset_ids=set()
+_job_ids=set()
 
 
 def category_items(state,context):
@@ -83,7 +84,7 @@ def worker_python():
 
 
 def start_job(action, ids=None):
-    global _job, _job_log, _job_action, _job_cancelled
+    global _job, _job_log, _job_action, _job_cancelled, _job_ids
     if _job is not None and _job.poll() is None:
         raise ValueError('An asset operation is already running')
     config = settings.load()
@@ -92,6 +93,7 @@ def start_job(action, ids=None):
     cache.mkdir(parents=True, exist_ok=True)
     args = [worker_python(), str(Path(__file__).parent / 'assets/worker.py'), action,
             '--install', str(root), '--cache', str(cache), '--parent-pid', str(os.getpid())]
+    if config.get('rustedit_install'):args+=['--rustedit',config['rustedit_install']]
     if ids is not None:
         ids_path = session_dir() / 'ids.json'
         ids_path.write_text(json.dumps(ids))
@@ -105,6 +107,7 @@ def start_job(action, ids=None):
     if _job_log:_job_log.close()
     _job_log,_job=job_log,job
     _job_action = action
+    _job_ids=set(ids or [])
     _job_cancelled = False
     bpy.context.scene.ruster.busy = True
     bpy.context.scene.ruster.asset_progress = 0
@@ -116,6 +119,9 @@ def start_job(action, ids=None):
 def request_assets(ids):
     ids=set(ids)
     if not ids:return
+    if len(ids|_pending_asset_ids)>100:
+        bpy.context.scene.ruster.asset_status='Load at most 100 different prefab models per request'
+        return False
     _pending_asset_ids.update(ids)
     if _job is not None and _job.poll() is None:return True
     pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
@@ -135,7 +141,7 @@ def redraw():
 
 
 def poll_job():
-    global _job, _job_log, _visual_queue, _job_action
+    global _job, _job_log, _visual_queue, _job_action, _job_ids
     state = bpy.context.scene.ruster
     progress = {}
     try:
@@ -148,7 +154,8 @@ def poll_job():
         if phase == 'ERROR':
             state.asset_status = progress.get('error', 'Asset operation failed')
         elif phase == 'READY':
-            state.asset_status = f"Assets ready · {progress.get('failures', 0)} reported issues"
+            if _job_action=='index':state.asset_status=f"{progress.get('ids',0):,} prefab names ready · models load on demand"
+            else:state.asset_status = f"Models ready · {progress.get('failures', 0)} reported issues"
         else:
             state.asset_status = f"{phase.title()} {progress.get('current', 0)}/{progress.get('total', '?')} · {progress.get('item', '')}"
     except (OSError, ValueError):
@@ -167,20 +174,18 @@ def poll_job():
     elif code and progress.get('state') != 'ERROR':
         state.asset_status = 'Asset import failed — see the asset report / worker.log'
     action, _job_action = _job_action, None
-    if not code and action == 'index' and state.mode == 'MAP' and scene.prefab_roots():
-        try:
-            start_job('extract', [int(o['ruster_uid']) for o in scene.prefab_roots()])
-            return .5
-        except Exception as error:
-            state.asset_status = str(error)
+    completed_ids,_job_ids=_job_ids,set()
+    if action=='extract' and not _job_cancelled:
+        waiting=set(_visual_queue)
+        _visual_queue.extend(obj.name for obj in scene.prefab_roots()
+                             if int(obj['ruster_uid']) in completed_ids and obj.name not in waiting)
+        if _visual_queue and not bpy.app.timers.is_registered(load_visuals):
+            bpy.app.timers.register(load_visuals,first_interval=.1)
     if not _job_cancelled and _pending_asset_ids:
         pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
         try:
             start_job('extract',pending);return .5
         except Exception as error:state.asset_status=str(error)
-    _visual_queue = [obj.name for obj in scene.prefab_roots()]
-    if not bpy.app.timers.is_registered(load_visuals):
-        bpy.app.timers.register(load_visuals, first_interval=.1)
     redraw()
     return None
 
@@ -209,11 +214,9 @@ class RUSTER_OT_setup(bpy.types.Operator):
 
     def invoke(self, context, event):
         state=context.window_manager.ruster_preferences
-        state.directory=settings.load().get('rust_install','')
-        try:settings.validate_install(state.directory)
-        except (OSError,ValueError,RuntimeError):
-            from .core.steam import detect_install
-            if detected:=detect_install():state.directory=str(detected)
+        from .core.steam import resolve_install
+        root=resolve_install(settings.load().get('rust_install',''))
+        state.directory=str(root) if root else ''
         return bpy.ops.ruster.preferences('INVOKE_DEFAULT',section='RUSTER_ASSETS')
 
     def execute(self, context):
@@ -303,12 +306,6 @@ def open_path(path):
         scene.import_map(path)
         from . import ui
         ui.map_workspace()
-        config = settings.load()
-        if config.get('rust_install') and not bpy.context.scene.ruster.busy:
-            try:
-                start_job('extract', [int(o['ruster_uid']) for o in scene.prefab_roots()])
-            except Exception as error:
-                bpy.context.scene.ruster.asset_status = str(error)
     elif path.suffix.lower() == '.ruster':
         directory = session_dir()
         manifest = project.unpack(path, directory)
@@ -467,7 +464,8 @@ class RUSTER_OT_validate(bpy.types.Operator):
 
 class RUSTER_OT_assets(bpy.types.Operator):
     bl_idname = 'ruster.assets'
-    bl_label = 'Load Map Assets'
+    bl_label = 'Load Selected Models'
+    bl_description = 'Load selected prefab models, or refresh names when nothing is selected'
     rebuild: BoolProperty(default=False, options={'HIDDEN'})
 
     @classmethod
@@ -476,8 +474,10 @@ class RUSTER_OT_assets(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            start_job('index' if self.rebuild else 'extract',
-                      None if self.rebuild else [int(o['ruster_uid']) for o in scene.prefab_roots()])
+            from .placement import selected_prefabs
+            ids={int(o['ruster_uid']) for o in selected_prefabs()}
+            if self.rebuild or not ids:start_job('index')
+            elif not request_assets(ids):raise ValueError(context.scene.ruster.asset_status)
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -621,18 +621,18 @@ def startup():
         new_prefab()
     ui.start_workspace()
     config = settings.load()
-    try:
-        settings.validate_install(config.get('rust_install', ''))
-    except (OSError,ValueError,RuntimeError):
-        from .core.steam import detect_install
-        detected=detect_install()
-        if not detected:
-            bpy.context.scene.ruster.asset_status='Choose your Rust installation in Preferences > Rust Assets'
-        else:
-            config['rust_install']=str(detected)
-            settings.save(config)
+    from .core.steam import resolve_install
+    detected=resolve_install(config.get('rust_install',''))
+    if not detected:
+        bpy.context.scene.ruster.asset_status='Choose your Rust installation in Preferences > Rust Assets'
+    else:
+        if config.get('rust_install')!=str(detected):
+            config['rust_install']=str(detected);settings.save(config)
+        bpy.context.window_manager.ruster_preferences.directory=str(detected)
+        if (detected/'Bundles/AssetSceneManifest.json').is_file():
             try:start_job('index')
             except Exception as error:bpy.context.scene.ruster.asset_status=str(error)
+        else:bpy.context.scene.ruster.asset_status='Rust found; prefab scene manifest is missing'
     if _pending_project:
         try:
             pending, _pending_project = _pending_project, None

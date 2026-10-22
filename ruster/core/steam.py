@@ -85,7 +85,7 @@ def library_roots(roots):
     return result
 
 
-def detect_install(roots=None):
+def detect_install(roots=None, require_nonempty=False):
     """Return a validated game folder, or None. Never scans drives recursively."""
     candidates=[]
     if os.environ.get('RUST_INSTALL_PATH'):candidates.append(Path(os.environ['RUST_INSTALL_PATH']))
@@ -105,6 +105,23 @@ def detect_install(roots=None):
             key=str(candidate.resolve())
             if key in seen:continue
             seen.add(key)
-            return validate_install(candidate)
+            root=validate_install(candidate)
+            if require_nonempty and not real_executable(root):continue
+            return root
         except (OSError,ValueError,RuntimeError):continue
     return None
+
+
+def real_executable(root):
+    return any((root/name).is_file() and (root/name).stat().st_size>0
+               for name in ('RustClient.exe','Rust.exe','RustClient','Rust')) or (root/'Rust.app').is_dir()
+
+
+def resolve_install(configured='',roots=None):
+    """Keep a real configured game; reject empty executables used by test fixtures."""
+    if configured:
+        try:
+            root=validate_install(configured)
+            if real_executable(root):return root
+        except (OSError,ValueError,RuntimeError):pass
+    return detect_install(roots,require_nonempty=True)

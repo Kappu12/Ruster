@@ -80,7 +80,7 @@ def main():
                     '-r',str(ROOT/'requirements-mcp.txt')], check=True)
     executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
-    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py','blender_protection.py','blender_ui.py','blender_mcp.py','blender_maps.py','blender_generation.py','blender_studio.py'):
+    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py','blender_protection.py','blender_ui.py','blender_mcp.py','blender_maps.py','blender_generation.py','blender_studio.py','blender_catalog.py'):
         subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
                         '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
     python=next(p for p in sorted((output/'runtime').glob('*/python/bin/python*'))

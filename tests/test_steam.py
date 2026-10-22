@@ -16,6 +16,15 @@ def test_standard_steam_path_is_validated(tmp_path,monkeypatch):
     assert steam.detect_install([root]) is None
 
 
+def test_preview_fixture_never_masks_a_real_install(tmp_path,monkeypatch):
+    monkeypatch.delenv('RUST_INSTALL_PATH',raising=False)
+    preview=game(tmp_path/'preview')
+    real=game(tmp_path/'Steam/steamapps/common/Rust')
+    (real/'RustClient.exe').write_bytes(b'MZ-installed-game')
+    assert steam.resolve_install(str(preview),[tmp_path/'Steam'])==real
+    assert steam.resolve_install(str(real),[])==real
+
+
 def test_secondary_steam_library_and_manifest_name(tmp_path,monkeypatch):
     monkeypatch.delenv('RUST_INSTALL_PATH',raising=False)
     root=tmp_path/'Steam';apps=root/'steamapps';apps.mkdir(parents=True)

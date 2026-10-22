@@ -21,7 +21,10 @@ class BlockStream(io.RawIOBase):
         self.cached_index, self.cached = -1, b''
         offset = reader.Position
         for raw_size, packed_size, flags in blocks:
-            if not 0 < raw_size <= MAX_BLOCK or not 0 < packed_size <= MAX_BLOCK:
+            uncompressed = flags & 0x3f == 0
+            if uncompressed and raw_size != packed_size:
+                raise ValueError('Invalid uncompressed UnityFS block length')
+            if raw_size <= 0 or packed_size <= 0 or (not uncompressed and max(raw_size,packed_size) > MAX_BLOCK):
                 raise ValueError('UnityFS block exceeds the 16 MiB streaming limit')
             if offset + packed_size > data_end:
                 raise ValueError('UnityFS block extends beyond bundle data')
@@ -49,6 +52,17 @@ class BlockStream(io.RawIOBase):
         parts = []
         while size:
             index = bisect_right(self.starts, self.position) - 1
+            offset, packed, raw, flags = self.blocks[index]
+            inside = self.position - self.starts[index]
+            if flags & 0x3f == 0:
+                # Current Rust ships large raw blocks. Seeking within them needs
+                # no decompression or full-block allocation.
+                count = min(size, raw-inside)
+                self.reader.Position = offset+inside
+                chunk = self.reader.read_bytes(count)
+                if len(chunk)!=count:raise ValueError('Truncated uncompressed UnityFS block')
+                parts.append(chunk);self.position+=count;size-=count
+                continue
             if index != self.cached_index:
                 self.cached = b''  # Release the previous block before allocating another.
                 offset, packed, raw, flags = self.blocks[index]
@@ -97,16 +111,42 @@ class SliceStream(io.RawIOBase):
 
 
 @contextmanager
-def streamed_bundles():
+def streamed_bundles(node_filter=None,skip_containers=False):
     import UnityPy
     from UnityPy.enums import ArchiveFlags, ArchiveFlagsOld
     from UnityPy.files import BundleFile, SerializedFile
     from UnityPy.helpers import ImportHelper
     from UnityPy.streams import EndianBinaryReader
+    from UnityPy.files.ObjectReader import ObjectReader
 
     streams = []
     original_fs, original_files = BundleFile.read_fs, BundleFile.read_files
     original_legacy = BundleFile.read_web_raw
+    original_parse = ObjectReader.parse_as_object
+
+    def parse_object(reader,*args,**kwargs):
+        if skip_containers and reader.type.name=='AssetBundle':
+            # Extraction already has the exact scene/path or object ID. UnityPy
+            # otherwise eagerly builds a multi-million-pointer container here.
+            from types import SimpleNamespace
+            return SimpleNamespace(m_PreloadTable=[],m_Container=[])
+        return original_parse(reader,*args,**kwargs)
+
+    class LazyNode:
+        is_dependency=True
+        files={}
+        def __init__(self,reader,parent,name):
+            self.reader,self.parent,self.name=reader,parent,name
+            self.parsed=None
+        def load(self):
+            if self.parsed is None:
+                self.reader.Position=0
+                self.parsed=ImportHelper.parse_file(self.reader,self.parent,self.name,is_dependency=True)
+                self.parsed.flags=self.flags
+                self.parent.files[self.name]=self.parsed
+                if self.parent.environment:self.parent.environment.register_cab(self.name,self.parsed)
+            return self.parsed
+        def __getattr__(self,name):return getattr(self.load(),name)
 
     def read_fs(bundle, reader):
         declared_size = reader.read_long()
@@ -151,8 +191,13 @@ def streamed_bundles():
     def read_files(bundle, stream, nodes):
         for node in nodes:
             reader = EndianBinaryReader(SliceStream(stream, node.offset, node.size))
-            parsed = ImportHelper.parse_file(reader, bundle, node.path, is_dependency=bundle.is_dependency)
-            if isinstance(parsed, (EndianBinaryReader, SerializedFile)) and bundle.environment:
+            if node_filter is not None and not node_filter(node.path):
+                parsed = reader
+                if not node.path.lower().endswith(('.ress','.resource')):
+                    parsed = LazyNode(reader,bundle,node.path)
+            else:
+                parsed = ImportHelper.parse_file(reader, bundle, node.path, is_dependency=bundle.is_dependency)
+            if isinstance(parsed, (EndianBinaryReader, SerializedFile, LazyNode)) and bundle.environment:
                 bundle.environment.register_cab(node.path, parsed)
             parsed.flags = getattr(node, 'flags', 0)
             bundle.files[node.path] = parsed
@@ -162,9 +207,11 @@ def streamed_bundles():
 
     BundleFile.read_fs, BundleFile.read_files = read_fs, read_files
     BundleFile.read_web_raw = reject_legacy
+    ObjectReader.parse_as_object=parse_object
     try:
         yield UnityPy
     finally:
         BundleFile.read_fs, BundleFile.read_files = original_fs, original_files
         BundleFile.read_web_raw = original_legacy
+        ObjectReader.parse_as_object=original_parse
         for stream in streams:stream.close()

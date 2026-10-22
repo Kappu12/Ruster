@@ -18,7 +18,7 @@ from ruster.core import settings
 
 game = Path(temporary.name) / 'Rust'
 (game / 'Bundles').mkdir(parents=True)
-(game / 'RustClient.exe').touch()
+(game / 'RustClient.exe').write_bytes(b'MZ-test-fixture')
 settings.save({'rust_install': str(game)})
 runpy.run_path(str(distribution / 'bootstrap.py'))
 from ruster import app, ui, studio

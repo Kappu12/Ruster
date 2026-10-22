@@ -41,7 +41,7 @@ still need validation against an installed game and a live test server.
 | Paths | Create/edit road, river, rail and powerline polylines; extend/delete nodes with Blender curve tools |
 | Path settings | Width, padding, fades, offsets, flags, splat/topology masks; preserve unknown fields |
 | Path grading | Grade terrain, road splat/topology, river bed/water, terrain snapping |
-| Local assets | Unity bundle catalog, explicit prefab IDs, dependency resolution, hierarchy and triangle mesh conversion |
+| Local assets | Fast catalog from current game scene manifest and installed RustEdit string pool; no full object index; on-demand scene/dependency resolution, explicit IDs, hierarchy and mesh conversion; selected model requests capped at 100 IDs |
 | Materials | Base color/textures, UV tiling/offset, common metallic/roughness/alpha properties |
 | LOD | Select the first nonempty authored LOD rather than drawing overlapping LOD meshes |
 | Asset updates | Bundle/dependency cache invalidation, refresh existing visuals, cancel background work, reports |

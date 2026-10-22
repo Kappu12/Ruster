@@ -46,8 +46,12 @@ def after_load(_dummy):
     if hasattr(bpy.context.window_manager,'ruster_preferences'):
         state=bpy.context.window_manager.ruster_preferences
         state.section=bpy.context.preferences.active_section
-        state.directory=settings.load().get('rust_install','')
+        root=steam.resolve_install(settings.load().get('rust_install',''))
+        state.directory=str(root) if root else ''
         state.dedicated=settings.load().get('rust_dedicated','')
+        from .assets.metadata import rustedit_root
+        root=rustedit_root(settings.load().get('rustedit_install'))
+        state.rustedit=str(root) if root else ''
         subscribe()
 
 
@@ -60,6 +64,20 @@ class RUSTER_PG_preferences(bpy.types.PropertyGroup):
     section:EnumProperty(items=SECTIONS,name='Preferences Section',options={'SKIP_SAVE'},update=changed)
     directory:StringProperty(name='Rust Installation',description='Game folder containing the Rust executable and Bundles folder',subtype='DIR_PATH',options={'SKIP_SAVE'})
     dedicated:StringProperty(name='RustDedicated',description='Optional local server executable used only for procedural map generation',subtype='FILE_PATH',options={'SKIP_SAVE'})
+    rustedit:StringProperty(name='RustEdit Folder',description='Read the locally installed prefab string pool; no models are loaded',subtype='DIR_PATH',options={'SKIP_SAVE'})
+
+
+class RUSTER_OT_catalog_source(bpy.types.Operator):
+    bl_idname='ruster.catalog_source'
+    bl_label='Apply Catalog Source'
+    def execute(self,context):
+        from .assets.metadata import rustedit_root
+        root=rustedit_root(bpy.path.abspath(context.window_manager.ruster_preferences.rustedit))
+        if not root:self.report({'ERROR'},'Choose RustEdit folder containing stringpool.txt');return {'CANCELLED'}
+        config=settings.load();config['rustedit_install']=str(root);settings.save(config)
+        context.window_manager.ruster_preferences.rustedit=str(root)
+        try:app.start_job('index');return {'FINISHED'}
+        except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 
 
 class RUSTER_OT_generator_install(bpy.types.Operator):
@@ -100,10 +118,10 @@ class RUSTER_OT_detect_install(bpy.types.Operator):
     bl_description='Check standard Steam paths and secondary Steam libraries'
     def execute(self,context):
         try:
-            path=steam.detect_install()
+            path=steam.detect_install(require_nonempty=True)
             if path is None:raise ValueError('Rust was not found in your Steam libraries. Choose its installation folder.')
             context.window_manager.ruster_preferences.directory=str(path)
-            self.report({'INFO'},'Rust found. Apply the installation to load its assets.');return {'FINISHED'}
+            self.report({'INFO'},'Rust found. Apply the installation to read its prefab catalog.');return {'FINISHED'}
         except (OSError,ValueError,RuntimeError) as error:
             self.report({'ERROR'},str(error));return {'CANCELLED'}
 
@@ -142,15 +160,19 @@ class RUSTER_PT_preferences_assets(RustPreferences,CenterAlignMixIn,bpy.types.Pa
             action(row,'ruster.assets',text='Refresh Catalog',icon='refresh').rebuild=True
         action(layout,'ruster.asset_report')
         layout.separator()
+        fields=properties(layout.column());fields.prop(state,'rustedit')
+        layout.operator('ruster.catalog_source')
+        wrapped(layout,context,'Browsing reads the shipped scene manifest and local RustEdit string pool. Models load only when requested; no full bundle index runs.',width=width)
+        layout.separator()
         wrapped(layout,context,'Asset cache: '+str(scene.cache_dir()),width=width)
         wrapped(layout,context,'Rust installation changes are saved when you click Apply Installation.',width=width)
         layout.separator()
-        layout.label(text='Procedural Map Generator',icon=I['generate'])
+        layout.label(text='Optional RustDedicated Generator',icon=I['generate'])
         fields=properties(layout.column());fields.prop(state,'dedicated')
         row=fields.row(align=True);row.operator_context='EXEC_DEFAULT'
         row.operator('ruster.generator_install',text='Apply Generator')
         row.operator('ruster.generator_install',text='Find in Steam',icon=I['search']).detect=True
-        wrapped(layout,context,'Optional Rust Dedicated Server (Steam app 258550). Auto-detected when possible. The Rust client does not include this backend. No server binaries or game files are bundled or downloaded.',width=width)
+        wrapped(layout,context,'This optional backend uses RustDedicated. RustEdit runs its procedural generator inside Unity; that engine is not yet integrated here. No server starts for browsing or prefab editing.',width=width)
 
 
 class RUSTER_PT_preferences_mcp(RustPreferences,CenterAlignMixIn,bpy.types.Panel):
@@ -162,12 +184,17 @@ class RUSTER_PT_preferences_mcp(RustPreferences,CenterAlignMixIn,bpy.types.Panel
 def register():
     global _original_navigation
     from .ui import refresh_panels
-    for cls in (RUSTER_PG_preferences,RUSTER_OT_preferences,RUSTER_OT_detect_install,RUSTER_OT_generator_install,RUSTER_PT_preferences_assets,RUSTER_PT_preferences_mcp):
+    for cls in (RUSTER_PG_preferences,RUSTER_OT_catalog_source,RUSTER_OT_preferences,RUSTER_OT_detect_install,RUSTER_OT_generator_install,RUSTER_PT_preferences_assets,RUSTER_PT_preferences_mcp):
         bpy.utils.register_class(cls);_classes.append(cls)
     bpy.types.WindowManager.ruster_preferences=PointerProperty(type=RUSTER_PG_preferences)
     state=bpy.context.window_manager.ruster_preferences
-    state.section=bpy.context.preferences.active_section;state.directory=settings.load().get('rust_install','')
+    state.section=bpy.context.preferences.active_section
+    detected_game=steam.resolve_install(settings.load().get('rust_install',''))
+    state.directory=str(detected_game) if detected_game else ''
     state.dedicated=settings.load().get('rust_dedicated','')
+    from .assets.metadata import rustedit_root
+    detected_editor=rustedit_root(settings.load().get('rustedit_install'))
+    state.rustedit=str(detected_editor) if detected_editor else ''
     _original_navigation=bpy.types.USERPREF_PT_navigation_bar.draw
     bpy.types.USERPREF_PT_navigation_bar.draw=navigation
     # The native editor's active_section enum is defined by Blender's RNA.

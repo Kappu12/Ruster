@@ -69,7 +69,7 @@ ACTIONS={
     'ruster.mask_import':('Import Layer Mask…','import'),
     'ruster.mask_export':('Export Layer Mask…','export'),
     'ruster.validate':('Validate Map','validate'),
-    'ruster.assets':('Load Rust Assets','import'),
+    'ruster.assets':('Load Selected Models','import'),
     'ruster.cancel_assets':('Cancel Asset Loading','cancel'),
     'ruster.asset_report':('Asset Report','report'),
     'ruster.terrain_apply':('Apply Brush at Cursor','cursor'),

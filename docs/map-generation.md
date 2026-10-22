@@ -8,6 +8,12 @@ unsaved-work confirmation.
 
 ## Backend and installation
 
+The installed RustEdit 1.2.19 runs its procedural components **inside Unity**;
+it does not use RustDedicated for that workflow. See the
+[installed-runtime findings](rustedit-runtime.md). The backend described below
+is Ruster's separate optional implementation, and does not establish RustEdit
+generation parity.
+
 Ruster looks for **Rust Dedicated Server**, Steam app 258550, in standard Steam
 libraries and their app manifests. A custom/SteamCMD installation can be selected
 in the existing **Blender Preferences → Rust Assets → Procedural Map Generator**
