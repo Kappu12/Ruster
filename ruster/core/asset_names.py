@@ -48,6 +48,17 @@ def display_name(path):
     return name
 
 
+def menu_label(path):
+    """Compact native-search aliases, without exposing source paths or ID hashes."""
+    name=display_name(path)
+    stem=PurePosixPath(path).stem.casefold()
+    if '/ioslothandles/' in path.casefold() and stem in IO_NAMES:
+        words=set(re.findall(r'\w+',name.casefold()))
+        aliases=' '.join(word for word in IO_NAMES[stem][1].split() if word.casefold() not in words)
+        if aliases:name+=' — '+aliases
+    return name
+
+
 @lru_cache(maxsize=32768)
 def search_name(path):
     """Small cached catalog labels only; no model, texture or bundle reads."""

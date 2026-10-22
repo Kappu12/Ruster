@@ -17,10 +17,9 @@ from .core.rust_map import prefab_transform, update_transform
 from .core.rustedit_prefab import RustEditPrefab
 
 _classes, _keymaps = [], []
-_search_cache = {}
-_search_items = [('NONE', 'No matching local prefabs — adjust the browser filters', '')]
-SEARCH_PAGE_SIZE = 10
-SEARCH_CACHE_LIMIT = 16
+_menu_cache = {}
+MENU_CACHE_LIMIT = 2
+_category_menus = {}
 _model_items = []
 
 # Scalar settings verified against the installed SerializedIOEntity contract.
@@ -236,114 +235,87 @@ def export_prefab(path, selected=True):
     atomic_write(Path(path).with_suffix('.prefab'), source.write())
 
 
-def search_results(operator, context):
-    """Bounded metadata pages; retain enum strings while native controls use them."""
-    path = scene.cache_dir() / 'catalog.sqlite3'
+def prefab_menu_data(context, category=''):
+    """One small metadata snapshot per native menu, never model/bundle data."""
+    from .core import palettes, settings
+    from .core.asset_names import display_name, menu_label, IO_SEARCH_ORDER
     state=(context or bpy.context).scene.ruster
-    query=getattr(operator,'query','')
-    page=max(0,getattr(operator,'page',1)-1)
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else 0,
-           operator.category,state.include_helpers,state.available_only,query.casefold(),page)
-    if key not in _search_cache:
-        data = catalog.page(scene.cache_dir(),query=query,page_index=page,page_size=SEARCH_PAGE_SIZE,
-                            category=operator.category,include_helpers=state.include_helpers,
-                            available_only=state.available_only)
-        from .core.asset_names import display_name
-        items = [(str(uid), display_name(path_), path_ + '\nID: ' + str(uid))
-                 for uid, path_, _available in data['rows']]
-        data['items']=items or _search_items
-        _search_cache[key] = data
-    result=_search_cache.pop(key)
-    _search_cache[key]=result
-    while len(_search_cache)>SEARCH_CACHE_LIMIT:
-        del _search_cache[next(iter(_search_cache))]
-    return result
+    path=scene.cache_dir()/'catalog.sqlite3'
+    favorites=frozenset(palettes.favorite_ids(settings.load()))
+    # Shift+A is the complete catalog, independent of sidebar category/helper
+    # filters. Explicit category entry points keep their local-availability filter.
+    available_only=state.available_only if category and category!='@ALL_ASSETS' else False
+    key=(str(path),path.stat().st_mtime_ns if path.exists() else 0,category,available_only,favorites)
+    if key not in _menu_cache:
+        rows=catalog.search(scene.cache_dir(),limit=-1,category=category,
+                            include_helpers=True,available_only=available_only)
+        rows.sort(key=lambda row:(row[0] not in favorites,display_name(row[1]).casefold(),row[0]))
+        items=[]
+        for uid,source,available in rows:
+            stem=Path(source).stem.casefold()
+            rank=IO_SEARCH_ORDER.index(stem) if '/ioslothandles/' in source.casefold() and stem in IO_SEARCH_ORDER else None
+            weight=1000-rank*50 if rank is not None else (20 if uid in favorites else 0)
+            icon='SOLO_ON' if uid in favorites else 'MESH_CUBE' if available else 'QUESTION'
+            items.append((str(uid),menu_label(source),source,weight,icon))
+        _menu_cache[key]={'items':items,'total':len(items)}
+    data=_menu_cache.pop(key);_menu_cache[key]=data
+    while len(_menu_cache)>MENU_CACHE_LIMIT:
+        del _menu_cache[next(iter(_menu_cache))]
+    return data
 
 
 def search_items(operator, context):
-    return search_results(operator,context)['items']
+    """Compatibility metadata adapter for callers inspecting the Add catalog."""
+    data=prefab_menu_data(context,getattr(operator,'category',''))
+    if 'enum_items' not in data:
+        data['enum_items']=[(uid,name,path+'\nID: '+uid) for uid,name,path,_weight,_icon in data['items']]
+    return data['enum_items'] or [('NONE','No local catalog — select a Rust installation','')]
 
 
-def search_query_changed(operator, context):
-    operator.page=1
-    operator.prefab=search_items(operator,context)[0][0]
-
-
-def search_page_changed(operator, context):
-    result=search_results(operator,context)
-    page=result['page']+1
-    if operator.page!=page:
-        operator.page=page
-    else:
-        operator.prefab=result['items'][0][0]
+def draw_prefab_menu(menu, context, category=''):
+    layout=menu.layout
+    if context.mode!='OBJECT':
+        layout.label(text='Finish editing before adding prefabs')
+        return
+    layout.operator_context='EXEC_DEFAULT'
+    data=prefab_menu_data(context,category)
+    if not data['items']:
+        layout.label(text='Select a Rust installation in Assets preferences',icon='INFO')
+        return
+    for uid,name,_source,weight,icon in data['items']:
+        layout.operator('ruster.place',text=name,icon=icon,search_weight=weight).uid=uid
 
 
 class RUSTER_OT_add_prefab(bpy.types.Operator):
     bl_idname = 'ruster.add_prefab'
     bl_label = 'Add Rust Prefab'
     category: StringProperty(default='',options={'SKIP_SAVE'})
-    query: StringProperty(name='Search Rust Prefabs',options={'SKIP_SAVE','TEXTEDIT_UPDATE'},
-                          update=search_query_changed)
-    page: IntProperty(name='Page',default=1,min=1,options={'SKIP_SAVE'},update=search_page_changed)
-    prefab: EnumProperty(name='Results',items=search_items,options={'SKIP_SAVE'})
 
     def invoke(self, context, event):
-        self.query=''
-        self.page=1
-        self.prefab=search_items(self,context)[0][0]
-        return context.window_manager.invoke_props_dialog(self,width=560,confirm_text='Add')
-
-    def draw(self, context):
-        from .core.asset_categories import LABELS
-        layout=self.layout
-        label=LABELS.get(self.category.removeprefix('@'),self.category) if self.category else 'All Rust Prefabs'
-        layout.label(text=label,icon='OUTLINER_COLLECTION')
-        field=layout.column();field.activate_init=True
-        field.prop(self,'query',text='',icon='VIEWZOOM')
-        data=search_results(self,context)
-        results=layout.column(align=True)
-        if data['items'][0][0]=='NONE':
-            results.label(text='No matching prefabs',icon='INFO')
-        else:
-            for identifier,name,_description in data['items']:
-                results.prop_enum(self,'prefab',identifier,text=name)
-        row=layout.row(align=True)
-        row.enabled=data['pages']>1
-        row.prop(self,'page',text='Page')
-        row.label(text=f"of {max(1,data['pages'])} · {data['total']:,} matches")
-        state=context.scene.ruster
-        helpers=state.include_helpers or self.category in ('@EFFECTS','@GAMEPLAY','@HIDDEN','@ALL_ASSETS')
-        layout.label(text=('Available locally' if state.available_only else 'All catalog entries')+
-                          (' · helpers included' if helpers else ' · helper effects hidden'))
-
-    def check(self, context):
-        if self.prefab not in {item[0] for item in search_items(self,context)}:
-            self.prefab=search_items(self,context)[0][0]
-        return True
+        menu=_category_menus.get(self.category) if self.category else RUSTER_MT_add
+        if menu is None:
+            self.report({'ERROR'},'Unknown Rust prefab category')
+            return {'CANCELLED'}
+        return bpy.ops.wm.call_menu(name=menu.__name__)
 
     def execute(self, context):
-        if self.prefab == 'NONE':return {'CANCELLED'}
-        return bpy.ops.ruster.place(uid=self.prefab)
+        return self.invoke(context,None)
 
 
 class RUSTER_MT_add(bpy.types.Menu):
-    bl_label = 'Add Rust Prefab'
+    bl_label = 'Add'
+    bl_options = {'SEARCH_ON_KEY_PRESS'}
+
     def draw(self, context):
-        layout = self.layout
-        if context.mode != 'OBJECT':
-            layout.label(text='Finish editing path nodes before adding prefabs')
-            return
-        layout.operator_context = 'INVOKE_DEFAULT'
-        layout.operator('ruster.add_prefab', text='Search Rust Prefabs…', icon='VIEWZOOM').category=''
-        layout.operator('ruster.add_prefab', text='Dev Cubes & Primitives…', icon='MESH_CUBE').category='@DEVELOPMENT'
-        layout.operator('ruster.add_prefab', text='Hidden & IO Helpers…', icon='LIGHT').category='@HIDDEN'
-        layout.operator('ruster.add_prefab', text='Search All Assets (Including Hidden)…', icon='VIEWZOOM').category='@ALL_ASSETS'
-        layout.separator()
-        for key, label, _patterns in GROUPS:
-            if key in ('DEVELOPMENT','HIDDEN','ALL_ASSETS'):continue
-            layout.operator('ruster.add_prefab', text=label).category = '@' + key
-        layout.separator()
-        layout.operator('ruster.assets', text='Refresh Prefab Catalog', icon='IMPORT').rebuild=True
+        draw_prefab_menu(self,context)
+
+
+def category_menu(key, label):
+    def draw(self, context):
+        draw_prefab_menu(self,context,'@'+key)
+    return type('RUSTER_MT_add_'+key,(bpy.types.Menu,),
+                {'__module__':__name__,'bl_label':label,
+                 'bl_options':{'SEARCH_ON_KEY_PRESS'},'draw':draw})
 
 
 class RUSTER_OT_prefab_import(bpy.types.Operator, ImportHelper):
@@ -402,11 +374,18 @@ class RUSTER_OT_edit_mode(bpy.types.Operator):
 
 
 def register():
-    classes = [RUSTER_OT_io_settings, RUSTER_OT_add_prefab, RUSTER_MT_add, RUSTER_OT_prefab_import,
+    _category_menus.update(('@'+key,category_menu(key,label)) for key,label,_patterns in GROUPS)
+    classes = [RUSTER_OT_io_settings, RUSTER_OT_add_prefab, RUSTER_MT_add, *_category_menus.values(), RUSTER_OT_prefab_import,
                RUSTER_OT_prefab_export, RUSTER_OT_model_export, RUSTER_OT_edit_mode]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
+        view_keymap = config.keymaps.new(name='3D View', space_type='VIEW_3D')
+        walk = view_keymap.keymap_items.new('view3d.walk', 'F', 'PRESS', shift=True)
+        _keymaps.append((view_keymap, walk))
+        add = view_keymap.keymap_items.new('wm.call_menu', 'A', 'PRESS', shift=True)
+        add.properties.name = 'RUSTER_MT_add'
+        _keymaps.append((view_keymap, add))
         keymap = config.keymaps.new(name='Object Mode', space_type='EMPTY')
         item = keymap.keymap_items.new('wm.call_menu', 'A', 'PRESS', shift=True)
         item.properties.name = 'RUSTER_MT_add';_keymaps.append((keymap, item))
@@ -420,8 +399,9 @@ def register():
 
 
 def unregister():
-    _search_cache.clear()
+    _menu_cache.clear()
     for keymap, item in _keymaps:keymap.keymap_items.remove(item)
     _keymaps.clear()
     for cls in reversed(_classes):bpy.utils.unregister_class(cls)
     _classes.clear()
+    _category_menus.clear()

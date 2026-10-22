@@ -32,11 +32,14 @@ no game binaries or game assets are distributed in this repository.
 
 ## Compose and save
 
-Use **Shift+A** or the Prefab Browser to search categories and place models at the
-3D cursor. Searches accept descriptive words in any order; favorites, local
-availability, full-path/ID tooltips and paginated results help locate assets.
+Press **Shift+A** for Blender's native Add menu with the complete prefab catalog.
+Start typing immediately, then press Enter once to place a result at the 3D
+cursor. Names and IO aliases match regardless of capitalization or word order.
+The Prefab Browser also offers categories, favorites, local availability,
+full-path/ID tooltips and paginated results.
 Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placements
-can be grouped, duplicated, replaced and removed. The authoring plane is Z=0.
+can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
+Navigation. The authoring plane is Z=0.
 
 The **left toolbar** includes **Object Snap** (magnet) and **Radial Symmetry**
 (array) toggles, each with a settings popover below it. Snap Settings offers
@@ -47,11 +50,12 @@ to the chosen world angles. `Ctrl` temporarily toggles native snapping.
 Enable Radial Symmetry before adding a prefab to create **2–16 sides** (including
 the original), rotated around the vertical Z axis through the world center
 `(0, 0, 0)` by default. Set another center numerically or with **Center at 3D
-Cursor**. Move, rotate or scale the original and its copies follow; selecting a
-copy offers **Select Symmetry Original**. **Make Symmetry Set Independent** keeps
-the placements and unlinks them for individual editing. Settings apply to new
+Cursor**. While symmetry is enabled, move, rotate or scale **any member** and the
+other members follow radially. Deleting any member removes that entire set.
+Turn symmetry off to edit or delete individual placements, or use **Make
+Symmetry Set Independent** to unlink them permanently. Settings apply to new
 sets; existing sets retain their center and side count. Placement is one undo
-step, and saved `.ruster` projects retain the live symmetry sets.
+step, and saved `.ruster` projects retain the symmetry sets.
 
 Original mesh and material data remain protected linked libraries. Transform
 whole placements or groups; model exports use temporary realized copies. A
@@ -59,8 +63,8 @@ wireframe box identifies a placement awaiting its model and disappears when the
 original linked model attaches. IDs, transforms and interchange data remain
 independent of that display box. Errors and cancellation appear in asset status.
 
-**Shift+A → Hidden & IO Helpers** and **Search All Assets (Including Hidden)**
-expose internal assets. Search `cyan tube` or `glowing hose` for **IO Hose Tube
+**Shift+A** includes hidden helpers and unavailable catalog entries, regardless
+of the sidebar's current filters. Search `cyan tube` or `glowing hose` for **IO Hose Tube
 Pending (Cyan Glow)**. Its original Rust renderer is a small cyan emissive Cube;
 authored placement scaling creates the long Maze strips. All eight IO hose/wire
 handle variants were checked against their original local geometry and materials.
@@ -180,15 +184,16 @@ Windows startup errors are logged in `%LOCALAPPDATA%\Ruster\logs\startup.log`.
 ```text
 python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
 python -m pytest -q
-blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_prefab_product.py
-blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_placeholders.py
-blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_prefab_transforms.py
-blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_construction.py
-blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_mcp.py
+python tools/native_checks.py --engine /absolute/path/to/blender --suite background
+python tools/native_checks.py --engine /absolute/path/to/blender --suite graphical
 python tests/mcp_stdio_smoke.py /absolute/path/to/packaged/Ruster
 ```
 
-Run the last command with the package's Python/dependencies available. The
+CI and packaging share the background suite. Graphical checks use disposable
+Blender processes and synthetic assets; Linux CI adds `--xvfb` for a virtual
+display. Set `RUSTER_TEST_PYTHON` to the interpreter with `requirements-mcp.txt`
+installed for the graphical MCP client. Run the last command with the package's
+Python/dependencies available. The
 opt-in `tests/blender_hidden_assets.py -- PATH_TO_ASSET_CACHE` checks all eight
 previously converted original IO variants in an isolated temporary profile; it
 does not scan or redistribute game assets. Legacy world-editor tests remain in

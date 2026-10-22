@@ -1,6 +1,6 @@
 from contextlib import closing
 from ruster.assets import catalog
-from ruster.core.asset_names import display_name
+from ruster.core.asset_names import display_name,menu_label,IO_NAMES
 import pytest
 
 
@@ -69,3 +69,15 @@ def test_every_displayed_sound_word_matches_in_any_order_and_case(tmp_path):
     assert 'effect' not in path and 'effect' in display_name(path)
     for query in ('sound effect','effect sound','EFFECT SOUND','(Sound effect)','effect deploy target'):
         assert [row[0] for row in catalog.search(tmp_path,query)]==[1188595389],query
+
+
+def test_native_menu_labels_keep_names_and_compact_readable_aliases():
+    for stem,(_name,aliases) in IO_NAMES.items():
+        path=f'assets/prefabs/tools/wire/ioslothandles/{stem}.prefab'
+        label=menu_label(path)
+        assert label.startswith(display_name(path))
+        assert all(word.casefold() in label.casefold() for word in aliases.split())
+        assert '_' not in label and '/' not in label and '.prefab' not in label
+        assert len(label)<100
+    path='assets/bundled/prefabs/modding/cubes/tiled/cube_tiled_dev_01.prefab'
+    assert menu_label(path)=='Dev Cube Tiled 01'

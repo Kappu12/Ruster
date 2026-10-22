@@ -95,6 +95,16 @@ def run():
             db.commit()
         class Search:category='@DEVELOPMENT'
         assert studio.search_items(Search(),None)[0][1]=='Dev Cube Tiled 01'
+        # Shift+A is a native complete list, independent of sidebar filters.
+        state=bpy.context.scene.ruster
+        state.include_helpers=False;state.available_only=True
+        menu=studio.prefab_menu_data(None)
+        assert {'42','43','44'}<={item[0] for item in menu['items']}
+        assert 'SEARCH_ON_KEY_PRESS' in studio.RUSTER_MT_add.bl_options
+        assert 'query' not in studio.RUSTER_OT_add_prefab.bl_rna.properties
+        for category in ('@HIDDEN','@ALL_ASSETS','@DEVELOPMENT'):
+            studio.prefab_menu_data(None,category)
+        assert len(studio._menu_cache)<=studio.MENU_CACHE_LIMIT
         cache=scene.cache_dir()/'prefabs';cache.mkdir()
         (cache/'42.json.gz').write_bytes(gzip.compress(json.dumps({'schema':1,'marker':'SOUND','meshes':{},
             'path':'assets/test/sound/trigger.prefab'}).encode()))

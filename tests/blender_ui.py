@@ -52,6 +52,9 @@ def run():
             keymap=bpy.context.window_manager.keyconfigs.addon.keymaps['Object Mode']
             assert any(k.type=='SPACE' and k.idname=='ruster.commands' for k in keymap.keymap_items)
             assert any(k.type=='A' and k.shift and k.properties.name=='RUSTER_MT_add' for k in keymap.keymap_items if k.idname=='wm.call_menu')
+            navigation=bpy.context.window_manager.keyconfigs.addon.keymaps['3D View']
+            assert any(k.idname=='view3d.walk' and k.type=='F' and k.value=='PRESS' and k.shift
+                       and not k.ctrl and not k.alt for k in navigation.keymap_items)
             pref_state=bpy.context.window_manager.ruster_preferences
             pref_state.section='RUSTER_MCP'
             assert preferences.is_rust(bpy.context) and preferences.RUSTER_PT_preferences_mcp.poll(bpy.context)
