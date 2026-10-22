@@ -47,6 +47,7 @@ def after_load(_dummy):
         state=bpy.context.window_manager.ruster_preferences
         state.section=bpy.context.preferences.active_section
         state.directory=settings.load().get('rust_install','')
+        state.dedicated=settings.load().get('rust_dedicated','')
         subscribe()
 
 
@@ -58,6 +59,22 @@ def navigation(self,context):
 class RUSTER_PG_preferences(bpy.types.PropertyGroup):
     section:EnumProperty(items=SECTIONS,name='Preferences Section',options={'SKIP_SAVE'},update=changed)
     directory:StringProperty(name='Rust Installation',description='Game folder containing the Rust executable and Bundles folder',subtype='DIR_PATH',options={'SKIP_SAVE'})
+    dedicated:StringProperty(name='RustDedicated',description='Optional local server executable used only for procedural map generation',subtype='FILE_PATH',options={'SKIP_SAVE'})
+
+
+class RUSTER_OT_generator_install(bpy.types.Operator):
+    bl_idname='ruster.generator_install'
+    bl_label='Apply Generator Installation'
+    detect: bpy.props.BoolProperty(default=False,options={'SKIP_SAVE'})
+    def execute(self,context):
+        from .core import generation
+        try:
+            state=context.window_manager.ruster_preferences
+            path=generation.detect() if self.detect else generation.executable(bpy.path.abspath(state.dedicated))
+            if path is None:raise ValueError('RustDedicated was not found in Steam libraries. Choose its executable manually.')
+            state.dedicated=str(path);config=settings.load();config['rust_dedicated']=str(path);settings.save(config)
+            self.report({'INFO'},'Generator installation saved');return {'FINISHED'}
+        except (OSError,ValueError) as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 
 
 class RUSTER_OT_preferences(bpy.types.Operator):
@@ -127,6 +144,13 @@ class RUSTER_PT_preferences_assets(RustPreferences,CenterAlignMixIn,bpy.types.Pa
         layout.separator()
         wrapped(layout,context,'Asset cache: '+str(scene.cache_dir()),width=width)
         wrapped(layout,context,'Rust installation changes are saved when you click Apply Installation.',width=width)
+        layout.separator()
+        layout.label(text='Procedural Map Generator',icon=I['generate'])
+        fields=properties(layout.column());fields.prop(state,'dedicated')
+        row=fields.row(align=True);row.operator_context='EXEC_DEFAULT'
+        row.operator('ruster.generator_install',text='Apply Generator')
+        row.operator('ruster.generator_install',text='Find in Steam',icon=I['search']).detect=True
+        wrapped(layout,context,'Optional Rust Dedicated Server (Steam app 258550). Auto-detected when possible. The Rust client does not include this backend. No server binaries or game files are bundled or downloaded.',width=width)
 
 
 class RUSTER_PT_preferences_mcp(RustPreferences,CenterAlignMixIn,bpy.types.Panel):
@@ -138,11 +162,12 @@ class RUSTER_PT_preferences_mcp(RustPreferences,CenterAlignMixIn,bpy.types.Panel
 def register():
     global _original_navigation
     from .ui import refresh_panels
-    for cls in (RUSTER_PG_preferences,RUSTER_OT_preferences,RUSTER_OT_detect_install,RUSTER_PT_preferences_assets,RUSTER_PT_preferences_mcp):
+    for cls in (RUSTER_PG_preferences,RUSTER_OT_preferences,RUSTER_OT_detect_install,RUSTER_OT_generator_install,RUSTER_PT_preferences_assets,RUSTER_PT_preferences_mcp):
         bpy.utils.register_class(cls);_classes.append(cls)
     bpy.types.WindowManager.ruster_preferences=PointerProperty(type=RUSTER_PG_preferences)
     state=bpy.context.window_manager.ruster_preferences
     state.section=bpy.context.preferences.active_section;state.directory=settings.load().get('rust_install','')
+    state.dedicated=settings.load().get('rust_dedicated','')
     _original_navigation=bpy.types.USERPREF_PT_navigation_bar.draw
     bpy.types.USERPREF_PT_navigation_bar.draw=navigation
     # The native editor's active_section enum is defined by Blender's RNA.

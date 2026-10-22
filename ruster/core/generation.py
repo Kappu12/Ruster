@@ -90,6 +90,7 @@ class Generation:
                     self.binary.parent/'server'/self.identity)
         self.status='STARTING';self.message='Starting Rust map generation';self.result=None
         self.error='';self.process=None;self.started=time.monotonic();self._cancel=threading.Event()
+        self._stop_lock=threading.Lock()
         self._before={str(p):self._stat(p) for p in self._candidates()}
         self._thread=None
 
@@ -106,6 +107,9 @@ class Generation:
     def close(self):
         self.cancel()
         if self._thread:self._thread.join(timeout=6)
+        # Validation may still be decoding a large map; the process must not
+        # outlive a closing app just because validation has not returned yet.
+        self._stop()
 
     def info(self):
         return {'status':self.status,'message':self.message,'seed':self.seed,'size':self.size,
@@ -139,11 +143,12 @@ class Generation:
         return world,data
 
     def _stop(self):
-        if self.process is None:return
-        if self.process.poll() is None:self.process.terminate()
-        try:self.process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            self.process.kill();self.process.wait(timeout=2)
+        with self._stop_lock:
+            if self.process is None:return
+            if self.process.poll() is None:self.process.terminate()
+            try:self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill();self.process.wait(timeout=2)
 
     def _run(self):
         final='FAILED';seen={};exit_seen=None
@@ -182,4 +187,5 @@ class Generation:
         finally:
             try:self._stop()
             except Exception as error:self.error=str(error);final='FAILED'
+            if final=='CANCELLED':self.message='Map generation cancelled'
             self.elapsed=round(time.monotonic()-self.started,1);self.status=final

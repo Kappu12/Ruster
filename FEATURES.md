@@ -11,7 +11,7 @@ still need validation against an installed game and a live test server.
 |---|---|
 | Application | Separate Windows/Linux app package; isolated Blender configuration; native Blender styling and bundled icon pack; shared action labels, collapsible sections, distinct terrain/prefab toolbar icons; preserve dark/light theme on New Project |
 | Startup | Automatic validated Rust discovery from standard Steam paths, Windows registry, secondary libraries and manifests; manual fallback; open `.map` / `.ruster`, normal Blender projects, new Rust maps, recent files |
-| MCP | Optional built-in community Blender MCP adaptation; shared Blender Preferences section and native toggle, bundled stdio client adapter, 32 typed tools; complete paginated catalog discovery, cached model dimensions, atomic composition batches, groups, reusable assemblies, terrain samples, typed paths, viewport PNG feedback, two resource guides and two workflow prompts, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
+| MCP | Optional built-in community Blender MCP adaptation; shared Blender Preferences section and native toggle, bundled stdio client adapter, 35 typed tools; complete paginated catalog discovery, cached model dimensions, atomic composition batches, groups, reusable assemblies, terrain samples, typed paths, viewport PNG feedback, asynchronous generation/status/cancel, two resource guides and two workflow prompts, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
 | Projects | Self-contained `.ruster`, atomic saves, source map retention, packed model previews, integrity checks |
 | Terrain | Full-resolution edits; independent adjustable viewport detail; height and slope masks |
 | 2D Maps | Native Image Editor workspace; height, water, spawn height, slope, splat, biome, topology and holes; composite/channel views, bounded previews, pan/zoom and edit/undo refresh |
@@ -22,6 +22,7 @@ still need validation against an installed game and a live test server.
 | Height images | Import 16-bit PNG/TIFF/RAW, resize by bilinear sampling, export 16-bit PNG |
 | Layer image masks | Export grayscale PNG; import 8/16-bit grayscale PNG/TIFF for ground textures, 4/5-channel biomes, individual topology bits and terrain holes; native-resolution resize, orientation control, exact selected weights, unrelated-bit preservation, undo and project persistence |
 | Procedural terrain | Seeded fractal island generator; this is Ruster generation, not Rust's native seed generator |
+| Rust-native generation backend | Optional installed RustDedicated, seed/size controls, Steam discovery, headless background job, isolated identity, loopback settings, validated map detection, early process stop, cancellation/timeout and logs; synthetic lifecycle tested, actual game integration/performance pending |
 | Ground textures | Eight-channel paint, blending and exact weight normalization; `ground`/`splat` layer names |
 | Biomes | Four- and five-channel layouts, including Jungle where present |
 | Topology | Add/remove individual topology bits, retain unrelated and unknown bits |
@@ -59,7 +60,9 @@ still need validation against an installed game and a live test server.
   topology generation rules and spawn-condition visualizations.
 - [ ] Road/river/rail surface geometry previews and exact game generation behavior;
   path-specific placement constraints and monument integration.
-- [ ] Native Rust procedural world generation from size/seed/customization settings.
+- [ ] Validate RustDedicated generation with current game builds; investigate a
+  compatible standalone generation-only runtime. Selectable RustEdit-style passes,
+  presets and customization of the existing world's generation pipeline are not implemented.
 - [ ] IO connection authoring, puzzle configuration and compatible per-entity data.
 - [ ] Loot profiles, vending profiles, NPC/vehicle spawners and spawn settings.
 - [ ] Cargo ship ocean paths, Bradley APC patrols and server extension integration.
@@ -76,6 +79,13 @@ The inventory is based on the editor's own documentation and public SDK, checked
 list must grow when comparison testing finds gaps.
 
 - https://github.com/k1lly0u/RustEdit_Docs
+- https://rustedit.rusthq.com/terrain/height-tools
+- https://rustedit.rusthq.com/terrain/paint-tools
+- https://rustedit.rusthq.com/terrain/brushes
+- https://rustedit.rusthq.com/terrain/filters
+- https://rustedit.rusthq.com/terrain/clone-and-stamp
+- https://rustedit.rusthq.com/procedural/procedural-panel
+- https://wiki.facepunch.com/rust/Creating-a-server
 - https://github.com/k1lly0u/RustEdit_Docs/blob/master/TerrainTools.md
 - https://wiki.facepunch.com/rust/Map_Editors
 - https://wiki.facepunch.com/rust/Map_Data

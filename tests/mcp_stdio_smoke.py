@@ -15,7 +15,7 @@ async def run():
             async with ClientSession(*streams) as session:
                 await session.initialize()
                 tools=(await session.list_tools()).tools
-                assert len(tools)==32 and all(t.name!='execute_code' for t in tools)
+                assert len(tools)==35 and all(t.name!='execute_code' for t in tools)
                 result=await session.call_tool('get_scene_info',{})
                 assert result.isError and 'Enable MCP' in result.content[0].text
     print('RUSTER_PACKAGED_MCP_STDIO_OK',flush=True)

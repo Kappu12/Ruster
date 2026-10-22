@@ -248,6 +248,7 @@ class RUSTER_OT_welcome(bpy.types.Operator):
         action(col,'ruster.open')
         action(col,'ruster.new')
         action(col,'ruster.new_map')
+        action(col,'ruster.generate_map')
         col.separator()
         action(col,'ruster.preferences')
         col.label(text='Rust .map   ·   Ruster .ruster')
@@ -652,6 +653,8 @@ def register():
     layers.register()
     from . import maps
     maps.register()
+    from . import generation
+    generation.register()
     from . import mcp_bridge
     mcp_bridge.register()
     ui.register()
@@ -676,6 +679,8 @@ def unregister():
     global _job,_job_log,_job_action,_job_cancelled
     from . import ui,preferences
     preferences.unregister()
+    from . import generation
+    generation.unregister()
     if _job is not None:
         if _job.poll() is None:_job.terminate()
         try:_job.wait(timeout=2)

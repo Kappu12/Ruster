@@ -28,7 +28,7 @@ class RUSTER_MT_file(bpy.types.Menu):
     bl_label='Ruster'
     def draw(self,context):
         layout=self.layout
-        for op in ('ruster.welcome','ruster.new','ruster.new_map','ruster.open'):action(layout,op)
+        for op in ('ruster.welcome','ruster.new','ruster.new_map','ruster.generate_map','ruster.open'):action(layout,op)
         layout.separator()
         action(layout,'ruster.save')
         action(layout,'ruster.save',text='Save Project As…',icon='save_as').save_as=True
@@ -58,6 +58,7 @@ class RUSTER_MT_map(bpy.types.Menu):
     def draw(self,context):
         layout=self.layout
         action(layout,'ruster.new_map')
+        action(layout,'ruster.generate_map')
         layout.operator_menu_enum('ruster.path_add','kind',text='Add Path',icon=I['path'])
         layout.separator()
         action(layout,'ruster.height_import');action(layout,'ruster.height_export')

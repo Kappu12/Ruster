@@ -30,6 +30,9 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert {'search_prefabs','place_prefab','transform_object','paint_terrain','get_scene_info','export_map'}<=tools.keys()
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
+                assert tools['get_generation_status'].annotations.readOnlyHint
+                assert {'generate_map','cancel_generation'}<=tools.keys()
+                assert set(tools['generate_map'].inputSchema['properties'])=={'seed','size'}
                 assert tools['delete_object'].annotations.destructiveHint
                 assert {'get_prefab_details','list_prefab_categories','place_prefabs','transform_objects','group_objects','get_viewport_image','create_path','export_assembly'}<=tools.keys()
                 schema=tools['place_prefabs'].inputSchema

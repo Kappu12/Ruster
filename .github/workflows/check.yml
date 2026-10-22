@@ -35,6 +35,7 @@ jobs:
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_ui.py
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_mcp.py
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_maps.py
+          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_generation.py
       - name: Test mouse-driven terrain and prefab tools
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'

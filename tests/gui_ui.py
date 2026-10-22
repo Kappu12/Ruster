@@ -13,7 +13,7 @@ import bpy
 
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import ruster
-from ruster import app,ui,editing,placement,protection,painting,layers,preferences
+from ruster import app,ui,editing,placement,protection,painting,layers,preferences,generation
 from ruster.assets import catalog
 from tests.fixtures import sample_world
 
@@ -58,6 +58,7 @@ class RUSTER_PT_ui_contract(bpy.types.Panel):
             ui.view_header(proxy,context)
             ui.readonly_source_menu(proxy,context)
             ui.properties_header(proxy,context)
+            generation.draw(self.layout,context)
             editing.RUSTER_WST_terrain.draw_settings(context,self.layout,None)
             painting.RUSTER_WST_prefab.draw_settings(context,self.layout,None)
             state['draws'].add(state['stage'])
@@ -65,7 +66,7 @@ class RUSTER_PT_ui_contract(bpy.types.Panel):
             traceback.print_exc();os._exit(1)
 
 
-dialogs=[app.RUSTER_OT_welcome,editing.RUSTER_OT_new_map,
+dialogs=[app.RUSTER_OT_welcome,editing.RUSTER_OT_new_map,generation.RUSTER_OT_generate_map,
          editing.RUSTER_OT_generate,placement.RUSTER_OT_surface_snap,
          placement.RUSTER_OT_scatter,placement.RUSTER_OT_replace]
 

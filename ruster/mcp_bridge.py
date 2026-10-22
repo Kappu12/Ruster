@@ -144,6 +144,15 @@ class RusterMCPServer(BlenderMCPServer):
 
     def dispatch(self,kind,params):
         if kind=='ping':return {'pong':True,'application':'Ruster'}
+        if kind in {'generate_map','get_generation_status','cancel_generation'}:
+            from . import generation
+            if kind=='get_generation_status':return generation.info()
+            if kind=='cancel_generation':
+                if generation._job:generation._job.cancel()
+                return generation.info()
+            require_idle()
+            if set(params)!={'seed','size'}:raise ValueError('Generation requires only seed and size; the backend path is a user setting')
+            return generation.start(**params)
         if kind in mcp_building.READ|mcp_building.EDIT:
             return mcp_building.dispatch(self,kind,params,sys.modules[__name__])
         if kind=='get_scene_info':

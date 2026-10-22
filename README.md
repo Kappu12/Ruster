@@ -107,6 +107,18 @@ Use **Recover Autosaved Session** on the start screen after a crash. Recovery do
 not replace the normal project save destination. Recent projects are listed there
 as well. Native file drops support `.map` and `.ruster`.
 
+## Rust-native seed generation
+
+Use **Generate Rust Map** on the welcome screen or Map menu. Ruster auto-detects
+an installed RustDedicated, runs a headless background job, and stops it once a
+new valid map is ready. Progress, Cancel, logs and Open Generated Map are in the
+Ruster sidebar. Your current project stays open until you choose to open the result.
+Manual backend selection is in the normal **Preferences → Rust Assets** section.
+
+This uses the installed server runtime, **not a stripped standalone generator**.
+Real-game compatibility and speed benchmarking are pending; no Rust binaries are
+bundled or downloaded. See [backend setup and limitations](docs/map-generation.md).
+
 ## 2D map views
 
 The top bar has **3D Map** and **Maps** workspace tabs. Maps uses Blender's native
@@ -129,7 +141,7 @@ dependencies into the local `python_modules` directory.
 
 The integration adapts the MIT-licensed community
 [MCP for Blender](https://github.com/ahujasid/mcp-for-blender) bridge at revision
-`5a3618fccb2d982d0dd61e7a1879912c3100073b`. Ruster exposes **32 typed MCP tools**, two resource guides and two reusable prompts. Open/create a map in the app first.
+`5a3618fccb2d982d0dd61e7a1879912c3100073b`. Ruster exposes **35 typed MCP tools**, two resource guides and two reusable prompts. Open/create a map in the app first (generation itself does not require an open map).
 
 | AI workflow | Tools |
 | --- | --- |
@@ -239,7 +251,9 @@ to the source repository. macOS standalone packaging is not implemented yet.
   patrol paths and server extension compatibility are not implemented. Preserving
   existing opaque extension data does not guarantee cloned/deleted links remain valid.
 - Seeded island generation is Ruster's own terrain algorithm; it does not recreate
-  Rust's native procedural seed generation. Road/river previews and grading are
+  Rust's native procedural seed generation. The separate RustDedicated backend
+  runs Rust's own generator, but has not been verified against an installed game here.
+  Road/river previews and grading are
   authoring approximations pending in-game comparison tests.
 - Existing Blender shortcuts and advanced editor switching remain available. Map
   mode is a focused authoring workspace, not a restricted Blender sandbox.

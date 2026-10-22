@@ -88,6 +88,24 @@ def validate_map()->dict:
     return command('validate_map')
 
 
+@mcp.tool(annotations=EDIT)
+def generate_map(seed:int,size:int=4000)->dict:
+    """Start asynchronous Rust-native generation using the user's configured RustDedicated. Seed 0..2147483647, size 1000..6000 metres. Consumes CPU/RAM/disk; never replaces the open project. Poll get_generation_status. No arbitrary executable or flags accepted."""
+    return command('generate_map',seed=seed,size=size)
+
+
+@mcp.tool(annotations=READ)
+def get_generation_status()->dict:
+    """Poll IDLE/STARTING/GENERATING/VALIDATING/READY/FAILED/CANCELLED. READY provides a validated .map path and elapsed seconds. The user opens the result separately."""
+    return command('get_generation_status')
+
+
+@mcp.tool(annotations=EDIT)
+def cancel_generation()->dict:
+    """Cancel only Ruster's owned map generation child; does not affect other servers or the current map. Poll until CANCELLED."""
+    return command('cancel_generation')
+
+
 @mcp.tool(annotations=DESTRUCTIVE)
 def save_project(path:str,overwrite:bool=False)->dict:
     """Save to an absolute .ruster destination. Existing files require explicit overwrite=True."""
