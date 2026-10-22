@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import traceback
 
@@ -45,8 +46,74 @@ def component_pointers(gameobject):
         yield entry[1] if isinstance(entry, tuple) else entry.component
 
 
+def run_child(action, install, cache, **options):
+    command = [sys.executable, str(Path(__file__).resolve()), action,
+               '--install', str(install), '--cache', str(cache), '--parent-pid', str(os.getpid())]
+    for key, value in options.items():
+        command += ['--' + key.replace('_', '-'), str(value)]
+    kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+    try:
+        result = subprocess.run(command, timeout=120, **kwargs)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('Asset operation exceeded its 120 second limit') from error
+    if result.returncode:
+        raise RuntimeError('Asset worker failed or reached its 768 MiB memory limit; see worker.log')
+
+
+def index_bundle(install, cache, key):
+    from ruster.assets.streaming import streamed_bundles
+    root = validate_install(install)
+    path = (root / key).resolve()
+    if not path.is_relative_to(root.resolve()):raise ValueError('Bundle path escapes the Rust installation')
+    stat = path.stat()
+    db = connect(cache)
+    try:
+        with streamed_bundles() as UnityPy:
+            env = UnityPy.load(str(path))
+            entries, names, roots = [], [], []
+            for asset_path, pointer in env.container.items():
+                if asset_path.lower().endswith('.prefab'):
+                    reader = pointer.deref()
+                    if reader and reader.type.name == 'GameObject':
+                        entries.append((asset_path.lower(), key, reader.assets_file.name, reader.path_id))
+                elif asset_path.lower().endswith('manifest.asset'):
+                    names.extend(parse_manifest(pointer.deref().read_typetree()))
+            for obj in env.objects:
+                if obj.type.name == 'TextAsset':
+                    data = obj.read()
+                    name = data.m_Name.lower()
+                    if 'prefab' in name or 'stringpool' in name:
+                        script = data.m_Script
+                        text = script.decode('utf8', errors='replace') if isinstance(script, bytes) else script
+                        names.extend(parse_lookup(text))
+            # Keep scene roots for a second pass after all lookup tables are read.
+            for obj in env.objects:
+                if obj.type.name != 'GameObject':
+                    continue
+                go = obj.read()
+                for pointer in component_pointers(go):
+                    if not pointer.path_id:
+                        continue
+                    component = pointer.deref()
+                    if component.type.name == 'Transform' and not component.read().m_Father.path_id:
+                        roots.append((go.m_Name.lower(), key, obj.assets_file.name, obj.path_id))
+                        break
+            with db:
+                db.execute('DELETE FROM assets WHERE bundle=?', (key,))
+                db.executemany('INSERT OR REPLACE INTO assets VALUES(?,?,?,?)', entries)
+                db.executemany('INSERT OR REPLACE INTO names VALUES(?,?)', names)
+                db.execute('DELETE FROM roots WHERE bundle=?', (key,))
+                db.executemany('INSERT OR REPLACE INTO roots VALUES(?,?,?,?)', roots)
+                db.execute('DELETE FROM serialized_files WHERE bundle=?', (key,))
+                db.executemany('INSERT OR REPLACE INTO serialized_files VALUES(?,?)',
+                               [(asset.name.rsplit('/',1)[-1].lower(), key) for asset in env.assets])
+                db.execute('INSERT OR REPLACE INTO bundles VALUES(?,?,?)', (key, stat.st_size, stat.st_mtime_ns))
+                db.execute('DELETE FROM failures WHERE bundle=?', (key,))
+    finally:
+        db.close()
+
+
 def index(install, cache):
-    import UnityPy
     root = validate_install(install)
     files = list(bundle_files(root))
     if not files:
@@ -59,51 +126,12 @@ def index(install, cache):
             known.add(key)
             stat = path.stat()
             old = db.execute('SELECT size, mtime FROM bundles WHERE path=?', (key,)).fetchone()
-            if old == (stat.st_size, stat.st_mtime_ns):
-                continue
+            if old == (stat.st_size, stat.st_mtime_ns):continue
             status(cache, state='INDEXING', current=i + 1, total=len(files), item=path.name)
             try:
-                env = UnityPy.load(str(path))
-                entries, names, roots = [], [], []
-                for asset_path, pointer in env.container.items():
-                    if asset_path.lower().endswith('.prefab'):
-                        reader = pointer.deref()
-                        if reader and reader.type.name == 'GameObject':
-                            entries.append((asset_path.lower(), key, reader.assets_file.name, reader.path_id))
-                    elif asset_path.lower().endswith('manifest.asset'):
-                        names.extend(parse_manifest(pointer.deref().read_typetree()))
-                for obj in env.objects:
-                    if obj.type.name == 'TextAsset':
-                        data = obj.read()
-                        name = data.m_Name.lower()
-                        if 'prefab' in name or 'stringpool' in name:
-                            script = data.m_Script
-                            text = script.decode('utf8', errors='replace') if isinstance(script, bytes) else script
-                            names.extend(parse_lookup(text))
-                # Keep scene roots for a second pass after all lookup tables are read.
-                for obj in env.objects:
-                    if obj.type.name != 'GameObject':
-                        continue
-                    go = obj.read()
-                    for pointer in component_pointers(go):
-                        if not pointer.path_id:
-                            continue
-                        component = pointer.deref()
-                        if component.type.name == 'Transform' and not component.read().m_Father.path_id:
-                            roots.append((go.m_Name.lower(), key, obj.assets_file.name, obj.path_id))
-                            break
-                with db:
-                    db.execute('DELETE FROM assets WHERE bundle=?', (key,))
-                    db.executemany('INSERT OR REPLACE INTO assets VALUES(?,?,?,?)', entries)
-                    db.executemany('INSERT OR REPLACE INTO names VALUES(?,?)', names)
-                    db.execute('DELETE FROM roots WHERE bundle=?', (key,))
-                    db.executemany('INSERT OR REPLACE INTO roots VALUES(?,?,?,?)', roots)
-                    db.execute('DELETE FROM serialized_files WHERE bundle=?', (key,))
-                    db.executemany('INSERT OR REPLACE INTO serialized_files VALUES(?,?)',
-                                   [(asset.name.rsplit('/',1)[-1].lower(), key) for asset in env.assets])
-                    db.execute('INSERT OR REPLACE INTO bundles VALUES(?,?,?)', (key, stat.st_size, stat.st_mtime_ns))
-                    db.execute('DELETE FROM failures WHERE bundle=?', (key,))
-                del env
+                # One short-lived child per bundle releases UnityPy object graphs
+                # and native decompression buffers even if cyclic references remain.
+                run_child('index-bundle', root, cache, bundle=key)
             except Exception as error:
                 with db:
                     db.execute('INSERT OR REPLACE INTO failures VALUES(?,?)', (key, str(error)))
@@ -268,8 +296,13 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
     return warnings
 
 
-def extract(install, cache, ids):
-    import UnityPy
+def extract_one(install, cache, uid):
+    from ruster.assets.streaming import streamed_bundles
+    with streamed_bundles() as UnityPy:
+        return extract_batch(UnityPy, install, cache, [uid])
+
+
+def extract_batch(UnityPy, install, cache, ids):
     root = validate_install(install)
     cache = Path(cache)
     target = cache / 'prefabs'
@@ -323,19 +356,57 @@ def extract(install, cache, ids):
             done += 1
         except Exception as error:
             failures.append({'uid': uid, 'error': str(error)})
+    return {'failures': failures, 'done': done}
+
+
+def extract(install, cache, ids):
+    from tempfile import TemporaryDirectory
+    cache = Path(cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    failures, done = [], 0
+    ids = sorted(set(ids))
+    for uid in ids:
+        entry = find(cache, uid)
+        status(cache, state='EXTRACTING', current=done, total=len(ids),
+               item=entry[0] if entry else str(uid))
+        # The child writes its own report; retain aggregate progress in the parent.
+        with TemporaryDirectory(prefix='asset-report-', dir=cache) as directory:
+            report = Path(directory) / 'report.json'
+            try:
+                run_child('extract-one', install, cache, uid=uid, report=report)
+                result = json.loads(report.read_text())
+                failures.extend(result['failures'])
+                done += result['done']
+            except Exception as error:
+                failures.append({'uid': uid, 'error': str(error)})
     atomic_write(cache / 'asset-report.json', json.dumps(failures, indent=2).encode())
-    status(cache, state='READY', extracted=done, failures=len(failures), current=done, total=len(jobs))
+    status(cache, state='READY', extracted=done, failures=len(failures), current=len(ids), total=len(ids))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['index', 'extract'])
+    parser.add_argument('action', choices=['index', 'extract', 'index-bundle', 'extract-one'])
     parser.add_argument('--install', required=True)
     parser.add_argument('--cache', required=True)
     parser.add_argument('--ids-file')
+    parser.add_argument('--bundle')
+    parser.add_argument('--uid', type=int)
+    parser.add_argument('--report')
+    parser.add_argument('--parent-pid', type=int)
     args = parser.parse_args()
     try:
-        if args.action == 'index':
+        from ruster.core.process_limits import protect_process, ASSET_MEMORY, MIB
+        child = args.action in ('index-bundle', 'extract-one')
+        protect_process(ASSET_MEMORY if child else 1024 * MIB, args.parent_pid)
+        # Avoid BLAS thread pools/reservations in metadata and conversion workers.
+        os.environ['OPENBLAS_NUM_THREADS'] = '1'
+        os.environ['OMP_NUM_THREADS'] = '1'
+        if args.action == 'index-bundle':
+            index_bundle(args.install, args.cache, args.bundle)
+        elif args.action == 'extract-one':
+            result = extract_one(args.install, args.cache, args.uid)
+            atomic_write(args.report, json.dumps(result).encode())
+        elif args.action == 'index':
             index(args.install, args.cache)
         else:
             ids = json.loads(Path(args.ids_file).read_text())
