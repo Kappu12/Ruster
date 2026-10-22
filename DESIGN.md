@@ -54,6 +54,16 @@ Unsupported custom mesh data may be stored in `.ruster` but blocks `.map` export
 Prefab painting uses whole instances, native strokes and local favorite palettes.
 Esc removes the whole pending stroke; placement spacing is not collider testing.
 
+Layer masks are grayscale PNG/TIFF, with a visible layer/channel choice and image
+orientation hint in the native file selector. Images map their top row to +Y by
+default. Weight masks resize bilinearly and set one channel exactly; redistribute
+the remaining weight proportionally with integer rounding to a total of 255.
+Topology and terrain-hole masks use nearest samples and a midpoint threshold;
+editing one topology bit must preserve all the others, including unknown bits.
+Validate and compute the complete result before committing an undoable terrain
+snapshot. No-op imports must not create redundant snapshots. Never touch prefab
+geometry or unrelated layers, and never export a mask at reduced preview detail.
+
 ## Saving
 
 `.ruster` means the editable project, not a renamed `.map` or `.blend`. Saving

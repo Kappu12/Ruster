@@ -13,7 +13,7 @@ import bpy
 
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import ruster
-from ruster import app,ui,editing,placement,protection,painting
+from ruster import app,ui,editing,placement,protection,painting,layers
 from ruster.assets import catalog
 from tests.fixtures import sample_world
 
@@ -68,6 +68,25 @@ class RUSTER_PT_ui_contract(bpy.types.Panel):
 dialogs=[app.RUSTER_OT_setup,app.RUSTER_OT_welcome,editing.RUSTER_OT_new_map,
          editing.RUSTER_OT_generate,placement.RUSTER_OT_surface_snap,
          placement.RUSTER_OT_scatter,placement.RUSTER_OT_replace]
+
+
+def mask_dialog(layer):
+    def invoke(self,context,event):
+        self.layer=layer
+        self.channel=layers.channel_items(self,context)[-1][0]
+        return context.window_manager.invoke_props_dialog(self,width=440)
+    def execute(self,context):return {'FINISHED'}
+    cls=type('RUSTER_OT_test_mask_'+layer,(bpy.types.Operator,),{
+        '__module__':__name__,'__annotations__':layers.mask_properties(),
+        'bl_idname':'ruster.test_mask_'+layer,'bl_label':'Layer Mask Options',
+        'invoke':invoke,'execute':execute,'draw':layers.MaskOptions.draw})
+    bpy.utils.register_class(cls)
+    return cls
+
+
+# Exercise the actual file-selector options on real RNA data/UILayout, including
+# the old four-channel biome layout, without automating OS file picker windows.
+dialogs.extend(mask_dialog(layer) for layer in ('splat','biome','topology','alpha'))
 def checked_draw(original,name):
     def draw(self,context):
         try:

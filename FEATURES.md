@@ -18,6 +18,7 @@ still need validation against an installed game and a live test server.
 | Stamps | Grayscale image stamp, brush rotation, positive/negative stamp, radius, strength and falloff |
 | Bridge | Grade between two cursor positions |
 | Height images | Import 16-bit PNG/TIFF/RAW, resize by bilinear sampling, export 16-bit PNG |
+| Layer image masks | Export grayscale PNG; import 8/16-bit grayscale PNG/TIFF for ground textures, 4/5-channel biomes, individual topology bits and terrain holes; native-resolution resize, orientation control, exact selected weights, unrelated-bit preservation, undo and project persistence |
 | Procedural terrain | Seeded fractal island generator; this is Ruster generation, not Rust's native seed generator |
 | Ground textures | Eight-channel paint, blending and exact weight normalization; `ground`/`splat` layer names |
 | Biomes | Four- and five-channel layouts, including Jungle where present |
@@ -52,7 +53,7 @@ still need validation against an installed game and a live test server.
 - [ ] Prefab thumbnails, palette presets and game-collider placement collision checks.
 - [ ] Clone follow/snap modes, ridge erosion, additional terrain processing and
   custom brush libraries; improve adaptive terrain detail for large worlds.
-- [ ] Dedicated splat mixer, layer image import/export, automatic biome/splat/
+- [ ] Dedicated splat mixer, bulk multi-channel layer image sets, automatic biome/splat/
   topology generation rules and spawn-condition visualizations.
 - [ ] Road/river/rail surface geometry previews and exact game generation behavior;
   path-specific placement constraints and monument integration.

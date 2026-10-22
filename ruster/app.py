@@ -623,6 +623,8 @@ def register():
     protection.register()
     browser.register()
     painting.register()
+    from . import layers
+    layers.register()
     ui.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
@@ -653,6 +655,8 @@ def unregister():
     _keymaps.clear()
     _pending_asset_ids.clear()
     ui.unregister()
+    from . import layers
+    layers.unregister()
     from . import protection,browser,painting
     painting.unregister()
     browser.unregister()

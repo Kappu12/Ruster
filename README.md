@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: 0.3.1 development preview, with protected prefab models and terrain/path editing.**
+**Status: 0.4 development preview, with protected prefab models, terrain/path editing and layer image masks.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -49,6 +49,18 @@ terrain. Alt inverts a brush; Shift temporarily smooths height. Each stroke is o
 undo step. The panel also offers stamping, cloning, bridge grading, island
 generation, 16-bit height import/export, height/slope masks and terrain detail.
 Viewport detail is independent of the full-resolution samples saved to the map.
+
+Use **Terrain → Layer Image Masks** or **Map → Import/Export Layer Mask** to
+round-trip a ground texture, biome, topology bit or terrain-hole mask through an
+image editor. Export is 8-bit grayscale PNG; import accepts single-channel 8/16-bit
+PNG or TIFF and resizes to the layer's full resolution. The image's top row maps
+to +Y in the editor; **Flip Vertically** reverses this. Weights resize smoothly;
+topology and holes use nearest samples with a midpoint threshold. White enables
+a topology bit or solid terrain; black clears that bit or cuts terrain holes.
+Weight imports set the chosen channel exactly, balancing the other channels to
+255 while keeping their proportions as closely as integer rounding permits.
+Other topology bits, layers and prefab models are preserved. Imports support
+undo/redo and persist in `.ruster` projects and exported maps.
 
 The Paths panel creates roads, rivers, rails and powerlines. Select a path, click
 **Edit Path Nodes**, and use Blender's `G`, `E` and `X` controls. Finish node editing

@@ -59,6 +59,7 @@ class RUSTER_MT_map(bpy.types.Menu):
         layout.operator_menu_enum('ruster.path_add','kind',text='Add Path',icon=I['path'])
         layout.separator()
         action(layout,'ruster.height_import');action(layout,'ruster.height_export')
+        action(layout,'ruster.mask_import');action(layout,'ruster.mask_export')
         layout.separator()
         action(layout,'ruster.validate');action(layout,'ruster.export_map')
 
@@ -229,6 +230,14 @@ class RUSTER_PT_terrain(MapPanel,bpy.types.Panel):
             action(body,'ruster.terrain_bridge',text='Set Bridge Start',icon='cursor').set_start=True
             action(body,'ruster.terrain_bridge')
             action(body,'ruster.generate_island')
+        body=section(layout,'ruster_layer_masks','Layer Image Masks','splat')
+        if body is not None:
+            controls=body.column();controls.enabled=context.mode=='OBJECT'
+            from .layers import preset_from_brush
+            for operator in ('ruster.mask_import','ruster.mask_export'):
+                op=action(controls,operator)
+                preset_from_brush(op,context)
+            wrapped(body,context,'Edit grayscale masks outside Ruster. Import changes one channel at full resolution.')
         body=section(layout,'ruster_terrain_preview','Viewport Preview','overlay')
         if body is not None:
             body.prop(brush,'display',text='Overlay')

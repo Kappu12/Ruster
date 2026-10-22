@@ -56,6 +56,8 @@ ACTIONS={
     'ruster.path_grade':('Grade Terrain Along Path','bridge'),
     'ruster.height_import':('Import Heightmap…','import'),
     'ruster.height_export':('Export Heightmap…','export'),
+    'ruster.mask_import':('Import Layer Mask…','import'),
+    'ruster.mask_export':('Export Layer Mask…','export'),
     'ruster.validate':('Validate Map','validate'),
     'ruster.assets':('Load Map Assets','import'),
     'ruster.cancel_assets':('Cancel Asset Loading','cancel'),

@@ -108,6 +108,42 @@ def run():
             expected_height=editing.terrain().raw('terrain')
             assert bpy.ops.ruster.height_import(filepath=str(png))=={'FINISHED'}
             assert editing.terrain().raw('terrain')==expected_height
+            # Layer masks use authoritative full-resolution data and native undo.
+            from ruster.core import layer_images
+            mask=root/'topology-mask.png'
+            Image.fromarray(np.array([[0,255],[255,0]],dtype='u1')).save(mask)
+            baseline={key:editing.terrain().raw(key) for key in editing.terrain().base_layers}
+            bpy.ops.ed.undo_push(message='Before mask import')
+            assert bpy.ops.ruster.mask_import(filepath=str(mask),layer='topology',channel='11')=={'FINISHED'}
+            changed=editing.terrain().raw('topology')
+            assert changed!=baseline['topology']
+            for key,value in baseline.items():
+                if key!='topology':assert editing.terrain().raw(key)==value
+            bpy.ops.ed.undo_push(message='After mask import')
+            assert bpy.ops.ed.undo()=={'FINISHED'}
+            assert editing.terrain().raw('topology')==baseline['topology']
+            assert bpy.ops.ed.redo()=={'FINISHED'}
+            assert editing.terrain().raw('topology')==changed
+            exported_mask=root/'exported-mask.png'
+            assert bpy.ops.ruster.mask_export(filepath=str(exported_mask),layer='topology',channel='11')=={'FINISHED'}
+            assert np.array_equal(layer_images.read_image(exported_mask),layer_images.image_array(editing.terrain(),'topology',11))
+            snapshot=bpy.context.scene.ruster.terrain_state
+            assert bpy.ops.ruster.mask_import(filepath=str(exported_mask),layer='topology',channel='11')=={'FINISHED'}
+            assert bpy.context.scene.ruster.terrain_state==snapshot,'No-op mask import created a redundant snapshot'
+            Image.fromarray(np.full((2,2),100,dtype='u1')).save(mask)
+            assert bpy.ops.ruster.mask_import(filepath=str(mask),layer='biome',channel='4')=={'FINISHED'}
+            assert np.all(editing.terrain().grid('biome')[4]==100)
+            assert np.all(editing.terrain().grid('biome').sum(axis=0)==255)
+            Image.fromarray(np.array([[0,255],[255,255]],dtype='u1')).save(mask)
+            faces_before=len(next(o for o in bpy.context.scene.objects if o.get('ruster_kind')=='TERRAIN').data.polygons)
+            assert bpy.ops.ruster.mask_import(filepath=str(mask),layer='alpha')=={'FINISHED'}
+            assert len(next(o for o in bpy.context.scene.objects if o.get('ruster_kind')=='TERRAIN').data.polygons)<faces_before
+            expected=editing.terrain().export_world().layers
+            bundle=root/'masks.ruster'
+            assert bpy.ops.ruster.save(filepath=str(bundle))=={'FINISHED'}
+            app.open_path(bundle)
+            scene.export_map(root/'masks.map')
+            assert RustMap.load(root/'masks.map').layers==expected
         ruster.unregister()
     print('RUSTER_EDITING_SMOKE_OK',flush=True)
 
