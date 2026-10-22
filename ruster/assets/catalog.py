@@ -1,5 +1,6 @@
 from pathlib import Path
 import sqlite3
+import re
 from contextlib import closing
 
 
@@ -28,8 +29,9 @@ AVAILABLE="EXISTS(SELECT 1 FROM assets a WHERE a.path=n.path COLLATE NOCASE AND 
 
 
 def filters(query='',category='',favorites=None,available_only=False):
-    conditions=["n.path LIKE ? ESCAPE char(92)"]
-    args=['%'+literal(query)+'%']
+    tokens=re.split(r'\s+',query.strip()) if query.strip() else ['']
+    conditions=["n.path LIKE ? ESCAPE char(92)" for _ in tokens]
+    args=['%'+literal(token)+'%' for token in tokens]
     if category:
         from ruster.core.asset_categories import LABELS, sql_case
         if category.startswith('@'):

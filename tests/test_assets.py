@@ -74,3 +74,14 @@ def test_texture_cache_revision_changes_filename(tmp_path,monkeypatch):
     export_prefab(None,root,output,42,'assets/example.prefab','revision-2')
     second=json.loads(gzip.decompress(output.read_bytes()))
     assert next(iter(first['materials'].values()))['texture']!=next(iter(second['materials'].values()))['texture']
+
+
+def test_sound_only_prefab_is_a_marker_not_a_failed_mesh(tmp_path):
+    transform=Reader('Transform',S(m_LocalPosition=S(x=0,y=0,z=0),m_LocalRotation=S(w=1,x=0,y=0,z=0),
+        m_LocalScale=S(x=1,y=1,z=1),m_Children=[]))
+    sound=Reader('MonoBehaviour',S(soundDefinition=Pointer(Reader('MonoBehaviour',S()))))
+    root=Reader('GameObject',S(m_Name='sound',m_IsActive=True,m_Component=[ComponentPair(component=Pointer(c)) for c in (transform,sound)]))
+    output=tmp_path/'sound.json.gz'
+    assert not export_prefab(None,root,output,1188595389,'assets/sound.prefab')
+    asset=json.loads(gzip.decompress(output.read_bytes()))
+    assert asset['marker']=='SOUND' and not asset['meshes']

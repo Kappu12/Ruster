@@ -248,6 +248,7 @@ def duplicate_selected():
         copies={}
         for obj in originals:
             new=obj.copy();obj.users_collection[0].objects.link(new)
+            if new.get('ruster_kind')=='PREFAB':scene.name_prefab(new,obj.name)
             if new.type=='CURVE':new.data=obj.data.copy()
             new['ruster_instance']=uuid.uuid4().hex
             copies[obj]=new

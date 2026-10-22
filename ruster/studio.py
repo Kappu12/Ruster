@@ -231,7 +231,8 @@ def search_items(operator, _context):
     key = (str(path), path.stat().st_mtime_ns if path.exists() else 0, operator.category)
     if key not in _search_cache:
         rows = catalog.search(scene.cache_dir(), limit=100000, category=operator.category)
-        items = [(str(uid), Path(path_).stem.replace('_', ' '), path_ + '\nID: ' + str(uid))
+        from .core.asset_names import display_name
+        items = [(str(uid), display_name(path_), path_ + '\nID: ' + str(uid))
                  for uid, path_, _available in rows]
         _search_cache[key] = items or _search_items
         # Keep one stable string array per broad category for Blender's RNA.

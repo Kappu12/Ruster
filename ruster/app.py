@@ -557,19 +557,21 @@ class RUSTER_OT_place(bpy.types.Operator):
     def execute(self, context):
         try:
             uid = int(self.uid)
-            if not 0 <= uid <= 0xFFFFFFFF or not catalog.find(scene.cache_dir(), uid):
+            found=catalog.find(scene.cache_dir(), uid) if 0 <= uid <= 0xFFFFFFFF else None
+            if not found:
                 raise ValueError('Prefab is not in the local Rust catalog')
             fields = [wire.encode(1, 2, b'Decor'), wire.encode(2, 0, uid)]
             fields = wire.replace(fields, 3, 2, wire.set_vector(None, scene.to_unity(context.scene.cursor.location)))
             fields = wire.replace(fields, 5, 2, wire.set_vector(None, (1.,1.,1.)))
             collection = bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs')
             obj = scene.root_object(fields, collection)
+            scene.name_prefab(obj,found[0])
             scene.attach_visual(obj)
             for item in context.selected_objects:
                 item.select_set(False)
             obj.select_set(True)
             context.view_layer.objects.active = obj
-            if not obj.get('ruster_visual'):request_assets([uid])
+            if not obj.get('ruster_visual') and not obj.get('ruster_marker'):request_assets([uid])
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))

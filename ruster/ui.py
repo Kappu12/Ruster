@@ -155,7 +155,8 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
             row=layout.row(align=True)
             row.operator('ruster.favorite',text='',icon=I['favorite_on' if uid in favorites else 'favorite_off'],emboss=False).uid=str(uid)
             body=row.row(align=True);body.enabled=bool(available)
-            body.operator('ruster.place',text=path.rsplit('/',1)[-1].removesuffix('.prefab'),icon=I['prefab']).uid=str(uid)
+            from .core.asset_names import display_name
+            body.operator('ruster.place',text=display_name(path),icon=I['prefab']).uid=str(uid)
             if is_map(context):body.operator('ruster.paint_asset',text='',icon=I['prefab_brush']).uid=str(uid)
             row.operator('ruster.copy_prefab',text='',icon=I['duplicate']).uid=str(uid)
         if matches:
@@ -183,7 +184,9 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
             if obj.get('ruster_has_io'):
                 action(layout,'ruster.io_settings')
             from .protection import model_error
-            if not obj.get('ruster_visual'):
+            if obj.get('ruster_marker')=='SOUND':
+                wrapped(layout,context,'Sound effect — no visible mesh in Rust.',icon='info')
+            elif not obj.get('ruster_visual'):
                 wrapped(layout,context,obj.get('ruster_model_status','Model not loaded'),icon='info')
                 if obj.get('ruster_model_error'):
                     wrapped(layout,context,obj['ruster_model_error'],icon='error')

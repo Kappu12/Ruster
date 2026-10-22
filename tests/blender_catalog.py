@@ -1,10 +1,10 @@
 """Catalog refresh must not schedule bulk models; queued requests stay visible."""
-import os,sys,tempfile,traceback,json
+import os,sys,tempfile,traceback,json,gzip
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 if '--' in sys.argv:sys.path.insert(0,sys.argv[sys.argv.index('--')+1])
 import bpy,ruster
-from ruster import app,scene
+from ruster import app,scene,studio
 from ruster.core import wire
 
 
@@ -34,6 +34,25 @@ def run():
         assert not roots[0].get('ruster_visual')
         app._pending_asset_ids.clear()
         assert app.request_assets(range(101)) is False
+        from contextlib import closing
+        from ruster.assets import catalog
+        with closing(catalog.connect(scene.cache_dir())) as db:
+            db.executemany('INSERT INTO names VALUES(?,?)',[
+                (42,'assets/test/sound/trigger.prefab'),
+                (43,'assets/bundled/prefabs/modding/cubes/tiled/cube_tiled_dev_01.prefab')])
+            db.commit()
+        class Search:category='@DEVELOPMENT'
+        assert studio.search_items(Search(),None)[0][1]=='Dev Cube Tiled 01'
+        cache=scene.cache_dir()/'prefabs';cache.mkdir()
+        (cache/'42.json.gz').write_bytes(gzip.compress(json.dumps({'schema':1,'marker':'SOUND','meshes':{},
+            'path':'assets/test/sound/trigger.prefab'}).encode()))
+        assert bpy.ops.ruster.place(uid='42')=={'FINISHED'}
+        sound=bpy.context.active_object
+        assert sound.get('ruster_marker')=='SOUND' and sound.empty_display_type=='SPHERE'
+        assert sound.name.endswith('(Sound effect)') and app._job is None
+        assert bpy.ops.ruster.place(uid='42')=={'FINISHED'}
+        assert bpy.context.active_object.name==sound.name+' 2'
+        assert '.' not in bpy.context.active_object.name and '_' not in bpy.context.active_object.name
         ruster.unregister()
     print('RUSTER_CATALOG_ON_DEMAND_OK',flush=True)
 

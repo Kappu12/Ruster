@@ -12,6 +12,7 @@ from mathutils import Matrix, Vector, Euler, Quaternion
 from .core import wire
 from .core.rust_map import RustMap, prefab_id, prefab_transform, update_transform
 from .core.project import atomic_write
+from .core.asset_names import display_name
 
 BASIS = Matrix(((1, 0, 0), (0, 0, 1), (0, 1, 0)))
 
@@ -134,6 +135,14 @@ def create_paths(world):
         obj.data.materials.append(material('Path overlay', (0.8, 0.5, 0.12, 1)))
 
 
+def name_prefab(obj, source):
+    base=display_name(source)
+    name=base;number=2
+    while (existing:=bpy.data.objects.get(name)) is not None and existing!=obj:
+        name=f'{base} {number}';number+=1
+    obj.name=name
+
+
 def root_object(fields, collection):
     uid = prefab_id(fields)
     obj = bpy.data.objects.new(f'Prefab {uid}', None)
@@ -148,8 +157,8 @@ def root_object(fields, collection):
     obj.rotation_mode = 'XYZ'
     obj.rotation_euler = unity_euler(rotation).to_euler('XYZ')
     obj.scale = to_blender(scale)
-    obj.empty_display_type = 'CUBE'
-    obj.empty_display_size = 2
+    obj.empty_display_type = 'PLAIN_AXES'
+    obj.empty_display_size = .25
     obj.color = (1, .36, .08, 1)
     return obj
 
@@ -227,7 +236,7 @@ def attach_visual(root,force=False):
         root.instance_collection = freeze(existing,root['ruster_uid'])
         root['ruster_visual'] = True
         root.empty_display_size = .5
-        root.name = asset_name
+        name_prefab(root,asset_name)
         return True
     from .protection import library_path,linked_collection
     model_path=library_path(asset_key)
@@ -237,12 +246,21 @@ def attach_visual(root,force=False):
             raise ValueError('Cached prefab model does not match the original asset; refresh its assets')
         root.instance_type='COLLECTION';root.instance_collection=model
         root['ruster_visual']=True;root.empty_display_size=.5
-        root.name=model.get('ruster_asset_name',root.name)
+        name_prefab(root,model.get('ruster_asset_name',root.name))
         return True
     with gzip.open(path, 'rt') as stream:
         asset = json.load(stream)
     if asset.get('schema') != 1:
         return False
+    if asset.get('marker')=='SOUND' and not asset['meshes']:
+        name_prefab(root,asset['path'])
+        root.instance_type='NONE';root.instance_collection=None
+        root['ruster_visual']=False
+        root['ruster_marker']='SOUND'
+        root['ruster_model_status']='Sound effect · this prefab has no visible mesh'
+        root.empty_display_type='SPHERE';root.empty_display_size=.25
+        if 'ruster_model_error' in root:del root['ruster_model_error']
+        return True
     # Collection instances make the whole prefab clickable as one placement and
     # avoid creating thousands of duplicate hierarchy objects for repeated assets.
     collection = bpy.data.collections.new(collection_name)
@@ -320,8 +338,8 @@ def attach_visual(root,force=False):
                 obj.material_slots[i].link = 'OBJECT'
                 obj.material_slots[i].material = materials.get(mat_id)
         objects.append(obj)
-    root.name = Path(asset['path']).stem
-    collection['ruster_asset_name'] = root.name
+    name_prefab(root,asset['path'])
+    collection['ruster_asset_name'] = display_name(asset['path'])
     root.instance_type = 'COLLECTION'
     from .protection import freeze
     root.instance_collection = freeze(collection,root['ruster_uid'],asset_key,verified=True)

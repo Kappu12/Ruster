@@ -192,6 +192,7 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
     from UnityPy.helpers.MeshHelper import MeshHandler
     meshes, materials, nodes, warnings = {}, {}, [], []
     excluded_renderers=set()
+    sound_effect=False
     seen = set()
     base = Path(output).parent
     texture_dir = base / 'textures'
@@ -249,6 +250,7 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         return ident
 
     def walk(reader, parent=None, depth=0,lod_managed=False):
+        nonlocal sound_effect
         if depth > 128 or len(nodes) > 20000:
             raise ValueError('Prefab hierarchy exceeds the supported limit')
         ident = key(reader)
@@ -267,6 +269,9 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
             component_reader = pointer.deref()
             if component_reader:
                 components[component_reader.type.name] = component_reader.read()
+                if (component_reader.type.name=='AudioSource' or
+                    getattr(components[component_reader.type.name],'soundDefinition',None)):
+                    sound_effect=True
                 component_keys[component_reader.type.name]=key(component_reader)
         lods=getattr(components.get('LODGroup'),'m_LODs',None)
         if lods:
@@ -304,10 +309,13 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
                 walk(child_transform.m_GameObject.deref(), index, depth + 1,lod_managed or bool(lods))
 
     walk(root_reader)
-    if not meshes:
+    marker=''
+    if not meshes and not warnings and sound_effect:
+        marker='SOUND'
+    if not meshes and not marker:
         raise ValueError('Prefab has no readable triangle meshes; ' + '; '.join(warnings[:3]))
     result = {'schema': 1, 'uid': uid, 'path': asset_path, 'nodes': nodes,
-              'meshes': meshes, 'materials': materials, 'warnings': warnings}
+              'meshes': meshes, 'materials': materials, 'warnings': warnings, 'marker':marker}
     atomic_write(output, gzip.compress(json.dumps(result).encode(), compresslevel=3))
     return warnings
 
@@ -381,7 +389,7 @@ def extract_batch(UnityPy, install, cache, ids):
         try:
             path = root / bundle
             stat = path.stat()
-            signature = f'converter-4:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
+            signature = f'converter-5:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
             stamp = target / f'{uid}.stamp'
             output = target / f'{uid}.json.gz'
             if not (output.exists() and stamp.exists() and stamp.read_text() == signature):

@@ -54,6 +54,11 @@ menus and unrelated sidebar tabs are hidden. Map mode adds terrain and path tool
 Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
 **Shift+A** opens broad Rust prefab categories; choose a category and type to
 search. It reads catalog names without loading models. Models load on demand.
+Dev cubes are under **Development & Primitives**, named **Dev Cube Tiled 01**
+and similar; search `dev cube` in Shift+A or the sidebar. Both searches match
+words in any order. Display names use spaces instead of dots and underscores.
+Sound-only prefabs are labeled and use small spherical
+markers because the game contains no visible mesh for them.
 Blender's normal toolbar is visible, with Rust brushes added in map mode. New
 prefabs start in Material Preview so loaded textures are visible. Texture previews
 read a source mip up to 2048px without decoding larger levels. Space and F3

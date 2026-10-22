@@ -8,10 +8,11 @@ GROUPS = (
     ('DEPLOYABLES', 'Deployables', ('%/deployable/%', '%/deployables/%')),
     ('FURNITURE', 'Furniture & Interior', ('%/furniture/%', '%/interior/%', '%/chairs/%', '%/tables/%')),
     ('PROPS', 'Props & Decoration', ('%/decor/%', '%/props/%', '%/decoration/%')),
-    ('GAMEPLAY', 'Gameplay & Volumes', ('%/triggers/%', '%/trigger/%', '%/volumes/%', '%/spawners/%', '%/npc/%', '%/modding/%')),
+    ('GAMEPLAY', 'Gameplay & Volumes', ('%/triggers/%', '%/trigger/%', '%/volumes/%', '%/spawners/%', '%/npc/%')),
     ('VEHICLES', 'Vehicles', ('%/vehicles/%', '%/vehicle/%', '%/boats/%')),
     ('EFFECTS', 'Effects & Lighting', ('%/effects/%', '%/fx/%', '%/lights/%', '%/lighting/%')),
     ('OTHER', 'Other Rust Prefabs', ()),
+    ('DEVELOPMENT', 'Development & Primitives', ('%/modding/%',)),
 )
 LABELS = {key: label for key, label, _ in GROUPS}
 
