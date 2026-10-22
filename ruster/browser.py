@@ -8,6 +8,7 @@ from .assets import catalog
 from .core import settings,palettes
 
 _classes=[]
+PAGE_SIZE=12
 _category_key=None
 _category_history=[]
 _category_items=[('ALL','All Categories','',0)]

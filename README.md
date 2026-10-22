@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: 0.3 development preview, with protected prefab models and terrain/path editing.**
+**Status: 0.3.1 development preview, with protected prefab models and terrain/path editing.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -30,6 +30,10 @@ The start screen offers:
 Map mode switches to a Rust-focused workspace with a prefab browser, placement
 properties, local asset status and map validation. It keeps Blender's standard
 styling. Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
+Menus, dialogs, section headers and tools share Blender's bundled icon pack.
+Terrain and prefab paint have distinct toolbar icons; advanced options live in
+native collapsible sections. Ruster follows the selected dark/light theme and UI
+scale, and New Project preserves those preferences.
 The prefab browser places objects at the 3D cursor. Its duplicate/delete actions
 also handle prefab groups and shared model instances.
 
@@ -40,7 +44,7 @@ placements, terrain layers and paths to a separate `.map`; validation blocks uns
 New Blender projects can contain arbitrary geometry and save it in `.ruster`.
 
 Use **Ruster → New Rust Map** to begin with editable flat terrain. In the Terrain
-panel, select a layer and tool, then click **Paint in Viewport** and drag on the
+panel, select a layer and tool, then click **Paint Terrain in Viewport** and drag on the
 terrain. Alt inverts a brush; Shift temporarily smooths height. Each stroke is one
 undo step. The panel also offers stamping, cloning, bridge grading, island
 generation, 16-bit height import/export, height/slope masks and terrain detail.
@@ -60,7 +64,7 @@ brushes. Mesh editing, sculpting and geometry modifiers cannot edit the linked
 model through Blender's normal operators. Terrain holes never cut prefab meshes.
 The map-mode command and Outliner menus expose supported placement actions.
 Export rejects editable/unpacked model parts, detached previews and mismatched
-models. **Restore Original Prefab Models** repairs the selected placements.
+models. **Restore Original Models** repairs the selected placements.
 
 The Prefab Browser now has categories, persistent favorite stars and a favorites
 filter. Click the brush icon beside a prefab to choose it for **Prefab Paint**.

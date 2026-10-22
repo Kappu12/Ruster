@@ -16,22 +16,36 @@ mode = os.environ.get('RUSTER_PREVIEW', 'setup')
 
 
 def start():
-    if mode == 'setup':
-        app.startup()
-    else:
-        path = Path('/tmp/ruster-preview.map')
-        path.write_bytes(sample_world().write())
-        scene.import_map(path)
-        ui.map_workspace()
+    with bpy.context.temp_override(window=bpy.context.window_manager.windows[0]):
+        bpy.context.window.event_simulate(type='ESC',value='PRESS')
+        bpy.context.window.event_simulate(type='MOUSEMOVE',value='NOTHING',x=600,y=500)
+        if mode != 'setup':
+            path = Path('/tmp/ruster-preview.map')
+            path.write_bytes(sample_world().write())
+            scene.import_map(path)
+            ui.map_workspace()
+    return None
+
+
+def prepare():
+    with bpy.context.temp_override(window=bpy.context.window_manager.windows[0]):
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        region=next(r for r in area.regions if r.type=='WINDOW')
+        with bpy.context.temp_override(area=area,region=region):
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=1)
+            if mode=='setup':bpy.ops.ruster.setup('INVOKE_DEFAULT')
+            else:next(r for r in area.regions if r.type=='UI').active_panel_category='Ruster'
     return None
 
 
 def capture():
-    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=2)
-    bpy.ops.screen.screenshot(filepath=f'/tmp/ruster-{mode}.png')
-    bpy.ops.wm.quit_blender()
+    with bpy.context.temp_override(window=bpy.context.window_manager.windows[0]):
+        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=2)
+        bpy.ops.screen.screenshot(filepath=f'/tmp/ruster-{mode}.png')
+        bpy.ops.wm.quit_blender()
     return None
 
 
 bpy.app.timers.register(start,first_interval=2)
+bpy.app.timers.register(prepare,first_interval=4)
 bpy.app.timers.register(capture,first_interval=8)

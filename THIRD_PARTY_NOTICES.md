@@ -5,6 +5,8 @@
 Ruster is built on Blender. Packaged distributions retain Blender's `license`
 directory, copyright notices and runtime dependencies. Blender is GPL software;
 Ruster's code is licensed GPL-3.0-or-later. See `LICENSE`.
+The interface uses Blender's bundled RNA icons and toolbar `.dat` icon pack;
+these remain part of the licensed Blender runtime, with no external icon font.
 
 - Upstream: https://projects.blender.org/blender/blender
 - Exact source reference: `v4.5.14` (`engine.lock.json`)

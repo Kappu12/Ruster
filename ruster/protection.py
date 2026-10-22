@@ -145,7 +145,7 @@ def pack_models():
 
 class RUSTER_OT_restore_models(bpy.types.Operator):
     bl_idname='ruster.restore_models'
-    bl_label='Restore Original Prefab Models'
+    bl_label='Restore Original Models'
     bl_description='Restore selected placements to their original read-only models and remove unpacked preview parts'
     bl_options={'REGISTER','UNDO'}
     @classmethod
@@ -194,18 +194,19 @@ class RUSTER_OT_restore_models(bpy.types.Operator):
 class RUSTER_MT_commands(bpy.types.Menu):
     bl_label='Ruster Commands'
     def draw(self,context):
+        from .ui_style import ICONS as I,action,tool_button
         layout=self.layout
-        layout.operator('ruster.open');layout.operator('ruster.save')
-        layout.operator('ruster.validate');layout.operator('ruster.export_map')
+        action(layout,'ruster.open');action(layout,'ruster.save')
+        action(layout,'ruster.validate');action(layout,'ruster.export_map')
         layout.separator()
-        layout.operator('ruster.duplicate');layout.operator('ruster.delete')
-        layout.operator('ruster.group');layout.operator('ruster.ungroup')
-        layout.operator('ruster.surface_snap');layout.operator('ruster.restore_models')
+        action(layout,'ruster.duplicate');action(layout,'ruster.delete')
+        action(layout,'ruster.group');action(layout,'ruster.ungroup')
+        action(layout,'ruster.surface_snap');action(layout,'ruster.restore_models')
         layout.separator()
-        layout.operator_menu_enum('ruster.path_add','kind',text='Add Path')
-        layout.operator('wm.tool_set_by_id',text='Terrain Brush').name='ruster.terrain_brush'
-        layout.operator('wm.tool_set_by_id',text='Prefab Paint').name='ruster.prefab_brush'
-        layout.operator('ruster.assembly_import')
+        layout.operator_menu_enum('ruster.path_add','kind',text='Add Path',icon=I['path'])
+        tool_button(layout,context,'ruster.terrain_brush','Paint Terrain in Viewport','terrain_brush').name='ruster.terrain_brush'
+        tool_button(layout,context,'ruster.prefab_brush','Paint Prefabs in Viewport','prefab_brush').name='ruster.prefab_brush'
+        action(layout,'ruster.assembly_import')
 
 
 class RUSTER_OT_commands(bpy.types.Operator):

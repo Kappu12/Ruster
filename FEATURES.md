@@ -9,7 +9,7 @@ still need validation against an installed game and a live test server.
 
 | Area | Ruster support |
 |---|---|
-| Application | Separate Windows/Linux app package; isolated Blender configuration; native Blender styling |
+| Application | Separate Windows/Linux app package; isolated Blender configuration; native Blender styling and bundled icon pack; shared action labels, collapsible sections, distinct terrain/prefab toolbar icons; preserve dark/light theme on New Project |
 | Startup | First-launch game location, open `.map` / `.ruster`, normal Blender projects, new Rust maps, recent files |
 | Projects | Self-contained `.ruster`, atomic saves, source map retention, packed model previews, integrity checks |
 | Terrain | Full-resolution edits; independent adjustable viewport detail; height and slope masks |

@@ -12,6 +12,7 @@ from . import scene,editing
 from .core import prefabs,wire
 from .core.project import atomic_write
 from .core.rust_map import prefab_transform,update_transform
+from .ui_style import properties,wrapped
 
 _classes=[]
 
@@ -67,7 +68,7 @@ def group(objects,name='Custom Prefab'):
 
 class RUSTER_OT_group(bpy.types.Operator):
     bl_idname='ruster.group'
-    bl_label='Group as Custom Prefab'
+    bl_label='Group Prefabs'
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
         try:group(selected_prefabs());return {'FINISHED'}
@@ -76,7 +77,7 @@ class RUSTER_OT_group(bpy.types.Operator):
 
 class RUSTER_OT_ungroup(bpy.types.Operator):
     bl_idname='ruster.ungroup'
-    bl_label='Ungroup Custom Prefab'
+    bl_label='Ungroup Prefabs'
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
         context.view_layer.update()
@@ -91,11 +92,14 @@ class RUSTER_OT_ungroup(bpy.types.Operator):
 
 class RUSTER_OT_surface_snap(bpy.types.Operator):
     bl_idname='ruster.surface_snap'
-    bl_label='Snap Prefabs to Terrain'
+    bl_label='Snap to Terrain'
     bl_options={'REGISTER','UNDO'}
     offset:FloatProperty(name='Height Offset',default=0)
     align:BoolProperty(name='Align to Surface',default=False)
     def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+    def draw(self,context):
+        fields=properties(self.layout)
+        fields.prop(self,'offset');fields.prop(self,'align')
     def execute(self,context):
         try:
             doc=editing.terrain()
@@ -115,7 +119,7 @@ class RUSTER_OT_surface_snap(bpy.types.Operator):
 
 class RUSTER_OT_assembly_export(bpy.types.Operator,ExportHelper):
     bl_idname='ruster.assembly_export'
-    bl_label='Export Custom Prefab'
+    bl_label='Export Prefab Group'
     filename_ext='.rusterprefab'
     filter_glob:StringProperty(default='*.rusterprefab',options={'HIDDEN'})
     def execute(self,context):
@@ -132,7 +136,7 @@ class RUSTER_OT_assembly_export(bpy.types.Operator,ExportHelper):
 
 class RUSTER_OT_assembly_import(bpy.types.Operator,ImportHelper):
     bl_idname='ruster.assembly_import'
-    bl_label='Import Custom Prefab'
+    bl_label='Import Prefab Group'
     bl_options={'REGISTER','UNDO'}
     filter_glob:StringProperty(default='*.rusterprefab',options={'HIDDEN'})
     def execute(self,context):
@@ -154,7 +158,7 @@ class RUSTER_OT_assembly_import(bpy.types.Operator,ImportHelper):
 
 class RUSTER_OT_scatter(bpy.types.Operator):
     bl_idname='ruster.scatter'
-    bl_label='Scatter Selected Prefab'
+    bl_label='Scatter Prefabs'
     bl_options={'REGISTER','UNDO'}
     radius:FloatProperty(name='Radius',default=50,min=.1,max=3000)
     count:IntProperty(name='Count',default=30,min=1,max=5000)
@@ -164,6 +168,10 @@ class RUSTER_OT_scatter(bpy.types.Operator):
     max_scale:FloatProperty(name='Maximum Scale',default=1.2,min=.01,max=100)
     max_slope:FloatProperty(name='Maximum Slope',default=45,min=0,max=90)
     def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self,width=400)
+    def draw(self,context):
+        wrapped(self.layout,context,'Scatter the selected prefab around the 3D cursor.',icon='scatter')
+        fields=properties(self.layout.column())
+        for prop in ('radius','count','spacing','seed','min_scale','max_scale','max_slope'):fields.prop(self,prop)
     def execute(self,context):
         try:
             objects=selected_prefabs()
@@ -208,10 +216,12 @@ class RUSTER_OT_select_same(bpy.types.Operator):
 
 class RUSTER_OT_replace(bpy.types.Operator):
     bl_idname='ruster.replace'
-    bl_label='Replace Selected Prefabs'
+    bl_label='Replace Prefabs'
     bl_options={'REGISTER','UNDO'}
     uid:StringProperty(name='Replacement Prefab ID')
     def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+    def draw(self,context):
+        properties(self.layout).prop(self,'uid')
     def execute(self,context):
         try:
             from .assets.catalog import find

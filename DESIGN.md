@@ -7,6 +7,19 @@ system. Keep its normal typography, spacing, icons, panel hierarchy, selection
 colors, input fields, tooltips and keyboard conventions. Do not modify the user's
 ordinary Blender configuration.
 
+All Ruster menus, dialogs and panels use the bundled Blender icon pack, with
+semantic names and shared action labels in `ruster/ui_style.py`. Toolbar tools
+use distinct `.dat` icons shipped with the pinned Blender runtime. Do not add a
+second icon font, emoji, external raster button graphics or fixed color palette.
+The runtime and its icon licenses remain in the app distribution.
+
+Use native property splits without animation decorators for map authoring
+controls. Group advanced options in native collapsible sections, retain normal
+row heights, and indicate the active viewport tool with Blender's pressed state.
+Hints wrap according to sidebar width and UI scale. Busy asset jobs use Blender's
+progress bar only when the worker reports a real total; otherwise show status.
+Dark and light themes must both work, and New Project must preserve preferences.
+
 ## Entry and modes
 
 First launch asks for the Rust game installation folder. Store this per user,

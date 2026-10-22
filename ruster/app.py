@@ -9,12 +9,13 @@ import tempfile
 
 import bpy
 from bpy.app.handlers import persistent
-from bpy.props import StringProperty, IntProperty, EnumProperty, PointerProperty, BoolProperty
+from bpy.props import StringProperty, IntProperty, EnumProperty, PointerProperty, BoolProperty, FloatProperty
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
 from . import scene
 from .core import project, settings, wire
 from .assets import catalog
+from .ui_style import ICONS as I,action,properties,wrapped
 
 _classes = []
 _keymaps = []
@@ -46,6 +47,8 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     query: StringProperty(name='Search prefabs', options={'SKIP_SAVE'},update=query_changed)
     asset_status: StringProperty(default='Choose your Rust installation', options={'SKIP_SAVE'})
     busy: BoolProperty(default=False, options={'SKIP_SAVE'})
+    asset_progress: FloatProperty(default=0,min=0,max=1,subtype='FACTOR',options={'SKIP_SAVE'})
+    asset_progress_known: BoolProperty(default=False,options={'SKIP_SAVE'})
     terrain_state: PointerProperty(type=bpy.types.Text)
     category:EnumProperty(name='Category',items=category_items,update=query_changed)
     favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
@@ -98,6 +101,8 @@ def start_job(action, ids=None):
     _job_action = action
     _job_cancelled = False
     bpy.context.scene.ruster.busy = True
+    bpy.context.scene.ruster.asset_progress = 0
+    bpy.context.scene.ruster.asset_progress_known = False
     if not bpy.app.timers.is_registered(poll_job):
         bpy.app.timers.register(poll_job, first_interval=.2)
 
@@ -126,6 +131,10 @@ def poll_job():
     try:
         progress = json.loads((scene.cache_dir() / 'progress.json').read_text())
         phase = progress.get('state', 'STARTING')
+        total=progress.get('total',0)
+        current=progress.get('current',0)
+        state.asset_progress_known=isinstance(total,(int,float)) and total>0 and isinstance(current,(int,float))
+        state.asset_progress=max(0,min(1,current/total)) if state.asset_progress_known else 0
         if phase == 'ERROR':
             state.asset_status = progress.get('error', 'Asset operation failed')
         elif phase == 'READY':
@@ -184,7 +193,7 @@ def load_visuals():
 
 class RUSTER_OT_setup(bpy.types.Operator):
     bl_idname = 'ruster.setup'
-    bl_label = 'Locate Rust'
+    bl_label = 'Rust Installation'
     bl_description = 'Choose the Rust game installation to load local assets'
     directory: StringProperty(name='Rust installation', subtype='DIR_PATH')
 
@@ -194,11 +203,11 @@ class RUSTER_OT_setup(bpy.types.Operator):
 
     def draw(self, context):
         col = self.layout.column()
-        col.label(text='Welcome to Ruster', icon='WORLD')
-        col.label(text='Select the Rust game folder in your Steam library.')
-        col.label(text='Assets stay on your computer. Your game files are read only.')
+        col.label(text='Welcome to Ruster', icon=I['world'])
+        wrapped(col,context,'Select the Rust game folder in your Steam library.')
+        wrapped(col,context,'Assets stay on your computer. Your game files are read-only.',icon='locked')
         col.separator()
-        col.prop(self, 'directory')
+        properties(col).prop(self, 'directory')
 
     def execute(self, context):
         global _pending_project
@@ -231,24 +240,26 @@ class RUSTER_OT_welcome(bpy.types.Operator):
 
     def draw(self, context):
         col = self.layout.column()
-        col.scale_y = 1.25
-        col.label(text='Ruster', icon='WORLD')
-        col.label(text='Create something new, or build on a Rust world.')
+        col.label(text='Ruster', icon=I['world'])
+        wrapped(col,context,'Create something new, or build on a Rust world.')
         col.separator()
-        col.operator('ruster.open', text='Open Map or Project', icon='FILE_FOLDER')
-        col.operator('ruster.new', text='New Project', icon='FILE_NEW')
-        col.operator('ruster.new_map',text='New Rust Map',icon='WORLD')
+        action(col,'ruster.open')
+        action(col,'ruster.new')
+        action(col,'ruster.new_map')
         col.separator()
-        col.operator('ruster.setup', text='Rust Installation', icon='PREFERENCES')
+        action(col,'ruster.setup')
         col.label(text='Rust .map   ·   Ruster .ruster')
         recent=settings.load().get('recent_projects',[])
         recovery=settings.load().get('last_recovery','')
         if recovery and Path(recovery).is_file():
             col.separator()
-            col.operator('ruster.open',text='Recover Autosaved Session',icon='RECOVER_LAST').filepath=recovery
-        for path in recent[:5]:
-            if Path(path).is_file():
-                col.operator('ruster.open',text=Path(path).name,icon='FILE_BLEND').filepath=path
+            action(col,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=recovery
+        recent=[Path(path) for path in recent[:5] if Path(path).is_file()]
+        if recent:
+            col.separator()
+            col.label(text='Recent Projects',icon=I['open'])
+            for path in recent:
+                action(col,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)
 
     def execute(self, context):
         return {'FINISHED'}
@@ -264,7 +275,8 @@ class RUSTER_OT_new(bpy.types.Operator):
             message='Save your current project first. Unsaved changes will be discarded.')
 
     def execute(self, context):
-        bpy.ops.wm.read_factory_settings(app_template='')
+        # Reload the standard scene/workspaces, retaining the current preferences.
+        bpy.ops.wm.read_homefile(app_template='',use_factory_startup=True,use_splash=False)
         context.preferences.filepaths.use_scripts_auto_execute = False
         context.preferences.view.show_splash = False
         # Python registrations persist across read_homefile.
@@ -378,7 +390,7 @@ class RUSTER_OT_open(bpy.types.Operator, ImportHelper):
 
 class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
     bl_idname = 'ruster.save'
-    bl_label = 'Save Ruster Project'
+    bl_label = 'Save Project'
     filename_ext = '.ruster'
     filter_glob: StringProperty(default='*.ruster', options={'HIDDEN'})
     save_as: BoolProperty(default=False, options={'HIDDEN'})
@@ -430,11 +442,11 @@ class RUSTER_OT_validate(bpy.types.Operator):
         errors, notes = scene.validate()
         def draw(popup, _context):
             for error in errors:
-                popup.layout.label(text=error, icon='ERROR')
+                wrapped(popup.layout,_context,error,icon='error')
             if not errors:
-                popup.layout.label(text='Map data is ready to export', icon='CHECKMARK')
+                wrapped(popup.layout,_context,'Map data is ready to export',icon='validate')
             for note in notes:
-                popup.layout.label(text=note, icon='INFO')
+                wrapped(popup.layout,_context,note,icon='info')
         context.window_manager.popup_menu(draw, title='Map Validation')
         return {'FINISHED'}
 
@@ -460,7 +472,7 @@ class RUSTER_OT_assets(bpy.types.Operator):
 
 class RUSTER_OT_cancel_assets(bpy.types.Operator):
     bl_idname='ruster.cancel_assets'
-    bl_label='Cancel Asset Import'
+    bl_label='Cancel Asset Loading'
     def execute(self,context):
         global _job_cancelled
         if _job is not None and _job.poll() is None:
@@ -550,8 +562,8 @@ class RUSTER_OT_report(bpy.types.Operator):
         block.clear()
         block.write(text)
         def draw(popup, _context):
-            popup.layout.label(text=context.scene.ruster.asset_status[:120])
-            popup.layout.label(text=f'Full report: {scene.cache_dir()}')
+            wrapped(popup.layout,_context,context.scene.ruster.asset_status,icon='info')
+            wrapped(popup.layout,_context,f'Full report: {scene.cache_dir()}',icon='report')
         context.window_manager.popup_menu(draw, title='Asset Report')
         return {'FINISHED'}
 

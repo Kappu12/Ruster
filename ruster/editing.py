@@ -24,6 +24,7 @@ from .core import paths,wire
 from .core.terrain import Terrain,empty_world,SPLATS,BIOMES,TOPOLOGIES,resample
 from .core.rust_map import RustMap
 from .core.project import atomic_write
+from .ui_style import ICONS as I,TOOL_ICONS,properties,wrapped
 
 _cache = {}
 _classes = []
@@ -32,8 +33,10 @@ stroke_active = False
 
 
 class RUSTER_PG_brush(bpy.types.PropertyGroup):
-    layer: EnumProperty(name='Layer',items=[('terrain','Terrain Height',''),('water','Water Height',''),
-        ('splat','Ground Texture',''),('biome','Biome',''),('topology','Topology',''),('alpha','Terrain Holes','')])
+    layer: EnumProperty(name='Layer',items=[(key,label,'',I[icon],index) for index,(key,label,icon) in enumerate([
+        ('terrain','Terrain Height','terrain'),('water','Water Height','water'),
+        ('splat','Ground Texture','splat'),('biome','Biome','biome'),
+        ('topology','Topology','topology'),('alpha','Terrain Holes','alpha')])])
     tool: EnumProperty(name='Tool',items=[(x,x.title(),'') for x in
         ('RAISE','LOWER','FLATTEN','SMOOTH','ERODE','SHARPEN','TERRACE','NOISE','CLONE','PINCH','TWIST','SLOPE','STAMP')])
     radius: FloatProperty(name='Radius',default=30,min=.1,max=3000,subtype='DISTANCE')
@@ -353,7 +356,7 @@ class RUSTER_WST_terrain(bpy.types.WorkSpaceTool):
     bl_idname='ruster.terrain_brush'
     bl_label='Rust Terrain Brush'
     bl_description='Paint full-resolution Rust height, ground, biome, topology and alpha layers'
-    bl_icon='brush.generic'
+    bl_icon=TOOL_ICONS['terrain']
     bl_cursor='CROSSHAIR'
     bl_keymap=(('ruster.terrain_stroke',{'type':'LEFTMOUSE','value':'PRESS'},{}),
                ('ruster.terrain_sample',{'type':'RIGHTMOUSE','value':'PRESS','ctrl':True},{}))
@@ -365,7 +368,7 @@ class RUSTER_WST_terrain(bpy.types.WorkSpaceTool):
 
 class RUSTER_OT_terrain_apply(bpy.types.Operator):
     bl_idname='ruster.terrain_apply'
-    bl_label='Apply Brush at 3D Cursor'
+    bl_label='Apply Brush at Cursor'
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
         try:
@@ -406,7 +409,7 @@ class RUSTER_OT_bridge(bpy.types.Operator):
 
 class RUSTER_OT_generate(bpy.types.Operator):
     bl_idname='ruster.generate_island'
-    bl_label='Generate Island Terrain'
+    bl_label='Generate Island'
     bl_options={'REGISTER','UNDO'}
     seed:IntProperty(name='Seed',default=1,min=0)
     amplitude:FloatProperty(name='Relief',default=160,min=0,max=500)
@@ -414,8 +417,9 @@ class RUSTER_OT_generate(bpy.types.Operator):
     octaves:IntProperty(name='Detail Octaves',default=5,min=1,max=8)
     def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self,width=400)
     def draw(self,context):
-        self.layout.label(text='Replaces terrain heights. Undo restores the previous terrain.',icon='INFO')
-        for prop in ('seed','amplitude','frequency','octaves'):self.layout.prop(self,prop)
+        wrapped(self.layout,context,'Replaces terrain heights. Undo restores the previous terrain.',icon='info')
+        fields=properties(self.layout.column())
+        for prop in ('seed','amplitude','frequency','octaves'):fields.prop(self,prop)
     def execute(self,context):
         try:
             doc=terrain(fresh=True);doc.generate_island(self.seed,self.amplitude,self.frequency,self.octaves)
@@ -455,8 +459,9 @@ class RUSTER_OT_new_map(bpy.types.Operator):
     def invoke(self,context,event):
         return context.window_manager.invoke_props_dialog(self,width=400)
     def draw(self,context):
-        self.layout.label(text='Save your current project before creating a new map.',icon='INFO')
-        self.layout.prop(self,'size');self.layout.prop(self,'height')
+        wrapped(self.layout,context,'Save your current project before creating a new map.',icon='info')
+        fields=properties(self.layout.column())
+        fields.prop(self,'size');fields.prop(self,'height')
     def execute(self,context):
         try:
             from .app import session_dir

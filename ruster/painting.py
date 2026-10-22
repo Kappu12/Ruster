@@ -8,6 +8,7 @@ from mathutils import Quaternion,Vector
 from . import scene,editing,placement
 from .core import wire,prefabs,palettes,settings
 from .assets import catalog
+from .ui_style import ICONS as I,TOOL_ICONS
 
 _classes=[]
 _tool_registered=False
@@ -15,7 +16,8 @@ stroke_active=False
 
 
 class RUSTER_PG_paint(bpy.types.PropertyGroup):
-    palette:EnumProperty(name='Palette',items=[('SINGLE','Single Prefab',''),('FAVORITES','Favorites',''),('SELECTED','Selected Prefab Types','')])
+    palette:EnumProperty(name='Palette',items=[('SINGLE','Single Prefab','',I['prefab'],0),
+        ('FAVORITES','Favorites','',I['favorite_on'],1),('SELECTED','Selected Prefab Types','',I['select_same'],2)])
     uid:StringProperty(name='Prefab ID')
     spacing:FloatProperty(name='Minimum Spacing',default=4,min=.5,max=1000,subtype='DISTANCE')
     seed:IntProperty(name='Random Seed',default=1,min=0,max=2147483000)
@@ -164,7 +166,7 @@ class RUSTER_WST_prefab(bpy.types.WorkSpaceTool):
     bl_idname='ruster.prefab_brush'
     bl_label='Rust Prefab Paint'
     bl_description='Paint whole Rust prefabs onto terrain with spacing and randomized placement'
-    bl_icon='brush.generic'
+    bl_icon=TOOL_ICONS['prefab']
     bl_cursor='CROSSHAIR'
     bl_keymap=(('ruster.prefab_stroke',{'type':'LEFTMOUSE','value':'PRESS'},{}),)
     @staticmethod
