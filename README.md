@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: 0.6 development preview, with local MCP control, automatic Rust discovery and protected map editing.**
+**Status: 0.8 development preview, with local MCP control, automatic Rust discovery and protected map editing.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -15,8 +15,8 @@ work toward RustEdit parity.
 On first launch, Ruster checks standard Steam locations, Windows Steam registry
 entries and Steam's secondary library folders for Rust. It validates the game
 executable and `Bundles` folder, remembers the location and starts indexing.
-Your saved valid location takes priority. If discovery fails, Ruster opens
-**Preferences → Rust Assets**. Choose the folder and click **Apply Installation**,
+Your saved valid location takes priority. If discovery fails, choose **Preferences → Rust Assets** from the Ruster start
+screen. Choose the folder and click **Apply Installation**,
 for example:
 
 ```text
@@ -26,6 +26,17 @@ C:\Program Files (x86)\Steam\steamapps\common\Rust
 Choose the game folder containing `Bundles`, rather than the Steam directory.
 Ruster remembers this location and indexes the installed Unity AssetBundles in a
 separate process. Change it later with **Edit → Preferences → Rust Assets**.
+Indexing reads metadata through a seekable, block-based UnityFS reader; it does
+not expand entire bundles or decode game meshes/textures. A single bundle or
+requested prefab runs in its own short-lived child process. On Windows each
+asset child has a 768 MiB allocation limit and its supervisor tree has a 1 GiB
+limit. The editor process tree has a 4 GiB allocation limit. Limits apply to
+private committed process memory, not GPU allocations or shared system pages.
+Oversized/unsupported assets stay as placeholders with an error report. Worker
+watchdogs and Windows jobs stop child work if the owning editor exits or crashes.
+
+The native Blender splash artwork appears above Ruster's start buttons. The Ruster
+sidebar keeps the start controls available after dismissing the splash.
 
 The start screen offers:
 
@@ -193,12 +204,12 @@ Connect it in an MCP-compatible client using the copied configuration.
 
 ## Run from source
 
-Requires Blender **4.5 LTS** (tested against the pinned 4.5.14 runtime). Python
-3.11 is used by Blender. Your ordinary Blender settings are isolated from Ruster.
+Requires Blender **5.2 LTS** (tested against the pinned 5.2.3 runtime). Python
+3.13 is used by Blender. Your ordinary Blender settings are isolated from Ruster.
 
 ```powershell
 # Windows: launch.py also accepts --blender "C:\path\to\blender.exe"
-$env:RUSTER_BLENDER = 'C:\Program Files\Blender Foundation\Blender 4.5\blender.exe'
+$env:RUSTER_BLENDER = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 py -3 tools/setup_assets.py
 py -3 launch.py
 ```
@@ -217,7 +228,7 @@ the Rust installation. Reading Rust assets does not require launching the game.
 
 ## Build a standalone app
 
-Run on Windows x64 or Linux x64, using Python 3.11:
+Run on Windows x64 or Linux x64, using Python 3.13:
 
 ```bash
 python tools/package.py --archive
@@ -227,6 +238,9 @@ This downloads the official Blender archive pinned in `engine.lock.json`, verifi
 its SHA256, bundles Ruster and asset-reader dependencies, and runs the Blender
 integration test. Windows packaging creates `Ruster.exe`. Linux uses `Ruster.sh`.
 No separate Blender or Python installation is needed to use the packaged app.
+Use `--output-name Ruster-windows-x64-5.2` for a separate build folder while
+keeping an older app folder. Startup errors are recorded in
+`%LOCALAPPDATA%\Ruster\logs\startup.log` on Windows.
 Optional Windows file associations: run `tools/install_associations.ps1` from
 source with `-Executable` pointing to the packaged `Ruster.exe`.
 

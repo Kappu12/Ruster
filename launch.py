@@ -26,13 +26,13 @@ def find_blender(explicit=None):
             return str(path)
     if path := shutil.which('blender'):
         return path
-    raise FileNotFoundError('Blender 4.5 LTS was not found. Run tools/package.py or set RUSTER_BLENDER.')
+    raise FileNotFoundError('Blender 5.2 LTS was not found. Run tools/package.py or set RUSTER_BLENDER.')
 
 
 def main():
     parser = argparse.ArgumentParser(description='Ruster — Blender-based Rust map editor')
     parser.add_argument('project', nargs='?', help='A .map or .ruster file')
-    parser.add_argument('--blender', help='Path to Blender 4.5 LTS')
+    parser.add_argument('--blender', help='Path to Blender 5.2 LTS')
     parser.add_argument('--background', action='store_true', help='Launch without a window (development)')
     args = parser.parse_args()
     try:
@@ -40,11 +40,13 @@ def main():
         sys.path.insert(0, str(ROOT))
         from ruster.core.settings import user_root
         env = os.environ.copy()
+        env['RUSTER_LAUNCHER_PID'] = str(os.getpid())
         env['BLENDER_USER_CONFIG'] = str(user_root() / 'blender-config')
         env['BLENDER_USER_SCRIPTS'] = str(user_root() / 'blender-scripts')
         if (ROOT/'python_modules').exists():
             env['RUSTER_PYTHON_MODULES'] = str(ROOT/'python_modules')
-        command = [executable, '--factory-startup', '--disable-autoexec', '--python', str(ROOT/'bootstrap.py')]
+        command = [executable, '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
+                   '--python', str(ROOT/'bootstrap.py')]
         if args.background:
             command.insert(1, '--background')
         if args.project:
@@ -52,9 +54,19 @@ def main():
             if path.suffix.lower() not in ('.map', '.ruster') or not path.is_file():
                 parser.error('Choose an existing .map or .ruster file')
             command += ['--', str(path)]
-        return subprocess.call(command, env=env)
+        log_path = user_root() / 'logs' / 'startup.log'
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open('w', encoding='utf-8') as log:
+            code = subprocess.call(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+        if code:
+            raise OSError(f'Ruster could not start (exit {code}). Details: {log_path}')
+        return code
     except (FileNotFoundError, OSError) as error:
-        print(f'Ruster: {error}', file=sys.stderr)
+        if sys.stderr is not None:
+            print(f'Ruster: {error}', file=sys.stderr)
+        elif sys.platform == 'win32':
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, str(error), 'Ruster could not start', 0x10)
         return 1
 
 

@@ -23,12 +23,15 @@ Dark and light themes must both work, and New Project must preserve preferences.
 ## Entry and modes
 
 First launch tries the saved valid Rust folder, then standard Steam paths,
-Windows registry, secondary libraries and Rust's app manifest. Open Preferences
-at Rust Assets only if discovery finds no valid installation. Never recursively scan drives or
+Windows registry, secondary libraries and Rust's app manifest. Offer Preferences
+at Rust Assets if discovery finds no valid installation. Never recursively scan drives or
 modify Steam files. Store the result per user, outside project files. Indexing
 is visible and runs outside the UI process.
 
 The start screen has two primary actions: Open Map or Project, and New Project.
+Use Blender's native splash frame and bundled artwork, with Ruster's map/project
+actions and recent projects underneath. Keep start controls in the Ruster sidebar
+after the splash is dismissed. Reopening Start uses the same native splash.
 Opening `.map` selects Rust map mode; opening `.ruster` restores its saved mode.
 New Project restores the standard Blender startup scene and full workspaces.
 

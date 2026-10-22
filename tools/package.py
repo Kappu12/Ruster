@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Assemble a standalone Ruster distribution around a pinned official Blender.
 
-Run on the target OS with Python 3.11. Official downloads are SHA256-verified.
+Run on the target OS with the Python version in engine.lock.json.
+Official downloads are SHA256-verified.
 Game assets are never included. Blender's bundled licenses are retained.
 """
 import argparse
@@ -33,20 +34,25 @@ def fetch(url, target, digest):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--archive', action='store_true', help='Also create a distributable ZIP')
+    parser.add_argument('--output-name', help='Distribution folder name inside dist (for side-by-side builds)')
     args = parser.parse_args()
     lock = json.loads((ROOT/'engine.lock.json').read_text())
     system = platform.system()
     target = {'Windows':'windows-x64', 'Linux':'linux-x64'}.get(system)
     if target is None or platform.machine().lower() not in ('amd64','x86_64'):
         raise SystemExit('Packaging currently supports Windows x64 and Linux x64. macOS support is pending.')
-    if sys.version_info[:2] != (3, 11):
-        raise SystemExit('Use Python 3.11 to package dependencies for Blender 4.5.')
+    python_version = lock['python_version']
+    if sys.version_info[:2] != tuple(map(int, python_version.split('.'))):
+        raise SystemExit(f'Use Python {python_version} to package dependencies for Blender {lock["series"]}.')
     entry = lock['archives'][target]
     build = ROOT/'build'
     build.mkdir(exist_ok=True)
     archive = build/entry['file']
     fetch(lock['base_url']+'/'+entry['file'], archive, entry['sha256'])
-    output = ROOT/'dist'/f'Ruster-{target}'
+    output_name = args.output_name or f'Ruster-{target}'
+    if output_name in ('.', '..') or Path(output_name).name != output_name:
+        parser.error('--output-name must be a folder name')
+    output = ROOT/'dist'/output_name
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
@@ -75,7 +81,7 @@ def main():
     executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
     for test in ('blender_smoke.py','blender_editing.py','blender_placement.py','blender_protection.py','blender_ui.py','blender_mcp.py','blender_maps.py','blender_generation.py'):
-        subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec',
+        subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
                         '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
     python=next(p for p in sorted((output/'runtime').glob('*/python/bin/python*'))
         if p.is_file() and '-config' not in p.name and (system!='Windows' or p.name=='python.exe'))

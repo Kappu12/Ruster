@@ -90,7 +90,7 @@ def start_job(action, ids=None):
     cache = scene.cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
     args = [worker_python(), str(Path(__file__).parent / 'assets/worker.py'), action,
-            '--install', str(root), '--cache', str(cache)]
+            '--install', str(root), '--cache', str(cache), '--parent-pid', str(os.getpid())]
     if ids is not None:
         ids_path = session_dir() / 'ids.json'
         ids_path.write_text(json.dumps(ids))
@@ -238,31 +238,36 @@ class RUSTER_OT_welcome(bpy.types.Operator):
     bl_label = 'Ruster'
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_popup(self, width=460)
+        # The native operator supplies Blender's splash artwork and centered frame.
+        return bpy.ops.wm.splash('INVOKE_DEFAULT')
 
     def draw(self, context):
-        col = self.layout.column()
-        col.label(text='Ruster', icon=I['world'])
-        wrapped(col,context,'Create something new, or build on a Rust world.')
-        col.separator()
-        action(col,'ruster.open')
-        action(col,'ruster.new')
-        action(col,'ruster.new_map')
-        action(col,'ruster.generate_map')
-        col.separator()
-        action(col,'ruster.preferences')
-        col.label(text='Rust .map   ·   Ruster .ruster')
+        from . import __version__
+        layout = self.layout
+        layout.operator_context = 'INVOKE_DEFAULT'
+        layout.label(text=f'Ruster {__version__}', icon=I['world'])
+        split = layout.split(factor=.52)
+        col = split.column()
+        col.label(text='Create or Open')
+        for op in ('ruster.new_map','ruster.generate_map','ruster.open','ruster.new'):
+            action(col,op)
+        recent_col = split.column()
+        recent_col.label(text='Recent Projects')
         recent=settings.load().get('recent_projects',[])
         recovery=settings.load().get('last_recovery','')
         if recovery and Path(recovery).is_file():
-            col.separator()
-            action(col,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=recovery
+            action(recent_col,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=recovery
         recent=[Path(path) for path in recent[:5] if Path(path).is_file()]
         if recent:
-            col.separator()
-            col.label(text='Recent Projects',icon=I['open'])
             for path in recent:
-                action(col,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)
+                action(recent_col,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)
+        else:
+            recent_col.label(text='No recent projects')
+            wrapped(recent_col,context,'Open a Rust map or create one to begin.')
+        layout.separator()
+        row = layout.row()
+        action(row,'ruster.preferences')
+        row.label(text=f'Blender {bpy.app.version_string}')
 
     def execute(self, context):
         return {'FINISHED'}
@@ -286,6 +291,11 @@ class RUSTER_OT_new(bpy.types.Operator):
         context.scene.ruster.mode = 'BLENDER'
         context.scene.ruster.title = 'Untitled'
         context.scene.ruster.project_path = ''
+        from . import ui
+        # read_homefile invalidates the window context until the next event tick.
+        # Updating region visibility here can dereference a null workspace in C++.
+        if not bpy.app.background:
+            bpy.app.timers.register(ui.start_workspace, first_interval=.1)
         return {'FINISHED'}
 
 
@@ -604,6 +614,8 @@ def startup():
         if not windows:return .2
         with bpy.context.temp_override(window=windows[0]):
             return startup()
+    from . import ui
+    ui.start_workspace()
     config = settings.load()
     try:
         settings.validate_install(config.get('rust_install', ''))
@@ -611,12 +623,12 @@ def startup():
         from .core.steam import detect_install
         detected=detect_install()
         if not detected:
-            bpy.ops.ruster.setup('INVOKE_DEFAULT')
-            return None
-        config['rust_install']=str(detected)
-        settings.save(config)
-        try:start_job('index')
-        except Exception as error:bpy.context.scene.ruster.asset_status=str(error)
+            bpy.context.scene.ruster.asset_status='Choose your Rust installation in Preferences > Rust Assets'
+        else:
+            config['rust_install']=str(detected)
+            settings.save(config)
+            try:start_job('index')
+            except Exception as error:bpy.context.scene.ruster.asset_status=str(error)
     if _pending_project:
         try:
             pending, _pending_project = _pending_project, None

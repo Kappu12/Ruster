@@ -1,6 +1,6 @@
 # Architecture
 
-`launch.py` starts a pinned or user-selected Blender 4.5 executable in its own
+`launch.py` starts a pinned or user-selected Blender 5.2 executable in its own
 process with isolated user configuration, factory startup and automatic scripts
 disabled. `bootstrap.py` registers the Ruster application. Packaged builds ship
 Blender's runtime; users do not install an add-on manually.

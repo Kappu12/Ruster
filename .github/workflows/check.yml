@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - run: python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
       - run: python -m pytest -q
       - run: python -m compileall -q ruster tools bootstrap.py launch.py
@@ -21,38 +21,43 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Download verified Blender LTS
         run: |
           python tools/fetch_engine.py /tmp/ruster-engine
       - run: python -m pip install -r requirements-mcp.txt
       - name: Test actual Blender integration
         run: |
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_smoke.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_editing.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_placement.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_protection.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_ui.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_mcp.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_maps.py
-          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_generation.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_smoke.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_editing.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_placement.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_protection.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_ui.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_mcp.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_maps.py
+          /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_generation.py
+      - name: Test native startup splash and Scene properties
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python-exit-code 1 --python tests/gui_startup.py
       - name: Test mouse-driven terrain and prefab tools
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_interaction.py
+          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_interaction.py
       - name: Test native panels and dialogs
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_ui.py
+          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_ui.py
       - name: Test MCP client and automatic Rust discovery
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_mcp.py
+          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_mcp.py
       - name: Test 2D map layers and undo
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_maps.py
+          timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python tests/gui_maps.py

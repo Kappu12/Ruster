@@ -24,6 +24,27 @@ class MapPanel:
     def draw_header(self,context):self.layout.label(text='',icon=I[self.icon])
 
 
+class RUSTER_PT_start(bpy.types.Panel):
+    bl_label='Ruster'
+    bl_space_type='VIEW_3D'
+    bl_region_type='UI'
+    bl_category='Ruster'
+
+    @classmethod
+    def poll(cls,context):return not is_map(context)
+
+    def draw(self,context):
+        from . import __version__
+        layout=self.layout
+        layout.label(text=f'Ruster {__version__}',icon=I['world'])
+        wrapped(layout,context,'Open or create a Rust map to use terrain, prefabs, paths and map views.')
+        for op in ('ruster.new_map','ruster.generate_map','ruster.open','ruster.welcome'):
+            action(layout,op)
+        layout.separator()
+        wrapped(layout,context,context.scene.ruster.asset_status,icon='info')
+        action(layout,'ruster.preferences')
+
+
 class RUSTER_MT_file(bpy.types.Menu):
     bl_label='Ruster'
     def draw(self,context):
@@ -386,7 +407,6 @@ def close_map_timeline():
                 return .2
     retry=False
     for window in bpy.context.window_manager.windows:
-        if window.scene.ruster.mode!='MAP':continue
         for area in list(window.screen.areas):
             if area.type=='VIEW_3D':
                 region=next((r for r in area.regions if r.type=='UI'),None)
@@ -395,6 +415,24 @@ def close_map_timeline():
                     except RuntimeError:pass  # Category list needs its first draw.
                     retry=True
     return .2 if retry else None
+
+
+def start_workspace():
+    for window in bpy.context.window_manager.windows:
+        with bpy.context.temp_override(window=window):
+            if not is_map(bpy.context):window.workspace.name='Ruster'
+            for area in window.screen.areas:
+                with bpy.context.temp_override(area=area):
+                    if area.type=='VIEW_3D' and not area.spaces.active.show_region_ui:
+                        area.spaces.active.show_region_ui=True
+                    area.tag_redraw()
+    if not bpy.app.background and not bpy.app.timers.is_registered(close_map_timeline):
+        bpy.app.timers.register(close_map_timeline,first_interval=.1)
+
+
+def splash(self,context):
+    from .app import RUSTER_OT_welcome
+    RUSTER_OT_welcome.draw(self,context)
 
 
 def refresh_panels(classes):
@@ -429,9 +467,11 @@ def map_workspace():
 
 def register():
     classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_map,RUSTER_MT_assets,
-             RUSTER_PT_map,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets,
+             RUSTER_PT_start,RUSTER_PT_map,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets,
              RUSTER_PT_properties,RUSTER_PT_terrain,RUSTER_PT_paths,RUSTER_PT_paint]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
+    for cls in (bpy.types.WM_MT_splash,bpy.types.WM_MT_splash_quick_setup):
+        _draws.append((cls,cls.draw));cls.draw=splash
     patch_draw(bpy.types.TOPBAR_HT_upper_bar,topbar)
     patch_draw(bpy.types.TOPBAR_MT_editor_menus,menus)
     patch_draw(bpy.types.VIEW3D_HT_header,view_header)
@@ -464,6 +504,7 @@ def register():
 
 
 def unregister():
+    if bpy.app.timers.is_registered(start_workspace):bpy.app.timers.unregister(start_workspace)
     if bpy.app.timers.is_registered(close_map_timeline):bpy.app.timers.unregister(close_map_timeline)
     for cls,poll in reversed(_polls):
         if poll is None:delattr(cls,'poll')

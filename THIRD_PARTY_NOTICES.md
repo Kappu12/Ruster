@@ -9,8 +9,8 @@ The interface uses Blender's bundled RNA icons and toolbar `.dat` icon pack;
 these remain part of the licensed Blender runtime, with no external icon font.
 
 - Upstream: https://projects.blender.org/blender/blender
-- Exact source reference: `v4.5.14` (`engine.lock.json`)
-- Source archive: https://projects.blender.org/blender/blender/archive/v4.5.14.tar.gz
+- Exact source reference: `v5.2.3` (`engine.lock.json`)
+- Source archive: https://projects.blender.org/blender/blender/archive/v5.2.3.tar.gz
 - License: https://www.blender.org/about/license/
 
 When distributing binaries, provide the corresponding Ruster and Blender source
@@ -41,6 +41,12 @@ licenses retained in the packaged `python_modules` metadata directories.
 
 - https://github.com/K0lb3/UnityPy
 - https://pypi.org/project/UnityPy/1.25.4/
+
+`ruster/assets/streaming.py` supplies an independently implemented, bounded
+UnityFS block/slice reader for the pinned UnityPy adapter API. It replaces the
+worker's eager bundle/file materialization at runtime, without modifying the
+installed UnityPy distribution. Legacy/encrypted or oversized blocks are
+reported as unsupported instead of falling back to eager loading.
 
 The map adapter is independently written using the published Rust.World SDK
 format and the documented lz4net legacy stream framing. It does not bundle their
