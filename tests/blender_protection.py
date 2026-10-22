@@ -124,13 +124,15 @@ def run():
         assert not map_prefabs.validate()[0]
         # Exercise cross-drive packing even on Linux by making the source path
         # non-relative; staging must work and leave cwd/library references intact.
-        previous_cwd=Path.cwd();absolute=str(Path(bpy.path.abspath(library.filepath)).resolve())
+        previous_cwd=Path.cwd();original_path=library.filepath
+        absolute=str(Path(bpy.path.abspath(original_path)).resolve())
         native_relpath=bpy.path.relpath
         bpy.path.relpath=lambda path,*args,**kwargs: absolute if str(path)==absolute else native_relpath(path,*args,**kwargs)
         try:protection.pack_models()
         finally:bpy.path.relpath=native_relpath
         assert library.packed_file and Path.cwd()==previous_cwd
-        assert library.filepath==absolute
+        assert library.filepath==original_path
+        assert Path(bpy.path.abspath(library.filepath)).resolve()==Path(absolute)
         # A reopened project can retain an already-packed absolute library while
         # a newly loaded model still needs packing. Native Blender validates both
         # paths, even if the packed model's original cache has gone offline.
