@@ -35,10 +35,12 @@ def filters(query='',category='',favorites=None,available_only=False,include_hel
     tokens=re.split(r'\s+',query.strip()) if query.strip() else ['']
     conditions=[];args=[]
     for token in tokens:
+        token=token.strip('()')
         aliases=alias_paths(token) if token else []
         conditions.append('('+' OR '.join(["n.path LIKE ? ESCAPE char(92)"]+
-                          ['n.path LIKE ?' for _ in aliases])+')')
-        args.extend(['%'+literal(token)+'%',*aliases])
+                          ['n.path LIKE ?' for _ in aliases]+
+                          ["ruster_display_name(n.path) LIKE ? ESCAPE char(92)"])+')')
+        args.extend(['%'+literal(token)+'%',*aliases,'%'+literal(token.casefold())+'%'])
     if category:
         from ruster.core.asset_categories import GROUPS, LABELS, sql_case
         if category.startswith('@'):
@@ -65,19 +67,27 @@ def filters(query='',category='',favorites=None,available_only=False,include_hel
 
 
 def read_connection(cache):
-    return sqlite3.connect((Path(cache)/'catalog.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)
+    from ruster.core.asset_names import search_name
+    db=sqlite3.connect((Path(cache)/'catalog.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)
+    db.create_function('ruster_display_name',1,search_name,deterministic=True)
+    return db
 
 
-def rows(db,where,args,limit,offset):
+def rows(db,where,args,limit,offset,query=''):
+    from ruster.core.asset_names import priority_paths
+    priority=priority_paths(query)
+    ranking=('CASE '+ ' '.join(f'WHEN n.path LIKE ? THEN {index}' for index,_ in enumerate(priority))+
+             f' ELSE {len(priority)} END,') if priority else ''
     return db.execute('SELECT n.uid,n.path,'+AVAILABLE+' FROM names n WHERE '+where+
-        ' ORDER BY n.path COLLATE NOCASE,n.uid LIMIT ? OFFSET ?',(*args,limit,max(0,offset))).fetchall()
+        ' ORDER BY '+ranking+'n.path COLLATE NOCASE,n.uid LIMIT ? OFFSET ?',
+        (*args,*priority,limit,max(0,offset))).fetchall()
 
 
 def search(cache, query='', limit=100, offset=0, category='', favorites=None, available_only=False,include_helpers=True):
     if not (Path(cache)/'catalog.sqlite3').exists():return []
     where,args=filters(query,category,favorites,available_only,include_helpers)
     with closing(read_connection(cache)) as db:
-        return rows(db,where,args,limit,offset)
+        return rows(db,where,args,limit,offset,query)
 
 
 def page(cache,query='',page_index=0,page_size=12,category='',favorites=None,available_only=False,include_helpers=True):
@@ -90,7 +100,7 @@ def page(cache,query='',page_index=0,page_size=12,category='',favorites=None,ava
         total=db.execute('SELECT COUNT(*) FROM names n WHERE '+where,args).fetchone()[0]
         pages=(total+page_size-1)//page_size
         current=min(max(0,page_index),max(0,pages-1))
-        return {'rows':rows(db,where,args,page_size,current*page_size),'total':total,'page':current,'pages':pages}
+        return {'rows':rows(db,where,args,page_size,current*page_size,query),'total':total,'page':current,'pages':pages}
 
 
 def categories(cache):

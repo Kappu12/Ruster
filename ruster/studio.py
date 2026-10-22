@@ -19,6 +19,8 @@ from .core.rustedit_prefab import RustEditPrefab
 _classes, _keymaps = [], []
 _search_cache = {}
 _search_items = [('NONE', 'No matching local prefabs — adjust the browser filters', '')]
+SEARCH_PAGE_SIZE = 10
+SEARCH_CACHE_LIMIT = 16
 _model_items = []
 
 # Scalar settings verified against the installed SerializedIOEntity contract.
@@ -234,33 +236,90 @@ def export_prefab(path, selected=True):
     atomic_write(Path(path).with_suffix('.prefab'), source.write())
 
 
-def search_items(operator, _context):
+def search_results(operator, context):
+    """Bounded metadata pages; retain enum strings while native controls use them."""
     path = scene.cache_dir() / 'catalog.sqlite3'
-    state=bpy.context.scene.ruster
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else 0, operator.category,state.include_helpers,state.available_only)
+    state=(context or bpy.context).scene.ruster
+    query=getattr(operator,'query','')
+    page=max(0,getattr(operator,'page',1)-1)
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else 0,
+           operator.category,state.include_helpers,state.available_only,query.casefold(),page)
     if key not in _search_cache:
-        rows = catalog.search(scene.cache_dir(), limit=100000, category=operator.category,
-                              include_helpers=state.include_helpers,available_only=state.available_only)
+        data = catalog.page(scene.cache_dir(),query=query,page_index=page,page_size=SEARCH_PAGE_SIZE,
+                            category=operator.category,include_helpers=state.include_helpers,
+                            available_only=state.available_only)
         from .core.asset_names import display_name
         items = [(str(uid), display_name(path_), path_ + '\nID: ' + str(uid))
-                 for uid, path_, _available in rows]
-        _search_cache[key] = items or _search_items
-        # Keep one stable string array per broad category for Blender's RNA.
-        for old in list(_search_cache):
-            if old[:2] != key[:2]:del _search_cache[old]
-    return _search_cache[key]
+                 for uid, path_, _available in data['rows']]
+        data['items']=items or _search_items
+        _search_cache[key] = data
+    result=_search_cache.pop(key)
+    _search_cache[key]=result
+    while len(_search_cache)>SEARCH_CACHE_LIMIT:
+        del _search_cache[next(iter(_search_cache))]
+    return result
+
+
+def search_items(operator, context):
+    return search_results(operator,context)['items']
+
+
+def search_query_changed(operator, context):
+    operator.page=1
+    operator.prefab=search_items(operator,context)[0][0]
+
+
+def search_page_changed(operator, context):
+    result=search_results(operator,context)
+    page=result['page']+1
+    if operator.page!=page:
+        operator.page=page
+    else:
+        operator.prefab=result['items'][0][0]
 
 
 class RUSTER_OT_add_prefab(bpy.types.Operator):
     bl_idname = 'ruster.add_prefab'
     bl_label = 'Add Rust Prefab'
-    bl_property = 'prefab'
-    category: StringProperty(options={'SKIP_SAVE'})
-    prefab: EnumProperty(name='Search Rust Prefabs', items=search_items)
+    category: StringProperty(default='',options={'SKIP_SAVE'})
+    query: StringProperty(name='Search Rust Prefabs',options={'SKIP_SAVE','TEXTEDIT_UPDATE'},
+                          update=search_query_changed)
+    page: IntProperty(name='Page',default=1,min=1,options={'SKIP_SAVE'},update=search_page_changed)
+    prefab: EnumProperty(name='Results',items=search_items,options={'SKIP_SAVE'})
 
     def invoke(self, context, event):
-        context.window_manager.invoke_search_popup(self)
-        return {'RUNNING_MODAL'}
+        self.query=''
+        self.page=1
+        self.prefab=search_items(self,context)[0][0]
+        return context.window_manager.invoke_props_dialog(self,width=560,confirm_text='Add')
+
+    def draw(self, context):
+        from .core.asset_categories import LABELS
+        layout=self.layout
+        label=LABELS.get(self.category.removeprefix('@'),self.category) if self.category else 'All Rust Prefabs'
+        layout.label(text=label,icon='OUTLINER_COLLECTION')
+        field=layout.column();field.activate_init=True
+        field.prop(self,'query',text='',icon='VIEWZOOM')
+        data=search_results(self,context)
+        results=layout.column(align=True)
+        if data['items'][0][0]=='NONE':
+            results.label(text='No matching prefabs',icon='INFO')
+        else:
+            for identifier,name,_description in data['items']:
+                results.prop_enum(self,'prefab',identifier,text=name)
+        row=layout.row(align=True)
+        row.enabled=data['pages']>1
+        row.prop(self,'page',text='Page')
+        row.label(text=f"of {max(1,data['pages'])} · {data['total']:,} matches")
+        state=context.scene.ruster
+        helpers=state.include_helpers or self.category in ('@EFFECTS','@GAMEPLAY','@HIDDEN','@ALL_ASSETS')
+        layout.label(text=('Available locally' if state.available_only else 'All catalog entries')+
+                          (' · helpers included' if helpers else ' · helper effects hidden'))
+
+    def check(self, context):
+        if self.prefab not in {item[0] for item in search_items(self,context)}:
+            self.prefab=search_items(self,context)[0][0]
+        return True
 
     def execute(self, context):
         if self.prefab == 'NONE':return {'CANCELLED'}

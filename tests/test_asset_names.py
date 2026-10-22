@@ -1,6 +1,7 @@
 from contextlib import closing
 from ruster.assets import catalog
 from ruster.core.asset_names import display_name
+import pytest
 
 
 def test_dev_cube_is_named_and_searchable_in_either_order(tmp_path):
@@ -35,3 +36,36 @@ def test_maze_hose_has_a_readable_name_and_word_aliases(tmp_path):
     for query in ('io tube cyan','glowing hose','tube hose','maze neon','ioslothandlehose_pending'):
         assert [row[0] for row in catalog.search(tmp_path,query)]==[147092032],query
     assert [row[0] for row in catalog.search(tmp_path,'tube wire')]==[4153457039]
+
+
+@pytest.mark.parametrize('query', ['io','IO','Io','glow','GLOW','glowing','neon','cyan glow','GLOW CYAN','(cyan glow)'])
+def test_maze_handles_rank_before_broad_path_matches_and_paging(tmp_path,query):
+    from ruster.core.asset_names import IO_NAMES
+    ids={'ioslothandlehose_pending':147092032,'ioslothandle':4153457039}
+    with closing(catalog.connect(tmp_path)) as db:
+        rows=[(10,'assets/prefabs/gloweyes/gloweyes.item.prefab'),
+              (11,'assets/prefabs/construction/generic.prefab')]
+        for index,stem in enumerate(IO_NAMES,100):
+            tool='hose' if 'hose' in stem else 'wire'
+            rows.append((ids.get(stem,index),f'assets/prefabs/tools/{tool}/ioslothandles/{stem}.prefab'))
+        db.executemany('INSERT INTO names VALUES(?,?)',rows)
+        db.execute('INSERT INTO assets SELECT path,?,?,uid FROM names',('bundle','file'))
+        db.commit()
+    assert catalog.search(tmp_path,query,limit=1,available_only=True)[0][0]==147092032
+    first=catalog.page(tmp_path,query=query,page_size=1,available_only=True,include_helpers=False)
+    assert first['rows'][0][0]==147092032
+    if query.casefold()=='io':
+        assert catalog.search(tmp_path,query,limit=2)[1][0]==4153457039
+        assert catalog.page(tmp_path,query=query,page_size=1,page_index=1)['rows'][0][0]==4153457039
+    else:
+        assert all(row[0]!=4153457039 for row in catalog.search(tmp_path,query)), 'Plain gray wire is not a glow alias'
+
+
+def test_every_displayed_sound_word_matches_in_any_order_and_case(tmp_path):
+    path='assets/prefabs/target/sound/target_deploy.prefab'
+    with closing(catalog.connect(tmp_path)) as db:
+        db.execute('INSERT INTO names VALUES(?,?)',(1188595389,path))
+        db.commit()
+    assert 'effect' not in path and 'effect' in display_name(path)
+    for query in ('sound effect','effect sound','EFFECT SOUND','(Sound effect)','effect deploy target'):
+        assert [row[0] for row in catalog.search(tmp_path,query)]==[1188595389],query
