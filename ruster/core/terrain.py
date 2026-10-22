@@ -66,7 +66,8 @@ class Terrain:
     def __init__(self, world, edits=None):
         self.world = world
         self.base_layers = world.layers
-        self.edits = dict(edits or {})
+        self._stored_edits = dict(edits or {})
+        self.modified_layers = set(self._stored_edits)
         self._arrays = {}
 
     @property
@@ -82,8 +83,8 @@ class Terrain:
         name = self.resolve(name)
         if name in self._arrays:
             return self._arrays[name].tobytes()
-        if name in self.edits:
-            return self.edits[name]
+        if name in self._stored_edits:
+            return self._stored_edits[name]
         raw = self.base_layers.get(name)
         if raw is None:
             raise FormatError(f'Map has no {name} layer')
@@ -147,7 +148,9 @@ class Terrain:
 
     def changed(self, name):
         name = self.resolve(name)
-        self.edits[name] = self._arrays[name].tobytes()
+        # A stroke or path may stamp thousands of small regions. Defer whole-
+        # layer serialization until a snapshot/export actually needs the bytes.
+        self.modified_layers.add(name)
 
     def region(self, n, x, z, radius, falloff=0.6, shape='CIRCLE'):
         if not all(math.isfinite(v) for v in (x,z,radius,falloff)) or radius <= 0:
@@ -343,13 +346,13 @@ class Terrain:
 
     def export_world(self):
         world=RustMap(self.world.version,self.world.timestamp,list(self.world.fields))
-        for name in self.edits:
+        for name in self.modified_layers:
             world.set_layer(name,self.raw(name))
         return world
 
     def snapshot(self):
         fields=[]
-        for name in sorted(self.edits):
+        for name in sorted(self.modified_layers):
             fields.append(wire.encode(1,2,wire.serialize([
                 wire.encode(1,2,name.encode()),wire.encode(2,2,self.raw(name))])))
         return base64.b85encode(zlib.compress(wire.serialize(fields),3)).decode('ascii')

@@ -44,7 +44,7 @@ def test_derived_height_preserves_relief_while_terrain_moves():
 def test_outside_map_brush_does_not_edit():
     doc=document()
     assert doc.brush('RAISE',10000,10000,1) is False
-    assert not doc.edits
+    assert not doc.modified_layers
 
 
 def test_height_mask_blocks_paint_outside_limits():
@@ -104,8 +104,8 @@ def test_snapshot_roundtrip_preserves_every_edit():
     for layer,channel in [('terrain',0),('splat',2),('biome',4),('alpha',0),('topology',3),('water',0)]:
         doc.brush('RAISE',0,0,10,layer=layer,channel=channel,invert=layer=='alpha')
     restored=Terrain.restore(doc.world,doc.snapshot())
-    assert set(restored.edits)==set(doc.edits)
-    for name in doc.edits:assert restored.raw(name)==doc.raw(name)
+    assert set(restored.modified_layers)==set(doc.modified_layers)
+    for name in doc.modified_layers:assert restored.raw(name)==doc.raw(name)
 
 
 def test_ground_layer_alias_preserves_name_and_unknown_metadata():
