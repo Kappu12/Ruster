@@ -41,6 +41,7 @@ def cache_dir():
 
 def material(name, color):
     mat = bpy.data.materials.get(name)
+    if mat is not None and mat.library:mat=None
     if mat is None:
         mat = bpy.data.materials.new(name)
         mat.diffuse_color = color
@@ -199,6 +200,9 @@ def restore_map_tools():
         world=RustMap.load(bpy.context.scene.ruster.source_map)
         for obj,fields in zip(legacy,world.paths):
             editing.configure_path(obj,fields)
+    for root in prefab_roots():
+        from .protection import protect_root
+        protect_root(root)
     editing.refresh()
 
 
@@ -213,13 +217,27 @@ def attach_visual(root,force=False):
     token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
     asset_key=str(root['ruster_uid'])+(':'+token if token else '')
     collection_name = 'RusterAsset:' + asset_key
-    existing = bpy.data.collections.get(collection_name)
+    matches=[c for c in bpy.data.collections if c.name==collection_name]
+    from .protection import VERSION
+    existing=next((c for c in matches if c.library and c.get('ruster_model_verified') and c.get('ruster_model_version')==VERSION),None)
     if existing:
         root.instance_type = 'COLLECTION'
-        root.instance_collection = existing
+        asset_name=existing.get('ruster_asset_name',root.name)
+        from .protection import freeze
+        root.instance_collection = freeze(existing,root['ruster_uid'])
         root['ruster_visual'] = True
         root.empty_display_size = .5
-        root.name = existing.get('ruster_asset_name', root.name)
+        root.name = asset_name
+        return True
+    from .protection import library_path,linked_collection
+    model_path=library_path(asset_key)
+    if model_path.is_file():
+        model=linked_collection(model_path,collection_name)
+        if model.get('ruster_asset_key')!=asset_key or not model.get('ruster_model_verified') or model.get('ruster_model_version')!=VERSION:
+            raise ValueError('Cached prefab model does not match the original asset; refresh its assets')
+        root.instance_type='COLLECTION';root.instance_collection=model
+        root['ruster_visual']=True;root.empty_display_size=.5
+        root.name=model.get('ruster_asset_name',root.name)
         return True
     with gzip.open(path, 'rt') as stream:
         asset = json.load(stream)
@@ -231,61 +249,60 @@ def attach_visual(root,force=False):
     materials = {}
     for ident, spec in asset['materials'].items():
         name = 'Rust ' + asset_key + ' ' + hashlib.sha256(ident.encode()).hexdigest()[:16]
-        mat = bpy.data.materials.get(name)
-        if mat is None:
-            mat = bpy.data.materials.new(name)
-            mat.diffuse_color = spec['color']
-            mat.use_nodes = True
-            bsdf = mat.node_tree.nodes.get('Principled BSDF')
-            bsdf.inputs['Base Color'].default_value = spec['color']
-            bsdf.inputs['Roughness'].default_value = 0.8
-            bsdf.inputs['Roughness'].default_value = spec.get('roughness',.8)
-            bsdf.inputs['Metallic'].default_value = spec.get('metallic',0.)
-            if spec.get('texture'):
-                tex_path = (path.parent / spec['texture']).resolve()
-                if tex_path.is_relative_to(path.parent.resolve()) and tex_path.exists():
-                    image = bpy.data.images.load(str(tex_path), check_existing=True)
-                    image.pack()
-                    node = mat.node_tree.nodes.new('ShaderNodeTexImage')
-                    node.image = image
-                    if spec.get('uv_scale') or spec.get('uv_offset'):
-                        uv=mat.node_tree.nodes.new('ShaderNodeTexCoord')
-                        mapping=mat.node_tree.nodes.new('ShaderNodeMapping')
-                        mapping.inputs['Scale'].default_value=(*spec.get('uv_scale',[1,1]),1)
-                        mapping.inputs['Location'].default_value=(*spec.get('uv_offset',[0,0]),0)
-                        mat.node_tree.links.new(uv.outputs['UV'],mapping.inputs['Vector'])
-                        mat.node_tree.links.new(mapping.outputs['Vector'],node.inputs['Vector'])
-                    mat.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
-                    if spec.get('alpha_clip'):
-                        mat.node_tree.links.new(node.outputs['Alpha'],bsdf.inputs['Alpha'])
-                        mat.surface_render_method='DITHERED'
+        # Rebuild from source rather than trusting editable legacy preview data.
+        mat = bpy.data.materials.new(name)
+        mat.diffuse_color = spec['color']
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get('Principled BSDF')
+        bsdf.inputs['Base Color'].default_value = spec['color']
+        bsdf.inputs['Roughness'].default_value = 0.8
+        bsdf.inputs['Roughness'].default_value = spec.get('roughness',.8)
+        bsdf.inputs['Metallic'].default_value = spec.get('metallic',0.)
+        if spec.get('texture'):
+            tex_path = (path.parent / spec['texture']).resolve()
+            if tex_path.is_relative_to(path.parent.resolve()) and tex_path.exists():
+                image = bpy.data.images.load(str(tex_path), check_existing=True)
+                image.pack()
+                node = mat.node_tree.nodes.new('ShaderNodeTexImage')
+                node.image = image
+                if spec.get('uv_scale') or spec.get('uv_offset'):
+                    uv=mat.node_tree.nodes.new('ShaderNodeTexCoord')
+                    mapping=mat.node_tree.nodes.new('ShaderNodeMapping')
+                    mapping.inputs['Scale'].default_value=(*spec.get('uv_scale',[1,1]),1)
+                    mapping.inputs['Location'].default_value=(*spec.get('uv_offset',[0,0]),0)
+                    mat.node_tree.links.new(uv.outputs['UV'],mapping.inputs['Vector'])
+                    mat.node_tree.links.new(mapping.outputs['Vector'],node.inputs['Vector'])
+                mat.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+                if spec.get('alpha_clip'):
+                    mat.node_tree.links.new(node.outputs['Alpha'],bsdf.inputs['Alpha'])
+                    mat.surface_render_method='DITHERED'
         materials[ident] = mat
     meshes = {}
     for ident, spec in asset['meshes'].items():
         name = 'Rust ' + asset_key + ' ' + hashlib.sha256(ident.encode()).hexdigest()[:16]
-        mesh = bpy.data.meshes.get(name)
-        if mesh is None:
-            mesh = bpy.data.meshes.new(name)
-            faces, slots = [], []
-            for slot, triangles in enumerate(spec['submeshes']):
-                # Coordinate basis changes handedness, so reverse winding.
-                faces.extend(tuple(reversed(t)) for t in triangles)
-                slots.extend([slot] * len(triangles))
-            mesh.from_pydata([tuple(to_blender(v)) for v in spec['vertices']], [], faces)
-            mesh.update()
-            for poly, slot in zip(mesh.polygons, slots):
-                poly.material_index = slot
-            uv = spec.get('uv', [])
-            if uv and len(uv) == len(mesh.vertices):
-                layer = mesh.uv_layers.new()
-                for loop in mesh.loops:
-                    layer.data[loop.index].uv = uv[loop.vertex_index][:2]
+        # Rebuild from source rather than trusting editable legacy preview data.
+        mesh = bpy.data.meshes.new(name)
+        faces, slots = [], []
+        for slot, triangles in enumerate(spec['submeshes']):
+            # Coordinate basis changes handedness, so reverse winding.
+            faces.extend(tuple(reversed(t)) for t in triangles)
+            slots.extend([slot] * len(triangles))
+        mesh.from_pydata([tuple(to_blender(v)) for v in spec['vertices']], [], faces)
+        mesh.update()
+        for poly, slot in zip(mesh.polygons, slots):
+            poly.material_index = slot
+        uv = spec.get('uv', [])
+        if uv and len(uv) == len(mesh.vertices):
+            layer = mesh.uv_layers.new()
+            for loop in mesh.loops:
+                layer.data[loop.index].uv = uv[loop.vertex_index][:2]
         meshes[ident] = mesh
     objects = []
     for spec in asset['nodes']:
         obj = bpy.data.objects.new(spec['name'], meshes.get(spec['mesh']))
         collection.objects.link(obj)
         obj['ruster_kind'] = 'VISUAL'
+        obj['ruster_source_uid'] = root['ruster_uid']
         obj.hide_select = True
         obj.parent = None if spec['parent'] is None else objects[spec['parent']]
         # Ignore the source prefab root transform: map placement owns it.
@@ -298,7 +315,7 @@ def attach_visual(root,force=False):
             # Mesh data are shared; use per-object material slots.
             needed = len(spec['materials'])
             while len(obj.data.materials) < needed:
-                obj.data.materials.append(material('Rust fallback', (.5,.5,.5,1)))
+                obj.data.materials.append(material('Rust fallback '+asset_key, (.5,.5,.5,1)))
             for i, mat_id in enumerate(spec['materials']):
                 obj.material_slots[i].link = 'OBJECT'
                 obj.material_slots[i].material = materials.get(mat_id)
@@ -306,7 +323,8 @@ def attach_visual(root,force=False):
     root.name = Path(asset['path']).stem
     collection['ruster_asset_name'] = root.name
     root.instance_type = 'COLLECTION'
-    root.instance_collection = collection
+    from .protection import freeze
+    root.instance_collection = freeze(collection,root['ruster_uid'],asset_key,verified=True)
     root['ruster_visual'] = True
     root.empty_display_size = .5
     return True
@@ -326,8 +344,12 @@ def validate():
     if not source.is_file():
         errors.append('Source map is missing; reopen the .ruster project or source map')
     missing = 0
+    checked_models={}
     for obj in prefab_roots():
         try:
+            from .protection import model_error
+            problem=model_error(obj,checked_models)
+            if problem:errors.append(f'{obj.name}: {problem}')
             uid = int(obj['ruster_uid'])
             if not 0 <= uid <= 0xFFFFFFFF:
                 raise ValueError()
@@ -355,6 +377,9 @@ def validate():
     build = [o for o in scene.objects if not o.get('ruster_kind') and o.type in {'MESH','CURVE','FONT'}]
     if build:
         errors.append(f'{len(build)} custom objects cannot be embedded in a Rust .map; save them in .ruster instead')
+    unpacked=[o for o in scene.objects if o.get('ruster_kind')=='VISUAL']
+    if unpacked:
+        errors.append(f'{len(unpacked)} unpacked prefab model parts cannot export; restore the original prefab models')
     from .editing import path_record
     if bpy.context.mode=='EDIT_CURVE':
         errors.append('Finish editing path nodes before exporting the map')

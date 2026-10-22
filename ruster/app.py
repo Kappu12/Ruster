@@ -25,6 +25,12 @@ _visual_queue = []
 _session_dirs = []
 _pending_project = None
 _job_cancelled = False
+_pending_asset_ids=set()
+
+
+def category_items(state,context):
+    from .browser import category_items as items
+    return items(state,context)
 
 
 def query_changed(state,context):
@@ -41,6 +47,8 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     asset_status: StringProperty(default='Choose your Rust installation', options={'SKIP_SAVE'})
     busy: BoolProperty(default=False, options={'SKIP_SAVE'})
     terrain_state: PointerProperty(type=bpy.types.Text)
+    category:EnumProperty(name='Category',items=category_items,update=query_changed)
+    favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
     query_page: IntProperty(default=0,min=0,options={'SKIP_SAVE'})
     preview_resolution:EnumProperty(name='Terrain Detail',items=[('129','Fast','Lowest viewport memory use'),
         ('257','Balanced','Balanced detail and performance'),('513','Detailed','More terrain samples in the viewport'),
@@ -94,6 +102,17 @@ def start_job(action, ids=None):
         bpy.app.timers.register(poll_job, first_interval=.2)
 
 
+def request_assets(ids):
+    ids=set(ids)
+    if not ids:return
+    _pending_asset_ids.update(ids)
+    if _job is not None and _job.poll() is None:return
+    pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
+    try:start_job('extract',pending)
+    except Exception as error:
+        bpy.context.scene.ruster.asset_status=f'Placements saved; asset loading needs attention: {error}'
+
+
 def redraw():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
@@ -135,6 +154,11 @@ def poll_job():
             return .5
         except Exception as error:
             state.asset_status = str(error)
+    if not _job_cancelled and _pending_asset_ids:
+        pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
+        try:
+            start_job('extract',pending);return .5
+        except Exception as error:state.asset_status=str(error)
     _visual_queue = [obj.name for obj in scene.prefab_roots()]
     if not bpy.app.timers.is_registered(load_visuals):
         bpy.app.timers.register(load_visuals, first_interval=.1)
@@ -303,6 +327,8 @@ def save_project(path,update_path=True):
             state.title=Path(path).stem
         with tempfile.TemporaryDirectory(prefix='ruster-save-') as temp:
             blend=Path(temp)/'scene.blend'
+            from .protection import pack_models
+            pack_models()
             bpy.ops.file.pack_all()
             bpy.ops.wm.save_as_mainfile(filepath=str(blend),copy=True,check_existing=False,compress=True)
             project.save(path,blend,state.mode,state.source_map or None,state.title)
@@ -316,8 +342,8 @@ def recovery_tick():
     if bpy.app.background:return None
     try:
         if bpy.context.window_manager.is_interface_locked or bpy.context.mode!='OBJECT':return 20.
-        from . import editing
-        if editing.stroke_active:return 20.
+        from . import editing,painting
+        if editing.stroke_active or painting.stroke_active:return 20.
         state=bpy.context.scene.ruster
         path=settings.user_root()/'recovery'/'last-session.ruster'
         save_project(path,update_path=False)
@@ -438,6 +464,7 @@ class RUSTER_OT_cancel_assets(bpy.types.Operator):
     def execute(self,context):
         global _job_cancelled
         if _job is not None and _job.poll() is None:
+            _pending_asset_ids.clear()
             _job_cancelled=True;_job.terminate()
         return {'FINISHED'}
 
@@ -481,8 +508,7 @@ class RUSTER_OT_place(bpy.types.Operator):
                 item.select_set(False)
             obj.select_set(True)
             context.view_layer.objects.active = obj
-            if not obj.get('ruster_visual') and not context.scene.ruster.busy:
-                start_job('extract', [uid])
+            if not obj.get('ruster_visual'):request_assets([uid])
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -581,6 +607,10 @@ def register():
     editing.register()
     from . import placement
     placement.register()
+    from . import protection,browser,painting
+    protection.register()
+    browser.register()
+    painting.register()
     ui.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
@@ -609,7 +639,12 @@ def unregister():
     for km, item in _keymaps:
         km.keymap_items.remove(item)
     _keymaps.clear()
+    _pending_asset_ids.clear()
     ui.unregister()
+    from . import protection,browser,painting
+    painting.unregister()
+    browser.unregister()
+    protection.unregister()
     from . import placement
     placement.unregister()
     from . import editing

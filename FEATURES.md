@@ -25,6 +25,9 @@ still need validation against an installed game and a live test server.
 | Alpha | Cut and restore terrain holes, visible preview holes and heightfield picking through holes |
 | Water | Water-height painting and surface preview; river bed/water grading |
 | Prefab placement | Native selection, transforms, snapping, duplicate/delete, shared geometry instances |
+| Prefab protection | Read-only linked model/mesh/material IDs, placement-only handles, original-model restore, export guards for editable/unpacked models |
+| Prefab browser | Category filters, literal search, paging, persistent favorites and favorite filtering |
+| Prefab paint | Continuous placement, single/favorite/selected-type palettes, random scale/rotation, alignment, origin spacing, slope and alpha-hole filters; stroke undo/cancel |
 | Prefab assemblies | Group/ungroup, group transforms, `.rusterprefab` import/export |
 | Placement tools | Terrain snap, surface alignment, seeded scatter, spacing/slope filters, select same type, replacement |
 | Paths | Create/edit road, river, rail and powerline polylines; extend/delete nodes with Blender curve tools |
@@ -34,7 +37,7 @@ still need validation against an installed game and a live test server.
 | Materials | Base color/textures, UV tiling/offset, common metallic/roughness/alpha properties |
 | LOD | Select the first nonempty authored LOD rather than drawing overlapping LOD meshes |
 | Asset updates | Bundle/dependency cache invalidation, refresh existing visuals, cancel background work, reports |
-| Recovery | Two-minute atomic recovery save, start-screen recovery, skip active strokes/modal terrain state |
+| Recovery | Two-minute atomic recovery save, start-screen recovery, skip active terrain and prefab strokes |
 | Undo | Native Blender undo/redo retains full-resolution terrain snapshots and prefab/path edits |
 | Export | `.map` versions 9/10, modified terrain/path/prefab records, preserve unedited and unknown fields |
 | Validation | Non-finite/invalid transforms, unsupported custom geometry, group shear, invalid paths, source protection |
@@ -46,8 +49,7 @@ still need validation against an installed game and a live test server.
 - [ ] Confirm exports in current Rust dedicated server and maintain real-map fixtures.
 - [ ] RustEdit `.prefab` compatibility, monument breaking/unpacking and monument
   terrain/splat/topology/biome stamps and placement masks.
-- [ ] Prefab thumbnails, category browsing, favorite palettes, continuous prefab
-  painting, random multi-prefab palettes and placement collision checks.
+- [ ] Prefab thumbnails, palette presets and game-collider placement collision checks.
 - [ ] Clone follow/snap modes, ridge erosion, additional terrain processing and
   custom brush libraries; improve adaptive terrain detail for large worlds.
 - [ ] Dedicated splat mixer, layer image import/export, automatic biome/splat/

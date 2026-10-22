@@ -32,3 +32,11 @@ def sample_world(version=10):
     fields.append(wire.encode(4,2,wire.serialize(path)))
     fields.append(wire.encode(99,2,b'unknown world extension'))
     return RustMap(version,struct.pack('<q',123456789) if version==10 else b'',fields)
+
+
+def triangle_asset(uid=123456):
+    return {'schema':1,'path':f'assets/test/model_{uid}.prefab','uid':uid,
+        'nodes':[{'name':'Test triangle','parent':None,'position':[0,0,0],
+                  'rotation':[1,0,0,0],'scale':[1,1,1],'mesh':'mesh','materials':['mat']}],
+        'meshes':{'mesh':{'vertices':[[0,0,0],[2,0,0],[0,2,1]],'submeshes':[[[0,1,2]]],'uv':[]}},
+        'materials':{'mat':{'name':'Test material','color':[.4,.5,.2,1],'texture':None}}}

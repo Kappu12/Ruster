@@ -12,7 +12,7 @@ A `.ruster` file is a ZIP archive with these exact permitted members:
 {
   "format": "ruster",
   "schema": 1,
-  "app_version": "0.1.0",
+  "app_version": "0.3.0",
   "title": "My World",
   "mode": "MAP",
   "files": {
@@ -37,6 +37,10 @@ The original map remains embedded rather than referenced by an absolute game pat
 The local Rust install and asset catalog live in per-user settings/cache, not in
 the `.ruster` file. Cached assets attached to the scene are packed into `.blend`;
 the project should therefore be treated as containing game content when shared.
+From 0.3, model previews are linked read-only libraries packed inside `scene.blend`.
+They retain read-only IDs when reopened, including textures, without external
+model-cache paths. This does not change the ZIP schema. Legacy editable previews
+are locked and require original asset data for verified replacement before export.
 
 ## Rust `.map` adapter
 

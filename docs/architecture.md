@@ -11,6 +11,10 @@ Blender's runtime; users do not install an add-on manually.
 | `ruster/ui.py` | Native UI menus, panels, workspace configuration |
 | `ruster/scene.py` | Scene construction, shared model instances, validation and export |
 | `ruster/editing.py` | Full-resolution terrain state, brushes, paths, height images and generation |
+| `ruster/protection.py` | Read-only model libraries, packing, restoration and geometry export guards |
+| `ruster/browser.py` | Categories, native catalog filters and local favorite palettes |
+| `ruster/painting.py` | Native continuous prefab placement tool, palettes, stroke undo/cancel |
+| `ruster/core/palettes.py` | Validated persistent favorite IDs |
 | `ruster/placement.py` | Groups, prefab assemblies, scatter, snap and replacement |
 | `ruster/core/terrain.py` | Terrain algorithms, layer snapshots, normalization and sampling |
 | `ruster/core/paths.py` | Lossless path records and polyline sampling |
@@ -38,8 +42,16 @@ Euler values are preserved when an object's transform has not changed.
    can load the correct dependency lazily.
 4. Export requested prefab hierarchies and triangle meshes through UnityPy into
    local compressed JSON plus PNG textures. Report partial failures explicitly.
-5. Attach visuals incrementally in Blender. Multiple placements share mesh data.
-   Model children are unselectable; users edit the placement root.
+5. Build a fresh preview collection from conversion data; never reuse editable
+   legacy meshes/materials as source geometry. Write a cached `.blend` library,
+   then link the collection read-only. Model materials, images and meshes belong
+   to that library; do not create dependencies on another model's fallback material.
+6. Attach these collections incrementally. Placements share a linked collection
+   behind editable empty handles. Native edit/sculpt/modifier operators reject
+   linked source IDs. Library IDs and textures are packed when saving `.ruster`.
+7. Validate that models are linked, unoverridden, from original conversion data
+   and match the placement ID. Reject unpacked/localized copies. Lock old local
+   previews on load but rebuild from original local assets before trusting them.
 
 Asset indexing stores bundle size and nanosecond modification time for updates.
 Extracted meshes are cache entries, not the authoritative map model. Unsupported
@@ -58,6 +70,19 @@ Viewport resolution can be adjusted independently. Alpha changes remove preview
 faces; heightfield ray intersection still allows users to paint holes closed.
 Terrain-height changes update the derived spawn-height layer by the same delta,
 retaining the previous offset from prefab relief. Water has a separate preview.
+
+## Prefab painting
+
+A stroke captures a validated local catalog palette and a spacing hash populated
+from existing placement origins. Terrain sampling applies slope/hole/bounds
+filters. New objects contain only Rust placement records and linked visual
+instances. Mouse movement interpolates stamps; release creates one native undo
+step. Cancel removes every created placement. Recovery skips both terrain and
+prefab strokes. Background extraction requests are queued rather than cancelling
+placements when an asset worker is occupied or the installation is unavailable.
+
+These are authoring constraints through the supported UI and native operators,
+not a security sandbox against arbitrary scripts or edits to cache files.
 
 ## Remaining work
 

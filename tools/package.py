@@ -73,7 +73,7 @@ def main():
                     '--target', str(output/'python_modules'), '-r', str(ROOT/'requirements-assets.txt')], check=True)
     executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
-    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py'):
+    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py','blender_protection.py'):
         subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec',
                         '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
     if system == 'Windows':

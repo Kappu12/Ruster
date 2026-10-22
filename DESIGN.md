@@ -27,9 +27,16 @@ Rust workflows. Do not add nonfunctional brushes or decorative controls.
 Terrain brushes edit full-resolution layer data; the viewport mesh is a disposable
 preview at adjustable detail. Paths use native curve node editing and retain
 source metadata. Each brush stroke is one undo step. A prefab root is an editable placement; its model hierarchy is
-read-only preview data. Duplicate and delete include that hierarchy. Missing
+read-only linked library data. The root supports placement transforms and whole-
+instance operations; never expose mesh editing, sculpting, booleans, make-local
+or library-override actions as map editing. Terrain holes affect only terrain.
+Duplicate/delete operate on complete instances; reject editable/unpacked model
+copies at export and offer original-model restoration. Legacy editable previews
+must not be treated as verified originals without rebuilding from asset sources. Missing
 visuals are clearly represented as placement boxes, with a report explaining why.
 Unsupported custom mesh data may be stored in `.ruster` but blocks `.map` export.
+Prefab painting uses whole instances, native strokes and local favorite palettes.
+Esc removes the whole pending stroke; placement spacing is not collider testing.
 
 ## Saving
 

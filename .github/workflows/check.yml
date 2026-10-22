@@ -30,7 +30,8 @@ jobs:
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_smoke.py
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_editing.py
           /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_placement.py
-      - name: Test mouse-driven terrain brush
+          /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_protection.py
+      - name: Test mouse-driven terrain and prefab tools
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |

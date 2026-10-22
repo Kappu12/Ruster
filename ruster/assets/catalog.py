@@ -18,15 +18,40 @@ def connect(cache):
     return db
 
 
-def search(cache, query='', limit=100, offset=0):
-    if not (Path(cache) / 'catalog.sqlite3').exists():
-        return []
+def literal(value):
+    return value.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')
+
+
+def search(cache, query='', limit=100, offset=0, category='', favorites=None):
+    if not (Path(cache) / 'catalog.sqlite3').exists():return []
+    conditions=["n.path LIKE ? ESCAPE '\\'"]
+    args=['%'+literal(query)+'%']
+    if category:
+        conditions.append("n.path LIKE ? ESCAPE '\\'")
+        args.append(literal(category.rstrip('/')+'/')+'%')
+    if favorites is not None:
+        ids=list(favorites)
+        if not ids:return []
+        if len(ids)>512:raise ValueError('A favorite palette supports at most 512 prefabs')
+        conditions.append('n.uid IN ('+','.join('?' for _ in ids)+')');args.extend(ids)
     with closing(sqlite3.connect((Path(cache)/'catalog.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
-        query=query.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')
-        return db.execute('''SELECT n.uid, n.path, a.bundle IS NOT NULL FROM names n
-            LEFT JOIN assets a ON lower(a.path)=lower(n.path)
-            WHERE n.path LIKE ? ESCAPE '\\' ORDER BY n.path LIMIT ? OFFSET ?''',
-            ('%' + query + '%', limit, max(0,offset))).fetchall()
+        return db.execute('SELECT n.uid,n.path,a.bundle IS NOT NULL FROM names n '
+            'LEFT JOIN assets a ON lower(a.path)=lower(n.path) WHERE '+ ' AND '.join(conditions)+
+            ' ORDER BY n.path LIMIT ? OFFSET ?',(*args,limit,max(0,offset))).fetchall()
+
+
+def categories(cache):
+    path=Path(cache)/'catalog.sqlite3'
+    if not path.exists():return []
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+        names=db.execute('SELECT path FROM names').fetchall()
+    counts={}
+    for (name,) in names:
+        parts=name.split('/')[:-1]
+        index=(parts.index('prefabs')+2) if 'prefabs' in parts else min(3,len(parts))
+        prefix='/'.join(parts[:index])
+        if prefix:counts[prefix]=counts.get(prefix,0)+1
+    return sorted(counts.items())
 
 
 def find(cache, uid):

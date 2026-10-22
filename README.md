@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: development preview, with full-resolution terrain, path and prefab editing.**
+**Status: 0.3 development preview, with protected prefab models and terrain/path editing.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -53,6 +53,27 @@ before exporting. Width, padding/fades and grading are available in that panel.
 The Placement panel groups/ungroups monuments, snaps and aligns objects to terrain,
 scatters selected prefab types, replaces selected types and imports/exports
 `.rusterprefab` assemblies. Assemblies store game prefab references and transforms.
+
+Rust prefab models are **read-only linked libraries**. Move, rotate, scale,
+replace, group, duplicate or delete the placement; edit terrain with the terrain
+brushes. Mesh editing, sculpting and geometry modifiers cannot edit the linked
+model through Blender's normal operators. Terrain holes never cut prefab meshes.
+The map-mode command and Outliner menus expose supported placement actions.
+Export rejects editable/unpacked model parts, detached previews and mismatched
+models. **Restore Original Prefab Models** repairs the selected placements.
+
+The Prefab Browser now has categories, persistent favorite stars and a favorites
+filter. Click the brush icon beside a prefab to choose it for **Prefab Paint**.
+Drag in the viewport to paint a spaced line of placements. The paint panel also
+supports random favorite/selected-type palettes, rotation, scale, surface
+alignment, slope limits and avoiding terrain holes. Spacing measures placement
+origins; it is not a game-collider collision test. Each stroke is one undo step;
+Esc cancels the entire stroke. Missing asset conversions queue behind active work.
+
+Protected libraries and their textures pack into `.ruster` and reopen without the
+conversion cache. Older projects with editable previews lock those previews on
+open; their geometry must be rebuilt from the original local assets before export.
+Normal New Project mode retains Blender's ordinary mesh editing tools.
 
 Ruster saves an atomic recovery project every two minutes when the editor is idle.
 Use **Recover Autosaved Session** on the start screen after a crash. Recovery does
@@ -134,6 +155,7 @@ python -m pytest -q
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_smoke.py
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_editing.py
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_placement.py
+/path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_protection.py
 ```
 
 The Blender test checks real terrain construction, coordinate/rotation conversion,
@@ -141,6 +163,11 @@ placement edits, grouping/scatter, terrain and path editing, native undo/redo, l
 unknown fields, `.ruster` save/reopen with embedded source data, and restoration of
 the normal Blender workspace. Format tests also cover malformed inputs, archive
 integrity, path traversal, and independently compressed legacy LZ4 blocks.
+
+The graphical test (`tests/gui_interaction.py`, `--enable-event-simulate`) exercises
+actual mouse-driven terrain and prefab strokes, one-step undo, redo and cancel.
+Model protection tests also remove the source map, cache and texture files before
+reopening the packed project, and reject editable preview copies.
 
 These tests use synthetic map data and original test geometry. They do **not**
 establish compatibility with every Rust asset or confirm a map in a running Rust

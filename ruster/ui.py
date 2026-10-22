@@ -85,6 +85,7 @@ class RUSTER_PT_map(bpy.types.Panel):
         state = context.scene.ruster
         layout = self.layout
         layout.label(text=state.title, icon='WORLD')
+        layout.label(text='F3: Ruster commands',icon='INFO')
         row = layout.row()
         row.label(text=f'{state.map_size:,} m')
         row.label(text=f'{len(scene.prefab_roots()):,} prefabs')
@@ -108,8 +109,14 @@ class RUSTER_PT_prefabs(bpy.types.Panel):
         layout = self.layout
         state = context.scene.ruster
         layout.prop(state, 'query', text='', icon='VIEWZOOM')
+        layout.prop(state,'category',text='')
+        layout.prop(state,'favorites_only',icon='SOLO_ON')
+        from .core import settings,palettes
+        favorites=set(palettes.favorite_ids(settings.load()))
         try:
-            matches = catalog.search(scene.cache_dir(), state.query, limit=41,offset=state.query_page*40)
+            matches = catalog.search(scene.cache_dir(),state.query,limit=41,offset=state.query_page*40,
+                category='' if state.category=='ALL' else state.category,
+                favorites=favorites if state.favorites_only else None)
         except Exception:
             matches = []
         if not matches:
@@ -117,9 +124,11 @@ class RUSTER_PT_prefabs(bpy.types.Panel):
             layout.operator('ruster.assets', text='Refresh Asset Catalog', icon='FILE_REFRESH').rebuild = True
         for uid, path, available in matches[:40]:
             row = layout.row(align=True)
-            row.enabled = bool(available)
-            row.operator('ruster.place', text=path.rsplit('/',1)[-1].removesuffix('.prefab'),
+            row.operator('ruster.favorite',text='',icon='SOLO_ON' if uid in favorites else 'SOLO_OFF').uid=str(uid)
+            body=row.row(align=True);body.enabled=bool(available)
+            body.operator('ruster.place', text=path.rsplit('/',1)[-1].removesuffix('.prefab'),
                          icon='ADD').uid = str(uid)
+            body.operator('ruster.paint_asset',text='',icon='BRUSH_DATA').uid=str(uid)
         layout.label(text='Places at the 3D cursor')
         row=layout.row(align=True)
         previous=row.row();previous.enabled=state.query_page>0
@@ -148,6 +157,11 @@ class RUSTER_PT_selection(bpy.types.Panel):
         layout.label(text=obj.name, icon='OUTLINER_OB_EMPTY')
         if obj.get('ruster_kind')=='PREFAB':
             layout.label(text='Prefab ID: ' + obj.get('ruster_uid', '?'))
+            layout.label(text='Original Rust model · read-only',icon='LOCKED')
+            from .protection import model_error
+            problem=model_error(obj)
+            if problem:layout.label(text='Restore this prefab model before exporting.',icon='ERROR')
+            layout.operator('ruster.restore_models',icon='FILE_REFRESH')
         layout.use_property_split = True
         layout.prop(obj, 'location')
         layout.prop(obj,'rotation_quaternion' if obj.rotation_mode=='QUATERNION' else 'rotation_euler',text='Rotation')
@@ -268,6 +282,27 @@ class RUSTER_PT_terrain(bpy.types.Panel):
         layout.operator('ruster.terrain_detail')
 
 
+class RUSTER_PT_paint(bpy.types.Panel):
+    bl_label='Prefab Paint'
+    bl_space_type='VIEW_3D'
+    bl_region_type='UI'
+    bl_category='Ruster'
+    @classmethod
+    def poll(cls,context):return is_map(context)
+    def draw(self,context):
+        layout=self.layout;brush=context.scene.ruster_paint
+        layout.use_property_split=True
+        layout.prop(brush,'palette')
+        if brush.palette=='SINGLE':layout.prop(brush,'uid')
+        for prop in ('spacing','random_yaw','min_scale','max_scale','seed','align','offset','max_slope','respect_holes'):
+            layout.prop(brush,prop)
+        layout.use_property_split=False
+        layout.operator('wm.tool_set_by_id',text='Paint Prefabs in Viewport',icon='BRUSH_DATA').name='ruster.prefab_brush'
+        layout.label(text='Drag: place · Esc: cancel the whole stroke')
+        layout.label(text='Spacing uses placement origins.')
+        layout.label(text='Game prefab geometry stays read-only.',icon='LOCKED')
+
+
 class RUSTER_PT_paths(bpy.types.Panel):
     bl_label='Paths'
     bl_space_type='VIEW_3D'
@@ -344,6 +379,12 @@ def context_menu(self, context):
     layout.separator()
     layout.operator('ruster.duplicate', icon='DUPLICATE')
     layout.operator('ruster.delete', icon='TRASH')
+    layout.operator('ruster.restore_models',icon='FILE_REFRESH')
+
+
+def readonly_source_menu(self,context):
+    self.layout.label(text='Original Rust models are read-only',icon='LOCKED')
+    self.layout.operator('ruster.restore_models',icon='FILE_REFRESH')
 
 
 def properties_header(self, context):
@@ -363,8 +404,8 @@ def topbar(self,context):
 
 
 def close_map_timeline():
-    from .editing import stroke_active
-    if stroke_active:return .5
+    from . import editing,painting
+    if editing.stroke_active or painting.stroke_active:return .5
     for window in bpy.context.window_manager.windows:
         if window.scene.ruster.mode!='MAP':continue
         for area in list(window.screen.areas):
@@ -390,7 +431,7 @@ def map_workspace():
 def register():
     classes = [RUSTER_MT_file, RUSTER_MT_edit, RUSTER_MT_map, RUSTER_MT_assets,
                RUSTER_PT_map, RUSTER_PT_prefabs, RUSTER_PT_selection, RUSTER_PT_assets,
-               RUSTER_PT_properties,RUSTER_PT_terrain,RUSTER_PT_paths]
+               RUSTER_PT_properties,RUSTER_PT_terrain,RUSTER_PT_paths,RUSTER_PT_paint]
     for cls in classes:
         bpy.utils.register_class(cls)
         _classes.append(cls)
@@ -398,6 +439,10 @@ def register():
     patch_draw(bpy.types.TOPBAR_MT_editor_menus, menus)
     patch_draw(bpy.types.VIEW3D_HT_header, view_header)
     patch_draw(bpy.types.VIEW3D_MT_object_context_menu, context_menu)
+    for cls in (bpy.types.OUTLINER_MT_context_menu,bpy.types.OUTLINER_MT_object,bpy.types.OUTLINER_MT_collection):
+        patch_draw(cls,context_menu)
+    for cls in (bpy.types.OUTLINER_MT_id_data,bpy.types.OUTLINER_MT_liboverride,bpy.types.OUTLINER_MT_edit_datablocks):
+        patch_draw(cls,readonly_source_menu)
     patch_draw(bpy.types.PROPERTIES_HT_header, properties_header)
     # Suppress unrelated built-in property panels only in Rust map mode.
     # Class-local originals are restored exactly on unregister.
