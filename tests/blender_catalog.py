@@ -88,6 +88,15 @@ def run():
             assert browser.prefab_page(bpy.context.scene.ruster)['total']==1
             assert len(calls)==2,'Changing search text did not refresh the page'
         finally:catalog.page=native_page
+        from tests.fixtures import triangle_asset
+        asset=triangle_asset(43)
+        asset['nodes'][0]['parent']=0
+        asset['nodes'].insert(0,{'name':'Source transform','parent':None,'position':[0,0,0],
+            'rotation':[1,0,0,0],'scale':[1,1,1],'mesh':None,'materials':[]})
+        (cache/'43.json.gz').write_bytes(gzip.compress(json.dumps(asset).encode()))
+        assert scene.attach_visual(roots[1])
+        helpers=[o for o in roots[1].instance_collection.all_objects if o.type=='EMPTY']
+        assert helpers and all(o.empty_display_size<=.0001 for o in helpers),'Source transform axes leaked into the viewport'
         ruster.unregister()
     print('RUSTER_CATALOG_ON_DEMAND_OK',flush=True)
 

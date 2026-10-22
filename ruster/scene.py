@@ -224,7 +224,9 @@ def attach_visual(root,force=False):
     stamp=path.with_name(str(root['ruster_uid'])+'.stamp')
     signature=stamp.read_text() if stamp.exists() else ''
     token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
-    asset_key=str(root['ruster_uid'])+(':'+token if token else '')
+    # Display-only changes rebuild the small Blender preview from cached data;
+    # existing packed originals remain valid for offline projects.
+    asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view2'
     collection_name = 'RusterAsset:' + asset_key
     matches=[c for c in bpy.data.collections if c.name==collection_name]
     from .protection import VERSION
@@ -323,6 +325,8 @@ def attach_visual(root,force=False):
         obj['ruster_kind'] = 'VISUAL'
         obj['ruster_source_uid'] = root['ruster_uid']
         obj.hide_select = True
+        if obj.type=='EMPTY':
+            obj.empty_display_type='PLAIN_AXES';obj.empty_display_size=.0001
         obj.parent = None if spec['parent'] is None else objects[spec['parent']]
         # Ignore the source prefab root transform: map placement owns it.
         if spec['parent'] is not None:
