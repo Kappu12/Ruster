@@ -280,6 +280,10 @@ def open_path(path):
             ui.map_workspace()
     else:
         raise ValueError('Choose a Rust .map or Ruster .ruster file')
+    # File import and post-load source relocation must be an undo baseline.
+    # Otherwise the first brush undo can restore the old scene or a stale source.
+    if bpy.context.preferences.edit.use_global_undo:
+        bpy.ops.ed.undo_push(message='Open Ruster Project')
     remember_project(path)
 
 
