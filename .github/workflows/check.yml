@@ -1,0 +1,29 @@
+name: Check Ruster
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  formats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pytest lz4 -r requirements-assets.txt
+      - run: python -m pytest -q
+      - run: python -m compileall -q ruster tools bootstrap.py launch.py
+  blender:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download verified Blender LTS
+        run: |
+          python tools/fetch_engine.py /tmp/ruster-engine
+      - name: Test actual Blender integration
+        run: /tmp/ruster-engine/blender-4.5.14-linux-x64/blender -b --factory-startup --disable-autoexec --python tests/blender_smoke.py

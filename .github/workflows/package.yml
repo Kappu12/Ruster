@@ -1,0 +1,25 @@
+name: Build Ruster App
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python tools/package.py --archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ruster-${{ runner.os }}
+          path: dist/*.zip
+          retention-days: 14

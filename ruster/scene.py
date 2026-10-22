@@ -1,0 +1,344 @@
+"""Blender scene adapter. Only placement roots are serialized back to Rust."""
+import base64
+import gzip
+import json
+import math
+from pathlib import Path
+import uuid
+
+import bpy
+from mathutils import Matrix, Vector, Euler, Quaternion
+from .core import wire
+from .core.rust_map import RustMap, prefab_id, prefab_transform, update_transform
+from .core.project import atomic_write
+
+BASIS = Matrix(((1, 0, 0), (0, 0, 1), (0, 1, 0)))
+
+
+def to_blender(values):
+    return BASIS @ Vector(values)
+
+
+def to_unity(values):
+    return tuple(BASIS @ Vector(values))
+
+
+def unity_euler(values):
+    rotation = Euler(tuple(math.radians(a) for a in values), 'ZXY').to_matrix()
+    return (BASIS @ rotation @ BASIS).to_quaternion()
+
+
+def blender_euler(rotation):
+    matrix = BASIS @ rotation.to_matrix() @ BASIS
+    return tuple(math.degrees(a) for a in matrix.to_euler('ZXY'))
+
+
+def cache_dir():
+    from .core.settings import user_root
+    return user_root() / 'assets'
+
+
+def material(name, color):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name)
+        mat.diffuse_color = color
+    return mat
+
+
+def new_collection(name, parent=None):
+    collection = bpy.data.collections.new(name)
+    (parent or bpy.context.scene.collection).children.link(collection)
+    return collection
+
+
+def clear_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for obj in list(bpy.context.scene.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    for collection in list(bpy.data.collections):
+        if collection.users == 0 or collection.name in {'Collection', 'Terrain', 'Prefabs', 'Paths', 'Build'}:
+            bpy.data.collections.remove(collection)
+
+
+def create_terrain(world):
+    import numpy as np
+    n, raw = world.height_grid()
+    # Preview has <= 257² vertices. Original full-resolution data remains untouched.
+    indices = np.unique(np.linspace(0, n - 1, min(n, 257), dtype=int))
+    grid = np.asarray(raw, dtype=np.float64).reshape(n, n)
+    heights = grid[np.ix_(indices, indices)] / 32766.0 * 1000.0 - 500.0
+    m = len(indices)
+    positions = indices / (n - 1) * world.size - world.size / 2
+    xx, yy = np.meshgrid(positions, positions)
+    vertices = np.column_stack((xx.ravel(), yy.ravel(), heights.ravel()))
+    faces = [(z*m+x, z*m+x+1, (z+1)*m+x+1, (z+1)*m+x) for z in range(m-1) for x in range(m-1)]
+    mesh = bpy.data.meshes.new('Rust terrain preview')
+    mesh.from_pydata(vertices.tolist(), [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new('Terrain', mesh)
+    new_collection('Terrain').objects.link(obj)
+    obj['ruster_kind'] = 'TERRAIN'
+    obj['ruster_resolution'] = n
+    obj.hide_select = True
+    obj.data.materials.append(material('Terrain', (0.24, 0.33, 0.19, 1)))
+    # Give the terrain a useful biome/splat preview using vertex colors.
+    layers = world.layers
+    splat = layers.get('splat', b'')
+    res = math.isqrt(len(splat) // 8)
+    if res > 0 and res * res * 8 == len(splat):
+        weights = np.frombuffer(splat, dtype=np.uint8).reshape(8, res, res)
+        lookup = np.minimum((indices / (n - 1) * (res - 1)).astype(int), res - 1)
+        palette = np.array([(0.34,0.24,0.15), (0.85,0.89,0.93), (0.65,0.55,0.32),
+                            (0.29,0.3,0.29), (0.22,0.35,0.12), (0.11,0.22,0.08),
+                            (0.4,0.39,0.35), (0.37,0.34,0.29)])
+        sample = weights[:, lookup[:, None], lookup[None, :]].reshape(8, -1).T / 255
+        colors = np.column_stack((sample @ palette, np.ones(m*m)))
+        attr = mesh.color_attributes.new(name='RustGround', type='FLOAT_COLOR', domain='POINT')
+        attr.data.foreach_set('color', colors.ravel())
+        mat = material('Rust ground preview', (0.3,0.4,0.2,1))
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        attr_node = nodes.get('RustGround') or nodes.new('ShaderNodeVertexColor')
+        attr_node.name = 'RustGround'
+        attr_node.layer_name = 'RustGround'
+        mat.node_tree.links.new(attr_node.outputs['Color'], nodes.get('Principled BSDF').inputs['Base Color'])
+        mesh.materials.clear()
+        mesh.materials.append(mat)
+    return obj
+
+
+def create_paths(world):
+    collection = new_collection('Paths')
+    for i, fields in enumerate(world.paths):
+        name = wire.get(fields, 1, b'Path').decode('utf8', errors='replace')
+        nodes = [wire.vector(f.value) for f in fields if f.number == 15 and f.wire == 2]
+        if not nodes:
+            continue
+        curve = bpy.data.curves.new(name, 'CURVE')
+        curve.dimensions = '3D'
+        spline = curve.splines.new('POLY')
+        spline.points.add(len(nodes) - 1)
+        for point, values in zip(spline.points, nodes):
+            point.co = (*to_blender(values), 1)
+        curve.bevel_depth = 0.3
+        curve.resolution_u = 1
+        obj = bpy.data.objects.new(name, curve)
+        collection.objects.link(obj)
+        obj['ruster_kind'] = 'PATH_PREVIEW'
+        obj.hide_select = True
+        obj.data.materials.append(material('Path overlay', (0.8, 0.5, 0.12, 1)))
+
+
+def root_object(fields, collection):
+    uid = prefab_id(fields)
+    obj = bpy.data.objects.new(f'Prefab {uid}', None)
+    collection.objects.link(obj)
+    obj['ruster_kind'] = 'PREFAB'
+    obj['ruster_uid'] = str(uid)  # Blender integer ID properties are signed.
+    obj['ruster_record'] = base64.b64encode(wire.serialize(fields)).decode()
+    obj['ruster_instance'] = uuid.uuid4().hex
+    obj['ruster_visual'] = False
+    position, rotation, scale = prefab_transform(fields)
+    obj.location = to_blender(position)
+    obj.rotation_mode = 'QUATERNION'
+    obj.rotation_quaternion = unity_euler(rotation)
+    obj.scale = to_blender(scale)
+    obj.empty_display_type = 'CUBE'
+    obj.empty_display_size = 2
+    obj.color = (1, .36, .08, 1)
+    return obj
+
+
+def import_map(path):
+    world = RustMap.load(path)
+    world.height_grid()  # Validate terrain before discarding the current scene.
+    clear_scene()
+    scene = bpy.context.scene
+    scene.ruster.mode = 'MAP'
+    scene.ruster.map_size = world.size
+    scene.ruster.title = Path(path).stem
+    scene.ruster.project_path = ''
+    scene.ruster.source_map = str(Path(path).resolve())
+    create_terrain(world)
+    collection = new_collection('Prefabs')
+    for fields in world.prefabs:
+        obj = root_object(fields, collection)
+        attach_visual(obj)
+    create_paths(world)
+    new_collection('Build')
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type == 'VIEW_3D':
+                space = area.spaces.active
+                space.clip_end = max(world.size * 4, 10000)
+                space.region_3d.view_distance = world.size * 0.9
+                space.region_3d.view_location = (0, 0, 0)
+                space.region_3d.view_rotation = Euler((math.radians(55), 0, math.radians(35))).to_quaternion()
+                space.show_region_ui = True
+                space.overlay.show_floor = False
+                space.shading.type = 'MATERIAL'
+                space.shading.studiolight_rotate_z = 0.5
+    return world
+
+
+def attach_visual(root):
+    if root.get('ruster_visual'):
+        return True
+    path = cache_dir() / 'prefabs' / f"{root['ruster_uid']}.json.gz"
+    if not path.exists():
+        return False
+    collection_name = 'RusterAsset:' + str(root['ruster_uid'])
+    existing = bpy.data.collections.get(collection_name)
+    if existing:
+        root.instance_type = 'COLLECTION'
+        root.instance_collection = existing
+        root['ruster_visual'] = True
+        root.empty_display_size = .5
+        root.name = existing.get('ruster_asset_name', root.name)
+        return True
+    with gzip.open(path, 'rt') as stream:
+        asset = json.load(stream)
+    if asset.get('schema') != 1:
+        return False
+    # Collection instances make the whole prefab clickable as one placement and
+    # avoid creating thousands of duplicate hierarchy objects for repeated assets.
+    collection = bpy.data.collections.new(collection_name)
+    materials = {}
+    for ident, spec in asset['materials'].items():
+        name = 'Rust ' + str(root['ruster_uid']) + ' ' + ident
+        mat = bpy.data.materials.get(name)
+        if mat is None:
+            mat = bpy.data.materials.new(name)
+            mat.diffuse_color = spec['color']
+            mat.use_nodes = True
+            bsdf = mat.node_tree.nodes.get('Principled BSDF')
+            bsdf.inputs['Base Color'].default_value = spec['color']
+            bsdf.inputs['Roughness'].default_value = 0.8
+            if spec.get('texture'):
+                tex_path = (path.parent / spec['texture']).resolve()
+                if tex_path.is_relative_to(path.parent.resolve()) and tex_path.exists():
+                    image = bpy.data.images.load(str(tex_path), check_existing=True)
+                    image.pack()
+                    node = mat.node_tree.nodes.new('ShaderNodeTexImage')
+                    node.image = image
+                    mat.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+        materials[ident] = mat
+    meshes = {}
+    for ident, spec in asset['meshes'].items():
+        name = 'Rust ' + str(root['ruster_uid']) + ' ' + ident
+        mesh = bpy.data.meshes.get(name)
+        if mesh is None:
+            mesh = bpy.data.meshes.new(name)
+            faces, slots = [], []
+            for slot, triangles in enumerate(spec['submeshes']):
+                # Coordinate basis changes handedness, so reverse winding.
+                faces.extend(tuple(reversed(t)) for t in triangles)
+                slots.extend([slot] * len(triangles))
+            mesh.from_pydata([tuple(to_blender(v)) for v in spec['vertices']], [], faces)
+            mesh.update()
+            for poly, slot in zip(mesh.polygons, slots):
+                poly.material_index = slot
+            uv = spec.get('uv', [])
+            if uv and len(uv) == len(mesh.vertices):
+                layer = mesh.uv_layers.new()
+                for loop in mesh.loops:
+                    layer.data[loop.index].uv = uv[loop.vertex_index][:2]
+        meshes[ident] = mesh
+    objects = []
+    for spec in asset['nodes']:
+        obj = bpy.data.objects.new(spec['name'], meshes.get(spec['mesh']))
+        collection.objects.link(obj)
+        obj['ruster_kind'] = 'VISUAL'
+        obj.hide_select = True
+        obj.parent = None if spec['parent'] is None else objects[spec['parent']]
+        # Ignore the source prefab root transform: map placement owns it.
+        if spec['parent'] is not None:
+            obj.location = to_blender(spec['position'])
+            obj.rotation_mode = 'QUATERNION'
+            obj.rotation_quaternion = (BASIS @ Quaternion(spec['rotation']).to_matrix() @ BASIS).to_quaternion()
+            obj.scale = to_blender(spec['scale'])
+        if obj.type == 'MESH':
+            # Mesh data are shared; use per-object material slots.
+            needed = len(spec['materials'])
+            while len(obj.data.materials) < needed:
+                obj.data.materials.append(material('Rust fallback', (.5,.5,.5,1)))
+            for i, mat_id in enumerate(spec['materials']):
+                obj.material_slots[i].link = 'OBJECT'
+                obj.material_slots[i].material = materials.get(mat_id)
+        objects.append(obj)
+    root.name = Path(asset['path']).stem
+    collection['ruster_asset_name'] = root.name
+    root.instance_type = 'COLLECTION'
+    root.instance_collection = collection
+    root['ruster_visual'] = True
+    root.empty_display_size = .5
+    return True
+
+
+def prefab_roots():
+    return [o for o in bpy.context.scene.objects if o.get('ruster_kind') == 'PREFAB']
+
+
+def validate():
+    bpy.context.view_layer.update()
+    errors, notes = [], []
+    scene = bpy.context.scene
+    if scene.ruster.mode != 'MAP':
+        return ['Open a Rust .map to export game data'], []
+    source = Path(scene.ruster.source_map)
+    if not source.is_file():
+        errors.append('Source map is missing; reopen the .ruster project or source map')
+    missing = 0
+    for obj in prefab_roots():
+        try:
+            uid = int(obj['ruster_uid'])
+            if not 0 <= uid <= 0xFFFFFFFF:
+                raise ValueError()
+            fields = wire.parse(base64.b64decode(obj['ruster_record'], validate=True))
+            if prefab_id(fields) != uid:
+                errors.append(f'{obj.name}: prefab ID differs from the source record')
+            if obj.parent:
+                errors.append(f'{obj.name}: placement roots must not be parented')
+            if obj.constraints or obj.modifiers or obj.animation_data:
+                errors.append(f'{obj.name}: bake constraints/modifiers/animation before exporting')
+            loc, rot, scale = obj.matrix_world.decompose()
+            if not all(math.isfinite(v) for v in (*loc, *rot, *scale)):
+                errors.append(f'{obj.name}: invalid transform')
+            if any(abs(v) < 1e-7 for v in scale):
+                errors.append(f'{obj.name}: zero scale')
+            missing += not bool(obj.get('ruster_visual'))
+        except (KeyError, ValueError, TypeError):
+            errors.append(f'{obj.name}: invalid prefab metadata')
+    if missing:
+        notes.append(f'{missing} prefab placements have no loaded visual; IDs and transforms still export')
+    build = [o for o in scene.objects if not o.get('ruster_kind') and o.type in {'MESH','CURVE','FONT'}]
+    if build:
+        errors.append(f'{len(build)} custom objects cannot be embedded in a Rust .map; save them in .ruster instead')
+    notes.append('Terrain, water, splat, biome, topology and paths are preserved unchanged')
+    return errors, notes
+
+
+def export_map(path):
+    errors, notes = validate()
+    if errors:
+        raise ValueError('; '.join(errors[:5]))
+    world = RustMap.load(bpy.context.scene.ruster.source_map)
+    prefabs = []
+    for obj in prefab_roots():
+        fields = wire.parse(base64.b64decode(obj['ruster_record']))
+        position, rotation, scale = prefab_transform(fields)
+        loc, rot, scl = obj.matrix_world.decompose()
+        # Keep original record bytes for untouched transforms (including Euler turns).
+        same = ((loc - to_blender(position)).length < 1e-5 and
+                abs(rot.dot(unity_euler(rotation))) > 1 - 1e-7 and
+                (scl - to_blender(scale)).length < 1e-6)
+        if not same:
+            fields = update_transform(fields, to_unity(loc), blender_euler(rot), to_unity(scl))
+        prefabs.append(fields)
+    world.replace_prefabs(prefabs)
+    if Path(path).resolve() == Path(bpy.context.scene.ruster.source_map).resolve():
+        raise ValueError('Export to a new filename to preserve the source map')
+    atomic_write(path, world.write())
+    return notes

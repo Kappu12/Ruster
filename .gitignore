@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+runtime/
+dist/
+build/
+python_modules/
+.pytest_cache/
+*.blend[0-9]
+*.ruster
+*.map
+!tests/fixtures/*.map
+!tests/fixtures/*.ruster

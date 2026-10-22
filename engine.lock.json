@@ -1,0 +1,18 @@
+{
+  "engine": "Blender",
+  "version": "4.5.14",
+  "series": "4.5 LTS",
+  "source": "https://projects.blender.org/blender/blender",
+  "source_ref": "v4.5.14",
+  "base_url": "https://download.blender.org/release/Blender4.5",
+  "archives": {
+    "windows-x64": {
+      "file": "blender-4.5.14-windows-x64.zip",
+      "sha256": "b9533d2397ac1984db4466fb23a7a4649391cca93f6e84209f9bcc60d071c8b9"
+    },
+    "linux-x64": {
+      "file": "blender-4.5.14-linux-x64.tar.xz",
+      "sha256": "9ba871ff2ecd36526b77432745980b7e6664ecd0c7ca11c48849073dcfe06da3"
+    }
+  }
+}
