@@ -101,6 +101,11 @@ def run():
             assert bpy.ops.ruster.new('EXEC_DEFAULT')=={'FINISHED'}
             assert not ui.is_map(bpy.context)
             assert bpy.context.scene.ruster.mode=='PREFAB' and not list(bpy.context.scene.objects)
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type=='VIEW_3D':
+                        assert area.spaces.active.shading.type=='SOLID'
+                        assert area.spaces.active.shading.color_type=='TEXTURE'
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
             # A background worker inherits the log handle. Unregister must reap
             # the process and release both handles, including on Windows.

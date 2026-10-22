@@ -40,10 +40,10 @@ class RUSTER_PT_start(bpy.types.Panel):
         wrapped(layout,context,context.scene.ruster.title,icon='prefab')
         layout.label(text=f'{len(scene.prefab_roots()):,} prefab placements')
         layout.menu('RUSTER_MT_add',text='Add Rust Prefab · Shift+A',icon=I['prefab'])
-        action(layout,'ruster.prefab_import')
-        action(layout,'ruster.prefab_export')
-        action(layout,'ruster.model_export')
-        action(layout,'ruster.save')
+        row=layout.row(align=True)
+        action(row,'ruster.save',text='Save');action(row,'ruster.prefab_export',text='Export Prefab…')
+        row=layout.row(align=True)
+        action(row,'ruster.prefab_import',text='Import Prefab…');action(row,'ruster.model_export',text='Export Models…')
 
 
 class RUSTER_MT_file(bpy.types.Menu):
@@ -136,6 +136,15 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
             wrapped(box,context,state.asset_status,icon='busy')
             if state.asset_progress_known:box.progress(factor=state.asset_progress,type='BAR',text='Loading Prefabs')
             action(box,'ruster.cancel_assets',text='Cancel Loading')
+        else:
+            selected=context.active_object
+            if (selected and selected.get('ruster_kind')=='PREFAB' and
+                not selected.get('ruster_marker') and not selected.get('ruster_visual')):
+                box=layout.box()
+                wrapped(box,context,selected.get('ruster_model_status','Model not loaded'),icon='info')
+                if selected.get('ruster_model_error'):
+                    wrapped(box,context,selected['ruster_model_error'][:300],icon='error')
+                action(box,'ruster.assets',text='Load / Retry Selected Model')
         from .core import settings,palettes
         favorites=set(palettes.favorite_ids(settings.load()))
         try:

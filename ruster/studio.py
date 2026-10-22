@@ -121,7 +121,8 @@ def new_prefab():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type=='VIEW_3D':
-                area.spaces.active.shading.type='MATERIAL'
+                shading=area.spaces.active.shading
+                shading.type='SOLID';shading.color_type='TEXTURE';shading.light='STUDIO'
     from . import ui
     if not bpy.app.background:bpy.app.timers.register(ui.start_workspace, first_interval=.1)
 

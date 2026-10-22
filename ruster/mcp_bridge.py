@@ -107,13 +107,14 @@ def place_prefab(uid,position,rotation_degrees=None,scale=None):
     fields=wire.replace(fields,3,2,wire.set_vector(None,scene.to_unity(position)))
     fields=wire.replace(fields,5,2,wire.set_vector(None,(1.,1.,1.)))
     obj=scene.root_object(fields,bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs'))
+    scene.name_prefab(obj,found[0])
     try:
         scene.attach_visual(obj);set_transform(obj,position,rotation_degrees,scale)
     except Exception:
         for child in list(obj.children_recursive):bpy.data.objects.remove(child,do_unlink=True)
         bpy.data.objects.remove(obj,do_unlink=True);raise
     placement.select([obj])
-    if not obj.get('ruster_visual'):app.request_assets([uid])
+    if not obj.get('ruster_visual') and not obj.get('ruster_marker'):app.request_assets([uid])
     return obj
 
 

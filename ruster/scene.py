@@ -235,7 +235,7 @@ def attach_visual(root,force=False):
         from .protection import freeze
         root.instance_collection = freeze(existing,root['ruster_uid'])
         root['ruster_visual'] = True
-        root.empty_display_size = .5
+        root.empty_display_type='PLAIN_AXES';root.empty_display_size=.15
         name_prefab(root,asset_name)
         return True
     from .protection import library_path,linked_collection
@@ -245,7 +245,7 @@ def attach_visual(root,force=False):
         if model.get('ruster_asset_key')!=asset_key or not model.get('ruster_model_verified') or model.get('ruster_model_version')!=VERSION:
             raise ValueError('Cached prefab model does not match the original asset; refresh its assets')
         root.instance_type='COLLECTION';root.instance_collection=model
-        root['ruster_visual']=True;root.empty_display_size=.5
+        root['ruster_visual']=True;root.empty_display_type='PLAIN_AXES';root.empty_display_size=.15
         name_prefab(root,model.get('ruster_asset_name',root.name))
         return True
     with gzip.open(path, 'rt') as stream:
@@ -283,6 +283,7 @@ def attach_visual(root,force=False):
                 image.pack()
                 node = mat.node_tree.nodes.new('ShaderNodeTexImage')
                 node.image = image
+                mat.node_tree.nodes.active=node
                 if spec.get('uv_scale') or spec.get('uv_offset'):
                     uv=mat.node_tree.nodes.new('ShaderNodeTexCoord')
                     mapping=mat.node_tree.nodes.new('ShaderNodeMapping')
@@ -344,7 +345,7 @@ def attach_visual(root,force=False):
     from .protection import freeze
     root.instance_collection = freeze(collection,root['ruster_uid'],asset_key,verified=True)
     root['ruster_visual'] = True
-    root.empty_display_size = .5
+    root.empty_display_type='PLAIN_AXES';root.empty_display_size=.15
     return True
 
 

@@ -111,6 +111,7 @@ def start_job(action, ids=None):
     _job_ids=set(ids or [])
     _job_cancelled = False
     bpy.context.scene.ruster.busy = True
+    bpy.context.scene.ruster.asset_status='Loading prefab models…' if action=='extract' else 'Refreshing prefab names…'
     bpy.context.scene.ruster.asset_progress = 0
     bpy.context.scene.ruster.asset_progress_known = False
     if not bpy.app.timers.is_registered(poll_job):
@@ -165,8 +166,10 @@ def poll_job():
         elif phase == 'READY':
             if _job_action=='index':state.asset_status=f"{progress.get('ids',0):,} prefab names ready · models load on demand"
             else:state.asset_status = f"{progress.get('extracted', 0)} models loaded · {progress.get('failures', 0)} reported issues"
-        else:
-            state.asset_status = f"{phase.title()} {progress.get('current', 0)}/{progress.get('total', '?')} · {progress.get('item', '')}"
+        elif phase=='EXTRACTING' and progress.get('item'):
+            from .core.asset_names import display_name
+            state.asset_status='Loading '+display_name(progress['item'])+'…'
+        elif phase=='CATALOG':state.asset_status='Refreshing prefab names…'
     except (OSError, ValueError):
         pass
     if _job and _job.poll() is None:

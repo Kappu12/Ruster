@@ -103,7 +103,7 @@ class RUSTER_OT_prefab_stroke(bpy.types.Operator):
                 model=self.models.get(uid)
                 if model:
                     obj.instance_type='COLLECTION';obj.instance_collection=model
-                    obj['ruster_visual']=True;obj.empty_display_size=.5
+                    obj['ruster_visual']=True;obj.empty_display_type='PLAIN_AXES';obj.empty_display_size=.15
                     scene.name_prefab(obj,model.get('ruster_asset_name',obj.name))
                 else:
                     scene.attach_visual(obj)

@@ -69,7 +69,9 @@ Opening a prefab remembers the bundle directories and root locations encountered
 for that request. Later requests reuse those small metadata records; a changed
 game installation invalidates them. This never starts a full asset index.
 Blender's normal toolbar is visible, with Rust brushes added in map mode. New
-prefabs start in Material Preview so loaded textures are visible. Texture previews
+prefabs start in textured Solid view so loaded textures appear promptly with
+Blender's lightweight studio lighting. Material Preview remains available from
+the viewport shading controls. Texture previews
 read a source mip up to 2048px without decoding larger levels. Space and F3
 open Rust commands; Space does not start Blender animation playback.
 Menus, dialogs, section headers and tools share Blender's bundled icon pack.
