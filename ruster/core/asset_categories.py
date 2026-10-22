@@ -13,6 +13,11 @@ GROUPS = (
     ('EFFECTS', 'Effects & Lighting', ('%/effects/%', '%/fx/%', '%/lights/%', '%/lighting/%')),
     ('OTHER', 'Other Rust Prefabs', ()),
     ('DEVELOPMENT', 'Development & Primitives', ('%/modding/%',)),
+    ('HIDDEN', 'Hidden & IO Helpers', ('%/tools/%', '%/engine/%', '%/player/%',
+        '%/sound/%', '%/sounds/%', '%/sfx/%', '%/effects/%', '%/fx/%',
+        '%/trigger/%', '%/triggers/%', '%/volumes/%', '%/test/%', '%/tests/%',
+        '%/testing/%', '%/testscenario%', '%hidden%')),
+    ('ALL_ASSETS', 'All Rust Assets (Including Hidden)', ()),
 )
 LABELS = {key: label for key, label, _ in GROUPS}
 
@@ -22,7 +27,7 @@ def sql_case(column='n.path'):
     if column not in ('n.path', 'path'):raise FormatError('Invalid category column')
     parts = []
     for key, _label, patterns in GROUPS:
-        if patterns:
+        if patterns and key!='HIDDEN':
             parts.append('WHEN (' + ' OR '.join(column + " LIKE '" + p + "'" for p in patterns)
                          + ") THEN '" + key + "'")
     return 'CASE ' + ' '.join(parts) + " ELSE 'OTHER' END"

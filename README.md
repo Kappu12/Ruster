@@ -60,8 +60,16 @@ words in any order. Display names use spaces instead of dots and underscores.
 Sound-only prefabs are labeled and use small spherical
 markers because the game contains no visible mesh for them.
 The browser starts with locally available prefabs and hides internal tests,
-sounds and helper effects. Enable **Effects & Helpers** to include them; choosing
-the Effects or Gameplay category also includes that category's helpers. Browser
+sounds and helper effects. Enable **Show Hidden Assets** to include them; choosing
+the Effects or Gameplay category also includes that category's helpers.
+**Shift+A → Hidden & IO Helpers** exposes internal IO hose/wire handles and helper
+prefabs. **Search All Assets (Including Hidden)** searches the complete local
+catalog, like RustEdit's Show All mode. The cyan glowing tube is **IO Hose Tube
+Pending (Cyan Glow)**; search `cyan tube`, `glowing hose`, or `tube hose` in the
+sidebar. Native Shift+A search accepts its displayed words in any order.
+Model materials preserve source emission and metallic/smoothness masks; Material
+Preview and model exports use these shader properties. Solid mode shows the base
+texture/color for immediate feedback. Browser
 redraws reuse their current page. Loading progress and cancellation stay beside
 the search controls. Model completion follows prefab IDs, so renaming or deleting
 a placement while loading cannot lose or redirect its model.

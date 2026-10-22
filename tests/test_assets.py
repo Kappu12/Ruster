@@ -85,3 +85,36 @@ def test_sound_only_prefab_is_a_marker_not_a_failed_mesh(tmp_path):
     assert not export_prefab(None,root,output,1188595389,'assets/sound.prefab')
     asset=json.loads(gzip.decompress(output.read_bytes()))
     assert asset['marker']=='SOUND' and not asset['meshes']
+
+
+def first_material(root):
+    transform=root.read().m_Component[0].component.read()
+    renderer=transform.m_Children[0].read().m_GameObject.read().m_Component[2].component.read()
+    return renderer.m_Materials[0].read()
+
+
+def test_hidden_hose_preserves_hdr_emission_and_blending(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();mat=first_material(root)
+    mat.m_SavedProperties.m_Colors=[('_Color',S(r=0,g=.9687,b=1,a=1)),
+        ('_EmissionColor',S(r=0,g=1.0353,b=1.498,a=1))]
+    mat.m_SavedProperties.m_Floats=[('_Mode',3)]
+    mat.m_SavedProperties.m_TexEnvs=[]
+    output=tmp_path/'hose.json.gz'
+    assert not export_prefab(None,root,output,147092032,'assets/hose.prefab')
+    spec=next(iter(json.loads(gzip.decompress(output.read_bytes()))['materials'].values()))
+    assert spec['emission']==[0,1.0353,1.498,1]
+    assert spec['alpha_blend'] and not spec['alpha_clip']
+
+
+def test_concrete_preserves_packed_metallic_gloss_map(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();root.read().m_IsActive=False;mat=first_material(root)
+    mat.m_SavedProperties.m_Floats=[('_Metallic',1),('_Glossiness',1),('_GlossMapScale',.7)]
+    base=mat.m_SavedProperties.m_TexEnvs[0][1]
+    mat.m_SavedProperties.m_TexEnvs.append(('_MetallicGlossMap',base))
+    output=tmp_path/'concrete.json.gz'
+    assert not export_prefab(None,root,output,3471408108,'assets/concrete.prefab')
+    spec=next(iter(json.loads(gzip.decompress(output.read_bytes()))['materials'].values()))
+    assert spec['metallic_gloss_texture']==spec['texture']
+    assert spec['metallic_gloss_texture_uv_scale']==[2,3] and spec['gloss_map_scale']==.7

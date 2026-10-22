@@ -55,7 +55,7 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     category:EnumProperty(name='Category',items=category_items,update=query_changed)
     favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
     available_only:BoolProperty(name='Available Locally',description='Show prefabs found in your local Rust installation',default=True,update=query_changed)
-    include_helpers:BoolProperty(name='Effects & Helpers',description='Include sound effects, trigger volumes, and internal test prefabs',default=False,update=query_changed)
+    include_helpers:BoolProperty(name='Show Hidden Assets',description='Show all catalog entries, including internal effects, IO handles, sounds, and test prefabs',default=False,update=query_changed)
     query_page: IntProperty(default=0,min=0,options={'SKIP_SAVE'})
     preview_resolution:EnumProperty(name='Terrain Detail',items=[('129','Fast','Lowest viewport memory use'),
         ('257','Balanced','Balanced detail and performance'),('513','Detailed','More terrain samples in the viewport'),
@@ -86,7 +86,7 @@ def worker_python():
 
 def start_job(action, ids=None):
     global _job, _job_log, _job_action, _job_cancelled, _job_ids
-    if _job is not None and _job.poll() is None:
+    if _job is not None:
         raise ValueError('An asset operation is already running')
     config = settings.load()
     root = settings.validate_install(config.get('rust_install', ''))
@@ -115,7 +115,7 @@ def start_job(action, ids=None):
     bpy.context.scene.ruster.asset_progress = 0
     bpy.context.scene.ruster.asset_progress_known = False
     if not bpy.app.timers.is_registered(poll_job):
-        bpy.app.timers.register(poll_job, first_interval=.2)
+        bpy.app.timers.register(poll_job, first_interval=.2,persistent=True)
 
 
 def request_assets(ids):
@@ -124,13 +124,18 @@ def request_assets(ids):
     if len(ids|_pending_asset_ids)>100:
         bpy.context.scene.ruster.asset_status='Load at most 100 different prefab models per request'
         return False
-    active=_job_ids if _job is not None and _job.poll() is None and _job_action=='extract' else set()
+    # A completed process still owns its IDs until poll_job consumes the result.
+    # Replacing it between timer ticks used to strand the previous placements.
+    active=_job_ids if _job is not None and _job_action=='extract' else set()
     _pending_asset_ids.update(ids-active)
     for obj in scene.prefab_roots():
         if int(obj['ruster_uid']) in ids:
             obj['ruster_model_status']='Loading model and materials…'
             if 'ruster_model_error' in obj:del obj['ruster_model_error']
-    if _job is not None and _job.poll() is None:return True
+    if _job is not None:
+        if not bpy.app.timers.is_registered(poll_job):
+            bpy.app.timers.register(poll_job,first_interval=.2,persistent=True)
+        return True
     pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
     try:
         start_job('extract',pending)
@@ -203,7 +208,7 @@ def poll_job():
         _visual_queue.extend(sorted({int(obj['ruster_uid']) for obj in scene.prefab_roots()} & completed_ids-waiting))
         state.busy=bool(_visual_queue)
         if _visual_queue and not bpy.app.timers.is_registered(load_visuals):
-            bpy.app.timers.register(load_visuals,first_interval=.1)
+            bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
     if not _job_cancelled and _pending_asset_ids:
         pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
         try:
@@ -229,6 +234,7 @@ def load_visuals():
                 loaded=scene.attach_visual(obj,force=True)
                 if loaded and not obj.get('ruster_marker'):
                     obj['ruster_model_status']='Model loaded'
+                    if 'ruster_model_error' in obj:del obj['ruster_model_error']
                 elif not loaded:
                     obj['ruster_model_status']='Model unavailable — retry loading'
             except Exception as error:
@@ -642,7 +648,11 @@ def after_load(_dummy):
     from . import editing
     editing.clear_cache()
     if hasattr(bpy.context.scene, 'ruster'):
-        bpy.context.scene.ruster.busy = _job is not None and _job.poll() is None
+        bpy.context.scene.ruster.busy = bool(_job is not None or _visual_queue or _pending_asset_ids)
+        if _job is not None and not bpy.app.timers.is_registered(poll_job):
+            bpy.app.timers.register(poll_job,first_interval=.2,persistent=True)
+        if _visual_queue and not bpy.app.timers.is_registered(load_visuals):
+            bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
         from . import mcp_bridge
         mcp_bridge.sync_state()
 

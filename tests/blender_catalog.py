@@ -46,8 +46,28 @@ def run():
         assert app.request_assets(range(101)) is False
         class ActiveJob:
             running=True
+            returncode=0
             def poll(self):return None if self.running else 0
             def terminate(self):self.running=False
+        # A second click in the completion/poll interval must retain both IDs.
+        job=ActiveJob();job.running=False
+        app._job=job;app._job_ids={42};app._job_action='extract'
+        app.start_job=queued
+        try:
+            assert app.request_assets([43])
+            assert app._job is job and app._job_ids=={42} and app._pending_asset_ids=={43}
+            assert app.poll_job()==.5
+            app.poll_job()
+            assert set(app._visual_queue)=={42,43},'A finished job was replaced before attachment'
+            # Reopening a project cannot silently discard completion timers.
+            for callback in (app.poll_job,app.load_visuals):
+                if bpy.app.timers.is_registered(callback):bpy.app.timers.unregister(callback)
+            app._job=job
+            app.after_load(None)
+            assert bpy.context.scene.ruster.busy
+            assert all(bpy.app.timers.is_registered(callback) for callback in (app.poll_job,app.load_visuals))
+        finally:
+            app.start_job=native_start;app._job=None;app._visual_queue.clear()
         job=ActiveJob();app._job=job;app._job_ids={42};app._job_action='extract'
         try:
             assert app.request_assets([42]) and not app._pending_asset_ids,'An active model was queued twice'
@@ -94,6 +114,9 @@ def run():
         asset['nodes'].insert(0,{'name':'Source transform','parent':None,'position':[0,0,0],
             'rotation':[1,0,0,0],'scale':[1,1,1],'mesh':None,'materials':[]})
         (cache/'43.json.gz').write_bytes(gzip.compress(json.dumps(asset).encode()))
+        (cache/'43.stamp').write_text('converter-5:old-material-format')
+        assert not scene.attach_visual(roots[1]),'An old material conversion skipped its on-demand upgrade'
+        (cache/'43.stamp').unlink()
         assert scene.attach_visual(roots[1])
         helpers=[o for o in roots[1].instance_collection.all_objects if o.type=='EMPTY']
         assert helpers and all(o.empty_display_size<=.0001 for o in helpers),'Source transform axes leaked into the viewport'

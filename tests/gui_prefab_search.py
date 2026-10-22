@@ -16,9 +16,10 @@ with closing(catalog.connect(scene.cache_dir())) as db:
     db.executemany('INSERT INTO names VALUES(?,?)',[
         (42,'assets/bundled/prefabs/modding/cubes/tiled/cube_tiled_dev_01.prefab'),
         (43,'assets/bundled/prefabs/modding/cubes/tiled/cube_tiled_dev_07.prefab'),
-        (44,'assets/prefabs/building/wall.external_high.stone.prefab')]);db.commit()
+        (44,'assets/prefabs/building/wall.external_high.stone.prefab'),
+        (45,'assets/prefabs/tools/hose/ioslothandles/ioslothandlehose_pending.prefab')]);db.commit()
     db.execute('INSERT INTO assets SELECT path,?,?,uid FROM names',('bundle','file'));db.commit()
-queries=[('dev cube 01',42),('01 cube dev',42),('stone wall high external',44)]
+queries=[('dev cube 01',42),('01 cube dev',42),('stone wall high external',44),('tube hose cyan',45)]
 state={'step':0,'query':0}
 
 

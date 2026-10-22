@@ -159,7 +159,7 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
                 wrapped(layout,context,'Load your Rust assets to browse prefabs.',icon='info')
                 action(layout,'ruster.assets')
             elif state.query or state.category!='ALL' or state.favorites_only or state.available_only:
-                wrapped(layout,context,'No matching prefabs. Try different words or enable Effects & Helpers.',icon='info')
+                wrapped(layout,context,'No matching prefabs. Try different words or enable Show Hidden Assets.',icon='info')
             else:
                 wrapped(layout,context,'The catalog is empty. Refresh your Rust assets.',icon='info')
                 action(layout,'ruster.assets',text='Refresh Asset Catalog',icon='refresh').rebuild=True

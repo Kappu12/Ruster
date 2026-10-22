@@ -270,9 +270,11 @@ class RUSTER_MT_add(bpy.types.Menu):
         layout.operator_context = 'INVOKE_DEFAULT'
         layout.operator('ruster.add_prefab', text='Search Rust Prefabs…', icon='VIEWZOOM').category=''
         layout.operator('ruster.add_prefab', text='Dev Cubes & Primitives…', icon='MESH_CUBE').category='@DEVELOPMENT'
+        layout.operator('ruster.add_prefab', text='Hidden & IO Helpers…', icon='LIGHT').category='@HIDDEN'
+        layout.operator('ruster.add_prefab', text='Search All Assets (Including Hidden)…', icon='VIEWZOOM').category='@ALL_ASSETS'
         layout.separator()
         for key, label, _patterns in GROUPS:
-            if key=='DEVELOPMENT':continue
+            if key in ('DEVELOPMENT','HIDDEN','ALL_ASSETS'):continue
             layout.operator('ruster.add_prefab', text=label).category = '@' + key
         layout.separator()
         layout.operator('ruster.assets', text='Refresh Prefab Catalog', icon='IMPORT').rebuild=True

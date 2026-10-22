@@ -31,14 +31,24 @@ HELPER_PATTERNS=('%/sound/%','%/sounds/%','%/sfx/%','%/effects/%','%/fx/%',
 
 
 def filters(query='',category='',favorites=None,available_only=False,include_helpers=True):
+    from ruster.core.asset_names import alias_paths
     tokens=re.split(r'\s+',query.strip()) if query.strip() else ['']
-    conditions=["n.path LIKE ? ESCAPE char(92)" for _ in tokens]
-    args=['%'+literal(token)+'%' for token in tokens]
+    conditions=[];args=[]
+    for token in tokens:
+        aliases=alias_paths(token) if token else []
+        conditions.append('('+' OR '.join(["n.path LIKE ? ESCAPE char(92)"]+
+                          ['n.path LIKE ?' for _ in aliases])+')')
+        args.extend(['%'+literal(token)+'%',*aliases])
     if category:
-        from ruster.core.asset_categories import LABELS, sql_case
+        from ruster.core.asset_categories import GROUPS, LABELS, sql_case
         if category.startswith('@'):
             if category[1:] not in LABELS:raise ValueError('Unknown Rust prefab category')
-            conditions.append(sql_case()+'=?');args.append(category[1:])
+            if category=='@HIDDEN':
+                patterns=next(patterns for key,_label,patterns in GROUPS if key=='HIDDEN')
+                conditions.append('('+' OR '.join('n.path LIKE ?' for _ in patterns)+')')
+                args.extend(patterns)
+            elif category!='@ALL_ASSETS':
+                conditions.append(sql_case()+'=?');args.append(category[1:])
         else:
             conditions.append("n.path LIKE ? ESCAPE char(92)")
             args.append(literal(category.rstrip('/')+'/')+'%')
@@ -48,7 +58,7 @@ def filters(query='',category='',favorites=None,available_only=False,include_hel
         conditions.append('n.uid IN ('+','.join('?' for _ in ids)+')' if ids else '0')
         args.extend(ids)
     if available_only:conditions.append(AVAILABLE)
-    if not include_helpers and category not in ('@EFFECTS','@GAMEPLAY'):
+    if not include_helpers and category not in ('@EFFECTS','@GAMEPLAY','@HIDDEN','@ALL_ASSETS'):
         conditions.append('NOT ('+' OR '.join('n.path LIKE ?' for _ in HELPER_PATTERNS)+')')
         args.extend(HELPER_PATTERNS)
     return ' AND '.join(conditions),args

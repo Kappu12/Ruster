@@ -223,10 +223,15 @@ def attach_visual(root,force=False):
         return bool(root.get('ruster_visual'))
     stamp=path.with_name(str(root['ruster_uid'])+'.stamp')
     signature=stamp.read_text() if stamp.exists() else ''
+    from .assets import CONVERTER_VERSION
+    if signature.startswith('converter-') and not signature.startswith(CONVERTER_VERSION+':'):
+        # Reconvert only a requested model after a material format upgrade.
+        # Already linked/packed projects keep their offline models above.
+        return False
     token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
     # Display-only changes rebuild the small Blender preview from cached data;
     # existing packed originals remain valid for offline projects.
-    asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view2'
+    asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view3'
     collection_name = 'RusterAsset:' + asset_key
     matches=[c for c in bpy.data.collections if c.name==collection_name]
     from .protection import VERSION
@@ -275,28 +280,72 @@ def attach_visual(root,force=False):
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes.get('Principled BSDF')
         bsdf.inputs['Base Color'].default_value = spec['color']
-        bsdf.inputs['Roughness'].default_value = 0.8
         bsdf.inputs['Roughness'].default_value = spec.get('roughness',.8)
         bsdf.inputs['Metallic'].default_value = spec.get('metallic',0.)
-        if spec.get('texture'):
-            tex_path = (path.parent / spec['texture']).resolve()
+        emission=spec.get('emission',[0,0,0,1])
+        bsdf.inputs['Emission Color'].default_value=emission
+        bsdf.inputs['Emission Strength'].default_value=1 if any(emission[:3]) else 0
+
+        def image_node(field,non_color=False):
+            if not spec.get(field):return None
+            tex_path = (path.parent / spec[field]).resolve()
             if tex_path.is_relative_to(path.parent.resolve()) and tex_path.exists():
-                image = bpy.data.images.load(str(tex_path), check_existing=True)
+                color_space='Non-Color' if non_color else 'sRGB'
+                image=next((image for image in bpy.data.images if not image.library and
+                    image.filepath==str(tex_path) and image.colorspace_settings.name==color_space),None)
+                if image is None:
+                    image=bpy.data.images.load(str(tex_path),check_existing=False)
+                    image.colorspace_settings.name=color_space
                 image.pack()
                 node = mat.node_tree.nodes.new('ShaderNodeTexImage')
-                node.image = image
-                mat.node_tree.nodes.active=node
-                if spec.get('uv_scale') or spec.get('uv_offset'):
+                node.image = image;node.label=field
+                prefix='' if field=='texture' else field+'_'
+                if spec.get(prefix+'uv_scale') or spec.get(prefix+'uv_offset'):
                     uv=mat.node_tree.nodes.new('ShaderNodeTexCoord')
                     mapping=mat.node_tree.nodes.new('ShaderNodeMapping')
-                    mapping.inputs['Scale'].default_value=(*spec.get('uv_scale',[1,1]),1)
-                    mapping.inputs['Location'].default_value=(*spec.get('uv_offset',[0,0]),0)
+                    mapping.inputs['Scale'].default_value=(*spec.get(prefix+'uv_scale',[1,1]),1)
+                    mapping.inputs['Location'].default_value=(*spec.get(prefix+'uv_offset',[0,0]),0)
                     mat.node_tree.links.new(uv.outputs['UV'],mapping.inputs['Vector'])
                     mat.node_tree.links.new(mapping.outputs['Vector'],node.inputs['Vector'])
-                mat.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+                return node
+            return None
+
+        node=image_node('texture')
+        if node:
+            mat.node_tree.nodes.active=node  # Workbench uses the base texture, never the mask.
+            mat.node_tree.links.new(node.outputs['Color'],bsdf.inputs['Base Color'])
+        if spec.get('alpha_clip') or spec.get('alpha_blend'):
+            mat.surface_render_method='DITHERED'
+            bsdf.inputs['Alpha'].default_value=spec['color'][3]
+            if node:
+                alpha=mat.node_tree.nodes.new('ShaderNodeMath');alpha.operation='MULTIPLY'
+                alpha.inputs[1].default_value=spec['color'][3]
+                mat.node_tree.links.new(node.outputs['Alpha'],alpha.inputs[0])
+                output=alpha.outputs[0]
                 if spec.get('alpha_clip'):
-                    mat.node_tree.links.new(node.outputs['Alpha'],bsdf.inputs['Alpha'])
-                    mat.surface_render_method='DITHERED'
+                    cutoff=mat.node_tree.nodes.new('ShaderNodeMath');cutoff.operation='GREATER_THAN'
+                    cutoff.inputs[1].default_value=spec.get('alpha_cutoff',.5)
+                    mat.node_tree.links.new(output,cutoff.inputs[0]);output=cutoff.outputs[0]
+                mat.node_tree.links.new(output,bsdf.inputs['Alpha'])
+        mask=image_node('metallic_gloss_texture',non_color=True)
+        if mask:
+            channels=mat.node_tree.nodes.new('ShaderNodeSeparateColor')
+            mat.node_tree.links.new(mask.outputs['Color'],channels.inputs['Color'])
+            mat.node_tree.links.new(channels.outputs['Red'],bsdf.inputs['Metallic'])
+            gloss=mat.node_tree.nodes.new('ShaderNodeMath');gloss.operation='MULTIPLY'
+            gloss.inputs[1].default_value=spec.get('gloss_map_scale',1.)
+            mat.node_tree.links.new(mask.outputs['Alpha'],gloss.inputs[0])
+            rough=mat.node_tree.nodes.new('ShaderNodeMath');rough.operation='SUBTRACT'
+            rough.inputs[0].default_value=1.
+            mat.node_tree.links.new(gloss.outputs[0],rough.inputs[1])
+            mat.node_tree.links.new(rough.outputs[0],bsdf.inputs['Roughness'])
+        glow=image_node('emission_texture')
+        if glow:
+            tint=mat.node_tree.nodes.new('ShaderNodeMixRGB');tint.blend_type='MULTIPLY'
+            tint.inputs[0].default_value=1.;tint.inputs[2].default_value=emission
+            mat.node_tree.links.new(glow.outputs['Color'],tint.inputs[1])
+            mat.node_tree.links.new(tint.outputs[0],bsdf.inputs['Emission Color'])
+        if node:mat.node_tree.nodes.active=node
         materials[ident] = mat
     meshes = {}
     for ident, spec in asset['meshes'].items():

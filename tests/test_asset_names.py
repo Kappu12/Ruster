@@ -23,3 +23,15 @@ def test_display_names_replace_separators_without_losing_dotted_words():
     assert display_name('assets/prefabs/wall.external_high.stone.prefab')=='wall external high stone'
     assert display_name('wall.external_high.stone')=='wall external high stone'
     assert display_name('assets/a/wall.external_high.stone.PREFAB')=='wall external high stone'
+
+
+def test_maze_hose_has_a_readable_name_and_word_aliases(tmp_path):
+    hose='assets/prefabs/tools/hose/ioslothandles/ioslothandlehose_pending.prefab'
+    wire='assets/prefabs/tools/wire/ioslothandles/ioslothandle.prefab'
+    with closing(catalog.connect(tmp_path)) as db:
+        db.executemany('INSERT INTO names VALUES(?,?)',[(147092032,hose),(4153457039,wire)])
+        db.commit()
+    assert display_name(hose)=='IO Hose Tube Pending (Cyan Glow)'
+    for query in ('io tube cyan','glowing hose','tube hose','maze neon','ioslothandlehose_pending'):
+        assert [row[0] for row in catalog.search(tmp_path,query)]==[147092032],query
+    assert [row[0] for row in catalog.search(tmp_path,'tube wire')]==[4153457039]

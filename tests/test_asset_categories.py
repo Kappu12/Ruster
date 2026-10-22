@@ -18,3 +18,15 @@ def test_broad_categories_partition_catalog_and_keep_filters(tmp_path):
     assert [row[0] for row in catalog.search(tmp_path,category='@VEHICLES',available_only=True,favorites=[3])]==[3]
     with pytest.raises(ValueError,match='Unknown'):
         catalog.search(tmp_path,category="@OTHER' OR 1=1")
+
+
+def test_hidden_category_and_all_assets_bypass_helper_filter(tmp_path):
+    rows=[(147092032,'assets/prefabs/tools/hose/ioslothandles/ioslothandlehose_pending.prefab'),
+          (2,'assets/prefabs/effects/hidden/beam.prefab'),
+          (3,'assets/prefabs/test/example.prefab'),
+          (4,'assets/prefabs/deployable/chair.prefab')]
+    with closing(catalog.connect(tmp_path)) as db:
+        db.executemany('INSERT INTO names VALUES(?,?)',rows);db.commit()
+    assert {row[0] for row in catalog.search(tmp_path,include_helpers=False)}=={147092032,4}
+    assert {row[0] for row in catalog.search(tmp_path,category='@HIDDEN',include_helpers=False)}=={147092032,2,3}
+    assert {row[0] for row in catalog.search(tmp_path,category='@ALL_ASSETS',include_helpers=False)}=={row[0] for row in rows}

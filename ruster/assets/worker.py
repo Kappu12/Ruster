@@ -21,6 +21,7 @@ if os.environ.get('RUSTER_PYTHON_MODULES'):
     sys.path.insert(0, os.environ['RUSTER_PYTHON_MODULES'])
 
 from ruster.assets.catalog import connect, find, parse_lookup, parse_manifest
+from ruster.assets import CONVERTER_VERSION
 from ruster.core.settings import validate_install
 from ruster.core.project import atomic_write
 
@@ -201,6 +202,23 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
     def key(reader):
         return f'{reader.assets_file.name}:{reader.path_id}'
 
+    def texture(entry, field, texenv, material_name):
+        if not texenv or not texenv.m_Texture.path_id:return
+        prefix='' if field=='texture' else field+'_'
+        entry[prefix+'uv_scale']=[texenv.m_Scale.x,texenv.m_Scale.y]
+        entry[prefix+'uv_offset']=[texenv.m_Offset.x,texenv.m_Offset.y]
+        try:
+            tex_reader=texenv.m_Texture.deref()
+            token=hashlib.sha256((key(tex_reader)+':'+cache_signature).encode()).hexdigest()[:24]
+            target=texture_dir/f'{token}.png'
+            if not target.exists():
+                from ruster.assets.textures import preview_image
+                with preview_image(tex_reader.read()) as image:image.save(target)
+            entry[field]=str(target.relative_to(base))
+        except Exception as error:
+            traceback.print_exc()
+            warnings.append(f'{material_name}: {field} unavailable: {type(error).__name__}: {error}')
+
     def material(pointer):
         if not pointer or not pointer.path_id:
             return None
@@ -214,28 +232,21 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         floats=dict(data.m_SavedProperties.m_Floats)
         entry['roughness']=max(0.,min(1.,1-floats.get('_Smoothness',floats.get('_Glossiness',.2))))
         entry['metallic']=max(0.,min(1.,floats.get('_Metallic',0.)))
-        entry['alpha_clip']=bool(floats.get('_AlphaClip',0) or floats.get('_Mode',0))
+        mode=floats.get('_Mode',0)
+        entry['alpha_clip']=bool(floats.get('_AlphaClip',0) or mode==1)
+        entry['alpha_blend']=bool(mode in (2,3) or floats.get('_Surface',0)==1)
+        entry['alpha_cutoff']=max(0.,min(1.,floats.get('_Cutoff',.5)))
+        entry['gloss_map_scale']=max(0.,min(1.,floats.get('_GlossMapScale',1.)))
         colors = dict(data.m_SavedProperties.m_Colors)
         color = colors.get('_BaseColor', colors.get('_Color'))
         if color:
             entry['color'] = [color.r, color.g, color.b, color.a]
+        emission=colors.get('_EmissionColor')
+        if emission:entry['emission']=[emission.r,emission.g,emission.b,1.]
         textures = dict(data.m_SavedProperties.m_TexEnvs)
-        texenv = textures.get('_BaseMap', textures.get('_MainTex'))
-        if texenv and texenv.m_Texture.path_id:
-            entry['uv_scale']=[texenv.m_Scale.x,texenv.m_Scale.y]
-            entry['uv_offset']=[texenv.m_Offset.x,texenv.m_Offset.y]
-            try:
-                tex_reader = texenv.m_Texture.deref()
-                token = hashlib.sha256((key(tex_reader)+':'+cache_signature).encode()).hexdigest()[:24]
-                texture = texture_dir / f'{token}.png'
-                if not texture.exists():
-                    from ruster.assets.textures import preview_image
-                    with preview_image(tex_reader.read()) as image:
-                        image.save(texture)
-                entry['texture'] = str(texture.relative_to(base))
-            except Exception as error:
-                traceback.print_exc()
-                warnings.append(f'{data.m_Name}: texture unavailable: {type(error).__name__}: {error}')
+        texture(entry,'texture',textures.get('_BaseMap',textures.get('_MainTex')),data.m_Name)
+        texture(entry,'metallic_gloss_texture',textures.get('_MetallicGlossMap'),data.m_Name)
+        texture(entry,'emission_texture',textures.get('_EmissionMap'),data.m_Name)
         return ident
 
     def mesh(pointer):
@@ -393,7 +404,7 @@ def extract_batch(UnityPy, install, cache, ids):
         try:
             path = root / bundle
             stat = path.stat()
-            signature = f'converter-5:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
+            signature = f'{CONVERTER_VERSION}:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
             stamp = target / f'{uid}.stamp'
             output = target / f'{uid}.json.gz'
             if not (output.exists() and stamp.exists() and stamp.read_text() == signature):
