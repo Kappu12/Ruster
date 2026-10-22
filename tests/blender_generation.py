@@ -2,7 +2,9 @@
 import os,sys,tempfile,traceback
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-if '--' in sys.argv and sys.argv[sys.argv.index('--')+1:]:sys.path.insert(0,sys.argv[sys.argv.index('--')+1])
+if '--' in sys.argv and sys.argv[sys.argv.index('--')+1:]:
+    target=Path(sys.argv[sys.argv.index('--')+1]);sys.path.insert(0,str(target))
+    if (target/'python_modules').is_dir():sys.path.insert(0,str(target/'python_modules'))
 import bpy
 import ruster
 from ruster import generation,app
@@ -22,7 +24,20 @@ def run():
         assert bpy.ops.ruster.generator_install()=={'FINISHED'}
         # Windows may canonicalize RUNNER~1 to runneradmin during validation.
         assert Path(settings.load()['rust_dedicated']).resolve()==binary.resolve()
-        source=root/'generated.map';source.write_bytes(sample_world().write())
+        if sys.platform=='win32':
+            probe=root/'writing.map'
+            with probe.open('wb') as handle:
+                handle.write(b'prefix');handle.flush()
+                assert not generation.backend.writer_closed(probe,os.getpid())
+            assert generation.backend.writer_closed(probe,os.getpid())
+        source=root/'generated.map';world=sample_world();data=world.write()
+        from ruster.core import legacy_lz4,wire
+        if '--' in sys.argv:assert legacy_lz4._native_lz4 is not None,'Packaged native map decoder is unavailable'
+        if legacy_lz4._native_lz4 is not None:
+            # Exercise the actual packaged C extension, not just host-Python tests.
+            raw=wire.serialize(world.fields);packed=legacy_lz4._native_lz4.compress(raw,store_size=False)
+            data=data[:12]+wire.varint(1)+wire.varint(len(raw))+wire.varint(len(packed))+packed
+        source.write_bytes(data)
         original=bpy.context.scene;names=set(bpy.data.objects)
         class FakeJob:
             directory=root;active=False

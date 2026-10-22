@@ -4,6 +4,7 @@ Rust's generator is not redistributed or extracted. All file validation and
 process monitoring run off Blender's UI thread. Never reuse a server identity.
 """
 from pathlib import Path
+import math
 import os
 import secrets
 import socket
@@ -72,6 +73,43 @@ def command(binary,seed,size,identity,log,ports):
         '+app.listenip','127.0.0.1','+app.port','0']
 
 
+def writer_closed(path,pid):
+    """Do not mistake a temporarily stable, parseable prefix for a finished map.
+
+    Windows uses an exclusive-open probe; Linux inspects only our owned child's
+    file descriptors. Fail closed if the completion probe is unavailable.
+    """
+    if sys.platform=='win32':
+        import ctypes
+        from ctypes import wintypes
+        api=ctypes.WinDLL('kernel32',use_last_error=True)
+        api.CreateFileW.argtypes=(wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,
+                                 wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE)
+        api.CreateFileW.restype=wintypes.HANDLE
+        api.CloseHandle.argtypes=(wintypes.HANDLE,);api.CloseHandle.restype=wintypes.BOOL
+        handle=api.CreateFileW(str(path),0x80000000,0,None,3,0x80,None)
+        if handle==ctypes.c_void_p(-1).value:
+            code=ctypes.get_last_error()
+            if code in (2,3,32,33):return False
+            raise OSError(code,'Cannot verify generated map is closed')
+        api.CloseHandle(handle);return True
+    return linux_writer_closed(path,pid)
+
+
+def linux_writer_closed(path,pid,proc_root=Path('/proc')):
+    descriptors=proc_root/str(pid)/'fd'
+    target=path.stat()
+    try:entries=list(descriptors.iterdir())
+    except FileNotFoundError as error:
+        raise RuntimeError('Cannot verify generated map completion: owned process descriptors are unavailable') from error
+    for entry in entries:
+        try:
+            stat=entry.stat()
+            if (stat.st_dev,stat.st_ino)==(target.st_dev,target.st_ino):return False
+        except FileNotFoundError:continue
+    return True
+
+
 class Generation:
     """One owned child. READY means a complete validated map, not server startup.
 
@@ -138,7 +176,10 @@ class Generation:
         data=path.read_bytes();world=RustMap.read(data)
         if world.size!=self.size:raise ValueError('Generated map has an unexpected size')
         # Decompression/protobuf alone could accept an incomplete world record.
-        world.height_grid('terrain');world.height_grid('water')
+        layers=world.layers
+        for name in ('terrain','water'):
+            raw=layers.get(name,b'');n=math.isqrt(len(raw)//2)
+            if n<2 or n*n*2!=len(raw):raise ValueError(f'Generated map has an invalid {name} heightmap')
         if signature!=self._stat(path):raise ValueError('Map is still being written')
         return world,data
 
@@ -165,6 +206,7 @@ class Generation:
                         signature=self._stat(path);key=str(path)
                         if signature==self._before.get(key) or signature[0]<16:continue
                         if seen.get(key)!=signature:seen[key]=signature;continue
+                        if self.process.poll() is None and not writer_closed(path,self.process.pid):continue
                         self.status='VALIDATING';self.message='Validating generated map'
                         try:
                             world,data=self._validate(path,signature)
@@ -175,7 +217,10 @@ class Generation:
                         self._stop()
                         target=self.directory/f'proceduralmap.{self.size}.{self.seed}.map'
                         atomic_write(target,data);self.result=target
-                        self.message=f'Map ready — {len(world.prefabs):,} prefabs';final='READY';return
+                        # Counting top-level records avoids parsing every prefab
+                        # solely for a status label on monument-heavy maps.
+                        count=sum(f.number==3 and f.wire==2 for f in world.fields)
+                        self.message=f'Map ready — {count:,} prefabs';final='READY';return
                     if self.process.poll() is not None:
                         if exit_seen is None:exit_seen=time.monotonic()
                         elif time.monotonic()-exit_seen>1:

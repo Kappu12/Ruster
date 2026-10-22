@@ -45,6 +45,12 @@ licenses retained in the packaged `python_modules` metadata directories.
 The map adapter is independently written using the published Rust.World SDK
 format and the documented lz4net legacy stream framing. It does not bundle their
 compiled libraries or copy their implementation.
+The reader optionally uses `python-lz4` (already supplied by UnityPy's
+dependencies) for native block decompression. Its Python bindings and bundled
+LZ4 library notices are retained in `python_modules` distribution metadata.
+Legacy stream framing, size checks and the Python fallback remain Ruster code.
+
+- https://github.com/python-lz4/python-lz4
 
 - https://github.com/Facepunch/Rust.World (MIT SDK reference)
 - https://github.com/MiloszKrajewski/lz4net (legacy framing reference)

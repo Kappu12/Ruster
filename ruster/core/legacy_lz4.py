@@ -1,16 +1,33 @@
 """Rust's LZ4Stream framing, not the incompatible modern LZ4 frame format.
 
 Reader supports compressed and raw chunks. Writer deliberately emits valid raw
-chunks; this keeps the distribution dependency-free and preserves compatibility.
+chunks. An optional native block decoder accelerates large maps; the bounded
+Python decoder remains available without asset dependencies installed.
 Framing reference: MiloszKrajewski/lz4net LZ4Stream; no third-party code copied.
 """
 from .wire import FormatError, read_varint, varint
+try:
+    import lz4.block as _native_lz4
+except ImportError:
+    _native_lz4=None
 
 MAX_BYTES = 512 * 1024 * 1024
 MAX_CHUNK = 64 * 1024 * 1024
 
 
 def decompress_block(data, expected):
+    if type(expected) is not int or not 0<=expected<=MAX_CHUNK:
+        raise FormatError('Invalid LZ4 block size')
+    if _native_lz4 is not None:
+        try:result=_native_lz4.decompress(data,uncompressed_size=expected)
+        except _native_lz4.LZ4BlockError as error:raise FormatError('Invalid compressed LZ4 block') from error
+        # Native uncompressed_size is an upper bound, not an exact-size check.
+        if len(result)!=expected:raise FormatError('LZ4 block length mismatch')
+        return result
+    return decompress_block_python(data,expected)
+
+
+def decompress_block_python(data,expected):
     out, pos = bytearray(), 0
 
     def length(base, pos):

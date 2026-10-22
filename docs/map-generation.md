@@ -27,6 +27,16 @@ available in the automated test environment. Generation compatibility and peak
 memory/elapsed time must be measured on an actual current installation before
 calling it production-ready.
 
+The map reader uses the native `lz4.block` decoder shipped with the asset
+dependencies when available, retaining legacy Rust framing and exact-size/limit
+checks. A bounded Python fallback remains for development without those modules.
+Validation checks height-grid dimensions without expanding every height sample
+into Python objects, and does not decode prefab records merely to count them.
+An 8 MiB synthetic mixed-repetition block benchmark (three runs, median, this
+development host) measured 8.85 ms native versus 17.08 ms fallback, approximately
+1.93× faster **for block decoding only**. This is not an end-to-end map-generation
+benchmark or a guarantee for other machines/maps.
+
 ## Isolation and output
 
 - Each job gets a random `ruster_gen_…` server identity. Existing server profiles
@@ -36,8 +46,12 @@ calling it production-ready.
   are requested. A random RCON password is supplied. This is process configuration,
   **not an OS network sandbox**; Rust can still make its own outbound requests.
 - Only exact seed-and-size filenames in bounded known map locations are considered.
-  A new/changed file must stabilize, decompress, parse and have valid terrain/water
+  A new/changed file must stabilize, pass a writer-close probe, decompress, parse and have valid terrain/water
   grids of the requested world size before being accepted.
+  The probe uses Windows exclusive-open sharing rules or the owned Linux child's
+  file descriptors, so a parseable prefix cannot pass merely by pausing writes.
+  If process-descriptor access is restricted, generation fails closed with an
+  explicit error; Ruster does not bypass the restriction or accept uncertain output.
 - Unchanged old caches are deliberately rejected, since matching filenames alone
   cannot establish current game-build compatibility. If Rust reuses a cache without
   rewriting it, this job can fail with a clear log message. It never deletes or
@@ -57,5 +71,9 @@ Synthetic process tests cover partial writes, byte-exact output, early terminati
 before simulated server startup, cancellation, timeout, stale caches, discovery
 and profile preservation. Blender tests verify shared settings, controls, separate
 opening and shutdown. These do not replace a current-game end-to-end test.
+The two real Linux descriptor-probe tests are skipped in restricted development
+environments without process-descriptor access; the synthetic inode/probe tests
+still run. Ordinary Linux CI runs the real probe tests, and Windows packaging
+tests the exclusive-open probe in Blender.
 
 Reference: [Facepunch server setup](https://wiki.facepunch.com/rust/Creating-a-server).
