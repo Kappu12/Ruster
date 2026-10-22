@@ -22,7 +22,7 @@ A `.ruster` file is a ZIP archive with these exact permitted members:
 }
 ```
 
-The Blender scene stores editable placement roots, with source protobuf records
+The Blender scene stores editable placement roots and path curves, with source protobuf records
 in base64 custom properties. This retains fields the editor does not understand.
 Rust IDs are stored as decimal strings because Blender integer custom properties
 cannot represent every uint32 prefab ID as a positive signed 32-bit integer.
@@ -49,6 +49,14 @@ The writer emits valid uncompressed chunks in the legacy LZ4Stream framing.
 This is deliberately different from modern LZ4 frames and may produce larger
 `.map` exports. No compression library is needed in Blender for map reading.
 
-Only prefab placement records are changed. Original world/layer/path bytes stay
-unchanged; untouched prefab transforms keep their original records. Exporting
-does not bake arbitrary Blender meshes or the viewport terrain back into Rust.
+Terrain changes live in immutable compressed Text datablocks inside `scene.blend`.
+The scene holds an ID pointer to the active snapshot. Blender's undo restores that
+pointer together with scene changes. A snapshot contains the complete modified
+layers, never reduced viewport samples. Snapshot data are base85-encoded zlib
+protobuf records containing layer names and raw sample bytes.
+
+Export applies modified full-resolution layers, placement transforms and path
+records to the source world. Unedited layer/world/record fields retain their
+original bytes. The viewport terrain mesh and arbitrary custom meshes are never
+used as the authoritative game terrain. Group transforms are baked into placement
+transforms; shear is rejected because it cannot be represented in Rust prefab data.

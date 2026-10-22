@@ -1,5 +1,6 @@
 from pathlib import Path
 import sqlite3
+from contextlib import closing
 
 
 def connect(cache):
@@ -17,17 +18,20 @@ def connect(cache):
     return db
 
 
-def search(cache, query='', limit=100):
+def search(cache, query='', limit=100, offset=0):
     if not (Path(cache) / 'catalog.sqlite3').exists():
         return []
-    with connect(cache) as db:
+    with closing(sqlite3.connect((Path(cache)/'catalog.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+        query=query.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')
         return db.execute('''SELECT n.uid, n.path, a.bundle IS NOT NULL FROM names n
             LEFT JOIN assets a ON lower(a.path)=lower(n.path)
-            WHERE n.path LIKE ? ORDER BY n.path LIMIT ?''', ('%' + query + '%', limit)).fetchall()
+            WHERE n.path LIKE ? ESCAPE '\\' ORDER BY n.path LIMIT ? OFFSET ?''',
+            ('%' + query + '%', limit, max(0,offset))).fetchall()
 
 
 def find(cache, uid):
-    with connect(cache) as db:
+    if not (Path(cache)/'catalog.sqlite3').exists():return None
+    with closing(sqlite3.connect((Path(cache)/'catalog.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
         return db.execute('''SELECT n.path, a.bundle, a.file, a.path_id FROM names n
             LEFT JOIN assets a ON lower(a.path)=lower(n.path) WHERE n.uid=?''', (uid,)).fetchone()
 

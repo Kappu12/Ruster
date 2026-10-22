@@ -24,8 +24,9 @@ Rust workflows. Do not add nonfunctional brushes or decorative controls.
 
 ## Editing contract
 
-The terrain/path geometry is a protected preview until editing and serialization
-are supported. A prefab root is an editable placement; its model hierarchy is
+Terrain brushes edit full-resolution layer data; the viewport mesh is a disposable
+preview at adjustable detail. Paths use native curve node editing and retain
+source metadata. Each brush stroke is one undo step. A prefab root is an editable placement; its model hierarchy is
 read-only preview data. Duplicate and delete include that hierarchy. Missing
 visuals are clearly represented as placement boxes, with a report explaining why.
 Unsupported custom mesh data may be stored in `.ruster` but blocks `.map` export.
@@ -33,7 +34,7 @@ Unsupported custom mesh data may be stored in `.ruster` but blocks `.map` export
 ## Saving
 
 `.ruster` means the editable project, not a renamed `.map` or `.blend`. Saving
-packs scene previews and source map data. Export writes a separate game map and
+packs scene previews and source map data and full-resolution edit snapshots. Export writes a separate game map and
 preserves unedited/unknown data. Opening or creating a project prompts the user
 to save existing work before replacing it. Do not silently overwrite a source map.
 

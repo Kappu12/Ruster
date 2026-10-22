@@ -6,6 +6,7 @@ color textures. Unity shaders/behaviours are not executed.
 """
 import argparse
 import gzip
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -146,9 +147,10 @@ def deref(pointer):
     return pointer.read() if pointer and pointer.path_id else None
 
 
-def export_prefab(env, root_reader, output, uid, asset_path):
+def export_prefab(env, root_reader, output, uid, asset_path, cache_signature=''):
     from UnityPy.helpers.MeshHelper import MeshHandler
     meshes, materials, nodes, warnings = {}, {}, [], []
+    excluded_renderers=set()
     seen = set()
     base = Path(output).parent
     texture_dir = base / 'textures'
@@ -167,6 +169,10 @@ def export_prefab(env, root_reader, output, uid, asset_path):
         data = reader.read()
         entry = {'name': data.m_Name, 'color': [0.55, 0.55, 0.55, 1.], 'texture': None}
         materials[ident] = entry
+        floats=dict(data.m_SavedProperties.m_Floats)
+        entry['roughness']=max(0.,min(1.,1-floats.get('_Smoothness',floats.get('_Glossiness',.2))))
+        entry['metallic']=max(0.,min(1.,floats.get('_Metallic',0.)))
+        entry['alpha_clip']=bool(floats.get('_AlphaClip',0) or floats.get('_Mode',0))
         colors = dict(data.m_SavedProperties.m_Colors)
         color = colors.get('_BaseColor', colors.get('_Color'))
         if color:
@@ -174,10 +180,11 @@ def export_prefab(env, root_reader, output, uid, asset_path):
         textures = dict(data.m_SavedProperties.m_TexEnvs)
         texenv = textures.get('_BaseMap', textures.get('_MainTex'))
         if texenv and texenv.m_Texture.path_id:
+            entry['uv_scale']=[texenv.m_Scale.x,texenv.m_Scale.y]
+            entry['uv_offset']=[texenv.m_Offset.x,texenv.m_Offset.y]
             try:
                 tex_reader = texenv.m_Texture.deref()
-                import hashlib
-                token = hashlib.sha256(key(tex_reader).encode()).hexdigest()[:24]
+                token = hashlib.sha256((key(tex_reader)+':'+cache_signature).encode()).hexdigest()[:24]
                 texture = texture_dir / f'{token}.png'
                 if not texture.exists():
                     tex_reader.read().image.save(texture)
@@ -197,7 +204,7 @@ def export_prefab(env, root_reader, output, uid, asset_path):
                              'uv': handler.m_UV0 or [], 'submeshes': triangles}
         return ident
 
-    def walk(reader, parent=None, depth=0):
+    def walk(reader, parent=None, depth=0,lod_managed=False):
         if depth > 128 or len(nodes) > 20000:
             raise ValueError('Prefab hierarchy exceeds the supported limit')
         ident = key(reader)
@@ -208,13 +215,26 @@ def export_prefab(env, root_reader, output, uid, asset_path):
         if parent is not None and not go.m_IsActive:
             return
         # Prefab instances retain one visible LOD, not all overlapping LOD meshes.
-        if re.search(r'(?:_|\b)lod[1-9]\d*(?:_|\b)', go.m_Name.lower()):
+        if not lod_managed and re.search(r'(?:_|\b)lod[1-9]\d*(?:_|\b)', go.m_Name.lower()):
             return
         components = {}
+        component_keys={}
         for pointer in component_pointers(go):
             component_reader = pointer.deref()
             if component_reader:
                 components[component_reader.type.name] = component_reader.read()
+                component_keys[component_reader.type.name]=key(component_reader)
+        lods=getattr(components.get('LODGroup'),'m_LODs',None)
+        if lods:
+            first=set()
+            later=set()
+            first_nonempty=next((i for i,lod in enumerate(lods) if any(r.renderer.path_id for r in lod.renderers)),0)
+            for index,lod in enumerate(lods):
+                for renderer in lod.renderers:
+                    pointer=renderer.renderer
+                    if pointer and pointer.path_id:
+                        (first if index==first_nonempty else later).add(key(pointer.deref()))
+            excluded_renderers.update(later-first)
         transform = components.get('Transform') or components.get('RectTransform')
         if transform is None:
             return
@@ -226,7 +246,8 @@ def export_prefab(env, root_reader, output, uid, asset_path):
         nodes.append(node)
         renderer = components.get('MeshRenderer') or components.get('SkinnedMeshRenderer')
         filter_ = components.get('MeshFilter') or components.get('SkinnedMeshRenderer')
-        if renderer and filter_ and getattr(renderer, 'm_Enabled', True):
+        renderer_key=component_keys.get('MeshRenderer',component_keys.get('SkinnedMeshRenderer'))
+        if renderer and filter_ and renderer_key not in excluded_renderers and getattr(renderer, 'm_Enabled', True):
             try:
                 if filter_.m_Mesh.path_id:
                     node['mesh'] = mesh(filter_.m_Mesh)
@@ -236,7 +257,7 @@ def export_prefab(env, root_reader, output, uid, asset_path):
         for child in transform.m_Children:
             child_transform = deref(child)
             if child_transform:
-                walk(child_transform.m_GameObject.deref(), index, depth + 1)
+                walk(child_transform.m_GameObject.deref(), index, depth + 1,lod_managed or bool(lods))
 
     walk(root_reader)
     if not meshes:
@@ -257,6 +278,7 @@ def extract(install, cache, ids):
     current_bundle, env = None, None
     with connect(cache) as db:
         cab_bundles = dict(db.execute('SELECT name,bundle FROM serialized_files'))
+        catalog_signature=hashlib.sha256(repr(db.execute('SELECT path,size,mtime FROM bundles ORDER BY path').fetchall()).encode()).hexdigest()
 
     class LocalEnvironment(UnityPy.Environment):
         def find_file(self, name, is_dependency=True):
@@ -284,7 +306,7 @@ def extract(install, cache, ids):
         try:
             path = root / bundle
             stat = path.stat()
-            signature = f'{stat.st_size}:{stat.st_mtime_ns}'
+            signature = f'converter-2:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
             stamp = target / f'{uid}.stamp'
             output = target / f'{uid}.json.gz'
             if not (output.exists() and stamp.exists() and stamp.read_text() == signature):
@@ -294,7 +316,7 @@ def extract(install, cache, ids):
                 reader = next((o for o in env.objects if o.path_id == path_id and o.assets_file.name == file_name), None)
                 if reader is None:
                     raise ValueError('Prefab object is no longer in the indexed bundle; rebuild the catalog')
-                warnings = export_prefab(env, reader, output, uid, asset_path)
+                warnings = export_prefab(env, reader, output, uid, asset_path,signature)
                 atomic_write(stamp, signature.encode())
                 if warnings:
                     failures.append({'uid': uid, 'error': '; '.join(warnings)})

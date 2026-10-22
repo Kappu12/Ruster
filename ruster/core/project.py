@@ -35,7 +35,8 @@ def save(path, blend_path, mode, source_map=None, title='Untitled'):
         files['source.map'] = Path(source_map)
     if mode == 'MAP' and 'source.map' not in files:
         raise FormatError('Map projects require their source map')
-    manifest = {'format': 'ruster', 'schema': SCHEMA, 'app_version': '0.1.0',
+    from ruster import __version__
+    manifest = {'format': 'ruster', 'schema': SCHEMA, 'app_version': __version__,
                 'title': title, 'mode': mode, 'files': {}}
     for name, file in files.items():
         if file.stat().st_size > MAX_MEMBER:

@@ -4,11 +4,11 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: development preview, not full RustEdit parity.** The implemented map
-editing workflow is prefab placement. Terrain and paths are visible, protected
-previews; their original data are retained on export. Rust asset compatibility
-requires testing against a current local game installation. There are no game
-assets in this repository.
+**Status: development preview, with full-resolution terrain, path and prefab editing.**
+Rust asset compatibility and exported game behavior still require testing against
+a current local game installation and server. There are no game assets in this
+repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
+work toward RustEdit parity.
 
 ## Start
 
@@ -31,13 +31,33 @@ Map mode switches to a Rust-focused workspace with a prefab browser, placement
 properties, local asset status and map validation. It keeps Blender's standard
 styling. Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
 The prefab browser places objects at the 3D cursor. Its duplicate/delete actions
-also handle the visual children of a prefab.
+also handle prefab groups and shared model instances.
 
 Save your work with **Ruster → Save Project** (`Ctrl+S`). A `.ruster` file contains
 the Blender scene, packed preview assets and the original map data. It can be
 reopened without the original `.map` file. **Export Rust Map** writes prefab
-placements to a separate `.map`; validation blocks unsupported custom meshes.
+placements, terrain layers and paths to a separate `.map`; validation blocks unsupported custom meshes.
 New Blender projects can contain arbitrary geometry and save it in `.ruster`.
+
+Use **Ruster → New Rust Map** to begin with editable flat terrain. In the Terrain
+panel, select a layer and tool, then click **Paint in Viewport** and drag on the
+terrain. Alt inverts a brush; Shift temporarily smooths height. Each stroke is one
+undo step. The panel also offers stamping, cloning, bridge grading, island
+generation, 16-bit height import/export, height/slope masks and terrain detail.
+Viewport detail is independent of the full-resolution samples saved to the map.
+
+The Paths panel creates roads, rivers, rails and powerlines. Select a path, click
+**Edit Path Nodes**, and use Blender's `G`, `E` and `X` controls. Finish node editing
+before exporting. Width, padding/fades and grading are available in that panel.
+
+The Placement panel groups/ungroups monuments, snaps and aligns objects to terrain,
+scatters selected prefab types, replaces selected types and imports/exports
+`.rusterprefab` assemblies. Assemblies store game prefab references and transforms.
+
+Ruster saves an atomic recovery project every two minutes when the editor is idle.
+Use **Recover Autosaved Session** on the start screen after a crash. Recovery does
+not replace the normal project save destination. Recent projects are listed there
+as well. Native file drops support `.map` and `.ruster`.
 
 ## Run from source
 
@@ -84,37 +104,40 @@ to the source repository. macOS standalone packaging is not implemented yet.
 
 ## Current boundaries
 
-- Reads `.map` serialization versions 9 and 10; rejects unknown versions.
-- Imports terrain height and ground color previews, prefab placements, and path
-  overlays. Original terrain/biome/topology/water/path bytes are preserved.
-- Loads local prefab hierarchies, triangle meshes, UVs, base colors and common
-  base-color textures. Shared bundle dependencies are resolved through a local
-  catalog. Game-specific shaders, vegetation animation, colliders, particles and
-  gameplay logic are not reproduced by Blender.
-- Missing or unsupported assets remain labeled orange placement boxes. Their
-  original prefab IDs/transforms are preserved; they are not presented as loaded
-  models. **Assets → Asset Report** exposes extraction failures.
-- Asset IDs come from embedded prefab lookup/manifest data. Ruster does not guess
-  IDs from names. A game build with an unsupported manifest layout will report an
-  error and needs an adapter update.
-- Terrain/path editing, terrain sculpt export, IO/puzzles/loot editing, procedural
-  generation from seed, and server playtesting are not implemented.
-- Native Blender shortcuts and advanced editor switching are still available.
-  Map mode is a focused authoring UI, not a restricted Blender sandbox.
-- Current source customizes the pinned Blender runtime through its Python UI
-  API. It does not maintain a divergent C/C++ engine tree. This keeps upstream
-  updates manageable; deeper engine changes can be added when required.
+- Rust `.map` serialization versions 9 and 10 are supported; unknown versions are rejected.
+- Terrain editing uses full-resolution data with native undo/redo. Untouched layers
+  and unknown fields are retained. Brushes support height, water, ground textures,
+  biomes, topology and alpha holes. Four- and five-channel biome layouts are recognized.
+- The map viewport is an approximation: Rust-specific terrain shading, animated
+  vegetation, particles, colliders, skinned-mesh deformation and gameplay are not
+  reproduced by Blender. Increase Terrain Detail to inspect smaller terrain edits.
+- Missing/unsupported assets remain labeled placement boxes. Their original IDs and
+  transforms remain available; asset reports explain conversion problems.
+- Asset IDs come from embedded lookup/manifest data, not guessed name hashes. A game
+  update with an unsupported manifest layout needs an adapter update.
+- IO/puzzles, loot/vending profiles, NPC/vehicle spawning configuration, special
+  patrol paths and server extension compatibility are not implemented. Preserving
+  existing opaque extension data does not guarantee cloned/deleted links remain valid.
+- Seeded island generation is Ruster's own terrain algorithm; it does not recreate
+  Rust's native procedural seed generation. Road/river previews and grading are
+  authoring approximations pending in-game comparison tests.
+- Existing Blender shortcuts and advanced editor switching remain available. Map
+  mode is a focused authoring workspace, not a restricted Blender sandbox.
+- The source customizes pinned Blender through its Python API. It does not maintain
+  a divergent C/C++ tree. [FEATURES.md](FEATURES.md) records the full remaining backlog.
 
 ## Validation
 
 ```bash
-python -m pip install pytest lz4 -r requirements-assets.txt
+python -m pip install pytest lz4 numpy -r requirements-assets.txt
 python -m pytest -q
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_smoke.py
+/path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_editing.py
+/path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_placement.py
 ```
 
 The Blender test checks real terrain construction, coordinate/rotation conversion,
-placement edits, duplication/deletion, lossless unchanged export, preservation of
+placement edits, grouping/scatter, terrain and path editing, native undo/redo, lossless unchanged export, preservation of
 unknown fields, `.ruster` save/reopen with embedded source data, and restoration of
 the normal Blender workspace. Format tests also cover malformed inputs, archive
 integrity, path traversal, and independently compressed legacy LZ4 blocks.

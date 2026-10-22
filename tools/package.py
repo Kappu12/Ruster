@@ -63,7 +63,7 @@ def main():
     engine = next(p for p in extract.iterdir() if p.is_dir())
     shutil.move(str(engine), output/'runtime')
     for name in ('ruster','bootstrap.py','launch.py','Ruster.cmd','Ruster.sh','LICENSE',
-                 'README.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
+                 'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name
         if source.is_dir():
             shutil.copytree(source, destination, ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
@@ -73,8 +73,9 @@ def main():
                     '--target', str(output/'python_modules'), '-r', str(ROOT/'requirements-assets.txt')], check=True)
     executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
-    subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec',
-                    '--python', str(ROOT/'tests/blender_smoke.py'), '--', str(output)], check=True)
+    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py'):
+        subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec',
+                        '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
     if system == 'Windows':
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller==6.16.0'], check=True)
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',

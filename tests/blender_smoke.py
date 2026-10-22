@@ -38,7 +38,7 @@ def run():
         terrain = next(o for o in bpy.context.scene.objects if o.get('ruster_kind') == 'TERRAIN')
         assert len(terrain.data.vertices) == 33*33
         assert max(v.co.z for v in terrain.data.vertices) > 110
-        assert len([o for o in bpy.context.scene.objects if o.get('ruster_kind') == 'PATH_PREVIEW']) == 1
+        assert len([o for o in bpy.context.scene.objects if o.get('ruster_kind') == 'PATH']) == 1
         # Test Unity Euler conversion, including the singular case, by comparing rotations.
         for angles in [(0,90,0),(10,20,30),(-70,160,35),(90,50,15),(-90,-70,20)]:
             q = scene.unity_euler(angles)

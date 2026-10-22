@@ -1,6 +1,7 @@
 """Blender scene adapter. Only placement roots are serialized back to Rust."""
 import base64
 import gzip
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -65,8 +66,9 @@ def clear_scene():
 def create_terrain(world):
     import numpy as np
     n, raw = world.height_grid()
-    # Preview has <= 257² vertices. Original full-resolution data remains untouched.
-    indices = np.unique(np.linspace(0, n - 1, min(n, 257), dtype=int))
+    # The viewport resolution is independent of authoritative full-resolution data.
+    detail=int(bpy.context.scene.ruster.preview_resolution)
+    indices = np.unique(np.linspace(0, n - 1, min(n, detail), dtype=int))
     grid = np.asarray(raw, dtype=np.float64).reshape(n, n)
     heights = grid[np.ix_(indices, indices)] / 32766.0 * 1000.0 - 500.0
     m = len(indices)
@@ -78,7 +80,7 @@ def create_terrain(world):
     mesh.from_pydata(vertices.tolist(), [], faces)
     mesh.update()
     obj = bpy.data.objects.new('Terrain', mesh)
-    new_collection('Terrain').objects.link(obj)
+    (bpy.data.collections.get('Terrain') or new_collection('Terrain')).objects.link(obj)
     obj['ruster_kind'] = 'TERRAIN'
     obj['ruster_resolution'] = n
     obj.hide_select = True
@@ -126,8 +128,8 @@ def create_paths(world):
         curve.resolution_u = 1
         obj = bpy.data.objects.new(name, curve)
         collection.objects.link(obj)
-        obj['ruster_kind'] = 'PATH_PREVIEW'
-        obj.hide_select = True
+        from .editing import configure_path
+        configure_path(obj,fields)
         obj.data.materials.append(material('Path overlay', (0.8, 0.5, 0.12, 1)))
 
 
@@ -161,6 +163,9 @@ def import_map(path):
     scene.ruster.title = Path(path).stem
     scene.ruster.project_path = ''
     scene.ruster.source_map = str(Path(path).resolve())
+    scene.ruster.terrain_state = None
+    from . import editing
+    editing.clear_cache()
     create_terrain(world)
     collection = new_collection('Prefabs')
     for fields in world.prefabs:
@@ -168,6 +173,7 @@ def import_map(path):
         attach_visual(obj)
     create_paths(world)
     new_collection('Build')
+    editing.refresh()
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type == 'VIEW_3D':
@@ -180,16 +186,33 @@ def import_map(path):
                 space.overlay.show_floor = False
                 space.shading.type = 'MATERIAL'
                 space.shading.studiolight_rotate_z = 0.5
+    bpy.context.view_layer.update()
     return world
 
 
-def attach_visual(root):
-    if root.get('ruster_visual'):
+def restore_map_tools():
+    from . import editing
+    editing.clear_cache()
+    # Upgrade preview-only paths in projects saved by the first version.
+    legacy=[o for o in bpy.context.scene.objects if o.get('ruster_kind')=='PATH_PREVIEW']
+    if legacy:
+        world=RustMap.load(bpy.context.scene.ruster.source_map)
+        for obj,fields in zip(legacy,world.paths):
+            editing.configure_path(obj,fields)
+    editing.refresh()
+
+
+def attach_visual(root,force=False):
+    if root.get('ruster_visual') and not force:
         return True
     path = cache_dir() / 'prefabs' / f"{root['ruster_uid']}.json.gz"
     if not path.exists():
-        return False
-    collection_name = 'RusterAsset:' + str(root['ruster_uid'])
+        return bool(root.get('ruster_visual'))
+    stamp=path.with_name(str(root['ruster_uid'])+'.stamp')
+    signature=stamp.read_text() if stamp.exists() else ''
+    token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
+    asset_key=str(root['ruster_uid'])+(':'+token if token else '')
+    collection_name = 'RusterAsset:' + asset_key
     existing = bpy.data.collections.get(collection_name)
     if existing:
         root.instance_type = 'COLLECTION'
@@ -207,7 +230,7 @@ def attach_visual(root):
     collection = bpy.data.collections.new(collection_name)
     materials = {}
     for ident, spec in asset['materials'].items():
-        name = 'Rust ' + str(root['ruster_uid']) + ' ' + ident
+        name = 'Rust ' + asset_key + ' ' + hashlib.sha256(ident.encode()).hexdigest()[:16]
         mat = bpy.data.materials.get(name)
         if mat is None:
             mat = bpy.data.materials.new(name)
@@ -216,6 +239,8 @@ def attach_visual(root):
             bsdf = mat.node_tree.nodes.get('Principled BSDF')
             bsdf.inputs['Base Color'].default_value = spec['color']
             bsdf.inputs['Roughness'].default_value = 0.8
+            bsdf.inputs['Roughness'].default_value = spec.get('roughness',.8)
+            bsdf.inputs['Metallic'].default_value = spec.get('metallic',0.)
             if spec.get('texture'):
                 tex_path = (path.parent / spec['texture']).resolve()
                 if tex_path.is_relative_to(path.parent.resolve()) and tex_path.exists():
@@ -223,11 +248,21 @@ def attach_visual(root):
                     image.pack()
                     node = mat.node_tree.nodes.new('ShaderNodeTexImage')
                     node.image = image
+                    if spec.get('uv_scale') or spec.get('uv_offset'):
+                        uv=mat.node_tree.nodes.new('ShaderNodeTexCoord')
+                        mapping=mat.node_tree.nodes.new('ShaderNodeMapping')
+                        mapping.inputs['Scale'].default_value=(*spec.get('uv_scale',[1,1]),1)
+                        mapping.inputs['Location'].default_value=(*spec.get('uv_offset',[0,0]),0)
+                        mat.node_tree.links.new(uv.outputs['UV'],mapping.inputs['Vector'])
+                        mat.node_tree.links.new(mapping.outputs['Vector'],node.inputs['Vector'])
                     mat.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+                    if spec.get('alpha_clip'):
+                        mat.node_tree.links.new(node.outputs['Alpha'],bsdf.inputs['Alpha'])
+                        mat.surface_render_method='DITHERED'
         materials[ident] = mat
     meshes = {}
     for ident, spec in asset['meshes'].items():
-        name = 'Rust ' + str(root['ruster_uid']) + ' ' + ident
+        name = 'Rust ' + asset_key + ' ' + hashlib.sha256(ident.encode()).hexdigest()[:16]
         mesh = bpy.data.meshes.get(name)
         if mesh is None:
             mesh = bpy.data.meshes.new(name)
@@ -299,11 +334,15 @@ def validate():
             fields = wire.parse(base64.b64decode(obj['ruster_record'], validate=True))
             if prefab_id(fields) != uid:
                 errors.append(f'{obj.name}: prefab ID differs from the source record')
-            if obj.parent:
-                errors.append(f'{obj.name}: placement roots must not be parented')
+            from .placement import parent_chain
+            if any(parent.get('ruster_kind')!='GROUP' for parent in parent_chain(obj)):
+                errors.append(f'{obj.name}: parent must be a Ruster prefab group')
             if obj.constraints or obj.modifiers or obj.animation_data:
                 errors.append(f'{obj.name}: bake constraints/modifiers/animation before exporting')
             loc, rot, scale = obj.matrix_world.decompose()
+            rebuilt=Matrix.LocRotScale(loc,rot,scale)
+            if max(abs(rebuilt[i][j]-obj.matrix_world[i][j]) for i in range(4) for j in range(4))>1e-4:
+                errors.append(f'{obj.name}: group transforms introduce shear; use uniform group scale')
             if not all(math.isfinite(v) for v in (*loc, *rot, *scale)):
                 errors.append(f'{obj.name}: invalid transform')
             if any(abs(v) < 1e-7 for v in scale):
@@ -316,7 +355,16 @@ def validate():
     build = [o for o in scene.objects if not o.get('ruster_kind') and o.type in {'MESH','CURVE','FONT'}]
     if build:
         errors.append(f'{len(build)} custom objects cannot be embedded in a Rust .map; save them in .ruster instead')
-    notes.append('Terrain, water, splat, biome, topology and paths are preserved unchanged')
+    from .editing import path_record
+    if bpy.context.mode=='EDIT_CURVE':
+        errors.append('Finish editing path nodes before exporting the map')
+    for obj in scene.objects:
+        if obj.get('ruster_kind')=='PATH':
+            try:
+                path_record(obj)
+            except Exception as error:
+                errors.append(str(error))
+    notes.append('Unknown map fields and unedited layer data are preserved')
     return errors, notes
 
 
@@ -324,7 +372,8 @@ def export_map(path):
     errors, notes = validate()
     if errors:
         raise ValueError('; '.join(errors[:5]))
-    world = RustMap.load(bpy.context.scene.ruster.source_map)
+    from . import editing
+    world = editing.terrain().export_world()
     prefabs = []
     for obj in prefab_roots():
         fields = wire.parse(base64.b64decode(obj['ruster_record']))
@@ -338,6 +387,7 @@ def export_map(path):
             fields = update_transform(fields, to_unity(loc), blender_euler(rot), to_unity(scl))
         prefabs.append(fields)
     world.replace_prefabs(prefabs)
+    world.replace_paths([editing.path_record(obj) for obj in bpy.context.scene.objects if obj.get('ruster_kind')=='PATH'])
     if Path(path).resolve() == Path(bpy.context.scene.ruster.source_map).resolve():
         raise ValueError('Export to a new filename to preserve the source map')
     atomic_write(path, world.write())

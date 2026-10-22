@@ -69,6 +69,39 @@ class RustMap:
         result.extend(wire.encode(3, 2, wire.serialize(p)) for p in pending)
         self.fields = result
 
+    def set_layer(self, name, data):
+        """Update a layer's bytes while retaining its unknown metadata fields."""
+        result, found = [], False
+        for field in self.fields:
+            if field.number == 2 and field.wire == 2:
+                fields = wire.parse(field.value)
+                if wire.get(fields, 1) == name.encode():
+                    if found:
+                        raise FormatError(f'Duplicate map layer: {name}')
+                    found = True
+                    if wire.get(fields, 2) != data:
+                        fields = wire.replace(fields, 2, 2, data)
+                        field = wire.encode(2, 2, wire.serialize(fields))
+            result.append(field)
+        if not found:
+            result.append(wire.encode(2, 2, wire.serialize([
+                wire.encode(1, 2, name.encode()), wire.encode(2, 2, data)])))
+        self.fields = result
+
+    def replace_paths(self, paths):
+        pending = iter(paths)
+        result = []
+        for field in self.fields:
+            if field.number == 4 and field.wire == 2:
+                value = next(pending, None)
+                if value is not None:
+                    data = wire.serialize(value)
+                    result.append(field if data == field.value else wire.encode(4, 2, data))
+            else:
+                result.append(field)
+        result.extend(wire.encode(4, 2, wire.serialize(p)) for p in pending)
+        self.fields = result
+
     def write(self):
         return (struct.pack('<I', self.version) + self.timestamp +
                 legacy_lz4.compress(wire.serialize(self.fields)))

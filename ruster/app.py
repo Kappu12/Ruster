@@ -24,6 +24,11 @@ _job_action = None
 _visual_queue = []
 _session_dirs = []
 _pending_project = None
+_job_cancelled = False
+
+
+def query_changed(state,context):
+    state.query_page=0
 
 
 class RUSTER_PG_project(bpy.types.PropertyGroup):
@@ -32,9 +37,14 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     project_path: StringProperty(subtype='FILE_PATH')
     source_map: StringProperty(subtype='FILE_PATH')
     map_size: IntProperty(default=4000)
-    query: StringProperty(name='Search prefabs', options={'SKIP_SAVE'})
+    query: StringProperty(name='Search prefabs', options={'SKIP_SAVE'},update=query_changed)
     asset_status: StringProperty(default='Choose your Rust installation', options={'SKIP_SAVE'})
     busy: BoolProperty(default=False, options={'SKIP_SAVE'})
+    terrain_state: PointerProperty(type=bpy.types.Text)
+    query_page: IntProperty(default=0,min=0,options={'SKIP_SAVE'})
+    preview_resolution:EnumProperty(name='Terrain Detail',items=[('129','Fast','Lowest viewport memory use'),
+        ('257','Balanced','Balanced detail and performance'),('513','Detailed','More terrain samples in the viewport'),
+        ('1025','Very Detailed','Highest viewport memory use')],default='257')
 
 
 def session_dir():
@@ -60,7 +70,7 @@ def worker_python():
 
 
 def start_job(action, ids=None):
-    global _job, _job_log, _job_action
+    global _job, _job_log, _job_action, _job_cancelled
     if _job is not None and _job.poll() is None:
         raise ValueError('An asset operation is already running')
     config = settings.load()
@@ -78,6 +88,7 @@ def start_job(action, ids=None):
     kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
     _job = subprocess.Popen(args, stdout=_job_log, stderr=subprocess.STDOUT, **kwargs)
     _job_action = action
+    _job_cancelled = False
     bpy.context.scene.ruster.busy = True
     if not bpy.app.timers.is_registered(poll_job):
         bpy.app.timers.register(poll_job, first_interval=.2)
@@ -113,7 +124,9 @@ def poll_job():
         _job_log.close()
         _job_log = None
     state.busy = False
-    if code and progress.get('state') != 'ERROR':
+    if _job_cancelled:
+        state.asset_status='Asset import cancelled. Completed cache entries are available.'
+    elif code and progress.get('state') != 'ERROR':
         state.asset_status = 'Asset import failed — see the asset report / worker.log'
     action, _job_action = _job_action, None
     if not code and action == 'index' and state.mode == 'MAP' and scene.prefab_roots():
@@ -122,7 +135,7 @@ def poll_job():
             return .5
         except Exception as error:
             state.asset_status = str(error)
-    _visual_queue = [obj.name for obj in scene.prefab_roots() if not obj.get('ruster_visual')]
+    _visual_queue = [obj.name for obj in scene.prefab_roots()]
     if not bpy.app.timers.is_registered(load_visuals):
         bpy.app.timers.register(load_visuals, first_interval=.1)
     redraw()
@@ -138,7 +151,7 @@ def load_visuals():
         obj = bpy.data.objects.get(name)
         if obj and obj.get('ruster_kind') == 'PREFAB':
             try:
-                scene.attach_visual(obj)
+                scene.attach_visual(obj,force=True)
             except Exception as error:
                 bpy.context.scene.ruster.asset_status = f'Could not load {name}: {error}'
     redraw()
@@ -200,9 +213,18 @@ class RUSTER_OT_welcome(bpy.types.Operator):
         col.separator()
         col.operator('ruster.open', text='Open Map or Project', icon='FILE_FOLDER')
         col.operator('ruster.new', text='New Project', icon='FILE_NEW')
+        col.operator('ruster.new_map',text='New Rust Map',icon='WORLD')
         col.separator()
         col.operator('ruster.setup', text='Rust Installation', icon='PREFERENCES')
         col.label(text='Rust .map   ·   Ruster .ruster')
+        recent=settings.load().get('recent_projects',[])
+        recovery=settings.load().get('last_recovery','')
+        if recovery and Path(recovery).is_file():
+            col.separator()
+            col.operator('ruster.open',text='Recover Autosaved Session',icon='RECOVER_LAST').filepath=recovery
+        for path in recent[:5]:
+            if Path(path).is_file():
+                col.operator('ruster.open',text=Path(path).name,icon='FILE_BLEND').filepath=path
 
     def execute(self, context):
         return {'FINISHED'}
@@ -253,11 +275,53 @@ def open_path(path):
         state.source_map = str(directory / 'source.map') if manifest['mode'] == 'MAP' else ''
         state.busy = _job is not None and _job.poll() is None
         if state.mode == 'MAP':
+            scene.restore_map_tools()
             from . import ui
             ui.map_workspace()
     else:
         raise ValueError('Choose a Rust .map or Ruster .ruster file')
-    settings.save({**settings.load(), 'last_project': str(path)})
+    remember_project(path)
+
+
+def remember_project(path):
+    config=settings.load()
+    path=str(Path(path).resolve())
+    recent=[path]+[p for p in config.get('recent_projects',[]) if p!=path]
+    settings.save({**config,'last_project':path,'recent_projects':recent[:10]})
+
+
+def save_project(path,update_path=True):
+    state=bpy.context.scene.ruster
+    old_path,old_title=state.project_path,state.title
+    try:
+        if update_path:
+            state.project_path=str(Path(path).resolve())
+            state.title=Path(path).stem
+        with tempfile.TemporaryDirectory(prefix='ruster-save-') as temp:
+            blend=Path(temp)/'scene.blend'
+            bpy.ops.file.pack_all()
+            bpy.ops.wm.save_as_mainfile(filepath=str(blend),copy=True,check_existing=False,compress=True)
+            project.save(path,blend,state.mode,state.source_map or None,state.title)
+        if update_path:remember_project(path)
+    except Exception:
+        state.project_path,state.title=old_path,old_title
+        raise
+
+
+def recovery_tick():
+    if bpy.app.background:return None
+    try:
+        if bpy.context.window_manager.is_interface_locked or bpy.context.mode!='OBJECT':return 20.
+        from . import editing
+        if editing.stroke_active:return 20.
+        state=bpy.context.scene.ruster
+        path=settings.user_root()/'recovery'/'last-session.ruster'
+        save_project(path,update_path=False)
+        config=settings.load();config['last_recovery']=str(path);settings.save(config)
+    except Exception:
+        # Recovery must never interrupt active editing; manual saves still report errors.
+        pass
+    return 120.
 
 
 class RUSTER_OT_open(bpy.types.Operator, ImportHelper):
@@ -297,24 +361,13 @@ class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
         return ExportHelper.invoke(self, context, event)
 
     def execute(self, context):
-        state = context.scene.ruster
-        old_path = state.project_path
-        old_title = state.title
         try:
             if Path(self.filepath).suffix.lower() != '.ruster':
                 self.filepath += '.ruster'
-            state.project_path = str(Path(self.filepath).resolve())
-            state.title = Path(self.filepath).stem
-            directory = session_dir()
-            blend = directory / 'scene.blend'
-            # Keep texture/model previews inside the project for offline reopening.
-            bpy.ops.file.pack_all()
-            bpy.ops.wm.save_as_mainfile(filepath=str(blend), copy=True, check_existing=False, compress=True)
-            project.save(self.filepath, blend, state.mode, state.source_map or None, state.title)
+            save_project(self.filepath)
             self.report({'INFO'}, f'Saved {Path(self.filepath).name}')
             return {'FINISHED'}
         except Exception as error:
-            state.project_path, state.title = old_path, old_title
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
 
@@ -332,7 +385,7 @@ class RUSTER_OT_export(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         try:
             scene.export_map(self.filepath)
-            self.report({'INFO'}, 'Exported prefab placements; original terrain and paths preserved')
+            self.report({'INFO'}, 'Exported map terrain, paths and prefab placements')
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -349,7 +402,7 @@ class RUSTER_OT_validate(bpy.types.Operator):
             for error in errors:
                 popup.layout.label(text=error, icon='ERROR')
             if not errors:
-                popup.layout.label(text='Prefab placement data is ready to export', icon='CHECKMARK')
+                popup.layout.label(text='Map data is ready to export', icon='CHECKMARK')
             for note in notes:
                 popup.layout.label(text=note, icon='INFO')
         context.window_manager.popup_menu(draw, title='Map Validation')
@@ -373,6 +426,34 @@ class RUSTER_OT_assets(bpy.types.Operator):
         except Exception as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
+
+
+class RUSTER_OT_cancel_assets(bpy.types.Operator):
+    bl_idname='ruster.cancel_assets'
+    bl_label='Cancel Asset Import'
+    def execute(self,context):
+        global _job_cancelled
+        if _job is not None and _job.poll() is None:
+            _job_cancelled=True;_job.terminate()
+        return {'FINISHED'}
+
+
+class RUSTER_OT_catalog_page(bpy.types.Operator):
+    bl_idname='ruster.catalog_page'
+    bl_label='Change Prefab Page'
+    delta:IntProperty(default=1)
+    def execute(self,context):
+        context.scene.ruster.query_page=max(0,context.scene.ruster.query_page+self.delta)
+        return {'FINISHED'}
+
+
+class RUSTER_FH_project(bpy.types.FileHandler):
+    bl_idname='RUSTER_FH_project'
+    bl_label='Ruster Map or Project'
+    bl_import_operator='ruster.open'
+    bl_file_extensions='.map;.ruster'
+    @classmethod
+    def poll_drop(cls,context):return context.area is not None and context.area.type=='VIEW_3D'
 
 
 class RUSTER_OT_place(bpy.types.Operator):
@@ -410,24 +491,10 @@ class RUSTER_OT_duplicate(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        roots = [o for o in context.selected_objects if o.get('ruster_kind') == 'PREFAB']
-        if not roots:
+        from .placement import duplicate_selected
+        if not duplicate_selected():
             self.report({'WARNING'}, 'Select prefab placements to duplicate')
             return {'CANCELLED'}
-        created = []
-        for root in roots:
-            collection = root.users_collection[0]
-            duplicate = root.copy()
-            duplicate['ruster_visual'] = False
-            collection.objects.link(duplicate)
-            duplicate.location.x += 2
-            scene.attach_visual(duplicate)
-            created.append(duplicate)
-        for obj in context.selected_objects:
-            obj.select_set(False)
-        for obj in created:
-            obj.select_set(True)
-        context.view_layer.objects.active = created[-1]
         return {'FINISHED'}
 
 
@@ -437,11 +504,8 @@ class RUSTER_OT_delete(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        roots = [o for o in context.selected_objects if o.get('ruster_kind') == 'PREFAB']
-        for root in roots:
-            for child in list(root.children_recursive):
-                bpy.data.objects.remove(child, do_unlink=True)
-            bpy.data.objects.remove(root, do_unlink=True)
+        from .placement import delete_selected
+        delete_selected()
         return {'FINISHED'}
 
 
@@ -464,6 +528,8 @@ class RUSTER_OT_report(bpy.types.Operator):
 
 @persistent
 def after_load(_dummy):
+    from . import editing
+    editing.clear_cache()
     if hasattr(bpy.context.scene, 'ruster'):
         bpy.context.scene.ruster.busy = _job is not None and _job.poll() is None
 
@@ -472,6 +538,11 @@ def startup():
     global _pending_project
     if bpy.app.background:
         return None
+    if bpy.context.window is None:
+        windows=list(bpy.context.window_manager.windows)
+        if not windows:return .2
+        with bpy.context.temp_override(window=windows[0]):
+            return startup()
     config = settings.load()
     try:
         settings.validate_install(config.get('rust_install', ''))
@@ -497,11 +568,15 @@ def register():
     classes = [RUSTER_PG_project, RUSTER_OT_setup, RUSTER_OT_welcome, RUSTER_OT_new,
                RUSTER_OT_open, RUSTER_OT_save, RUSTER_OT_export, RUSTER_OT_validate,
                RUSTER_OT_assets, RUSTER_OT_place, RUSTER_OT_duplicate, RUSTER_OT_delete,
-               RUSTER_OT_report]
+               RUSTER_OT_report,RUSTER_OT_cancel_assets,RUSTER_OT_catalog_page,RUSTER_FH_project]
     for cls in classes:
         bpy.utils.register_class(cls)
         _classes.append(cls)
     bpy.types.Scene.ruster = PointerProperty(type=RUSTER_PG_project)
+    from . import editing
+    editing.register()
+    from . import placement
+    placement.register()
     ui.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
@@ -514,13 +589,15 @@ def register():
             _keymaps.append((km,item))
     bpy.context.preferences.view.show_splash = False
     bpy.context.preferences.filepaths.use_scripts_auto_execute = False
+    if not bpy.app.background and not bpy.app.timers.is_registered(recovery_tick):
+        bpy.app.timers.register(recovery_tick,first_interval=120.)
 
 
 def unregister():
     from . import ui
     if _job is not None and _job.poll() is None:
         _job.terminate()
-    for callback in (poll_job, load_visuals, startup):
+    for callback in (poll_job, load_visuals, startup,recovery_tick):
         if bpy.app.timers.is_registered(callback):
             bpy.app.timers.unregister(callback)
     if after_load in bpy.app.handlers.load_post:
@@ -529,6 +606,10 @@ def unregister():
         km.keymap_items.remove(item)
     _keymaps.clear()
     ui.unregister()
+    from . import placement
+    placement.unregister()
+    from . import editing
+    editing.unregister()
     if hasattr(bpy.types.Scene, 'ruster'):
         del bpy.types.Scene.ruster
     for cls in reversed(_classes):

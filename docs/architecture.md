@@ -9,7 +9,11 @@ Blender's runtime; users do not install an add-on manually.
 |---|---|
 | `ruster/app.py` | Operators, startup, project lifecycle, worker management |
 | `ruster/ui.py` | Native UI menus, panels, workspace configuration |
-| `ruster/scene.py` | Terrain/path preview, placement objects, asset attachment, validation and export |
+| `ruster/scene.py` | Scene construction, shared model instances, validation and export |
+| `ruster/editing.py` | Full-resolution terrain state, brushes, paths, height images and generation |
+| `ruster/placement.py` | Groups, prefab assemblies, scatter, snap and replacement |
+| `ruster/core/terrain.py` | Terrain algorithms, layer snapshots, normalization and sampling |
+| `ruster/core/paths.py` | Lossless path records and polyline sampling |
 | `ruster/core/wire.py` | Lossless protobuf fields |
 | `ruster/core/legacy_lz4.py` | Dependency-free legacy LZ4Stream reader/writer |
 | `ruster/core/rust_map.py` | Rust map header, world, layers and prefab records |
@@ -42,10 +46,22 @@ Extracted meshes are cache entries, not the authoritative map model. Unsupported
 assets retain their map IDs and visible placeholders. The conversion approximates
 materials in Blender; it does not implement Rust's rendering engine or gameplay.
 
-## Extension priorities
+## Terrain state and undo
 
-Before broadening the UI, validate against a current real Rust installation and
-server. Next add complete LOD selection/material fidelity, terrain editing with
-full-resolution data, path editing/serialization, terrain layers, and RustEdit
-extension data. Engine source changes should stay small and be isolated from the
-Rust data adapter. The repo pins upstream rather than copying Blender's history.
+A scene's `terrain_state` points at an immutable Text datablock containing a
+compressed snapshot of every changed layer. An in-progress stroke edits a fresh
+NumPy document and updates the viewport; release commits one snapshot. Cancel
+restores the prior document. Native Blender undo/redo restores the ID pointer;
+handlers rebuild previews from it. `.ruster` stores both the scene and source map.
+
+Viewport resolution can be adjusted independently. Alpha changes remove preview
+faces; heightfield ray intersection still allows users to paint holes closed.
+Terrain-height changes update the derived spawn-height layer by the same delta,
+retaining the previous offset from prefab relief. Water has a separate preview.
+
+## Remaining work
+
+See `FEATURES.md` for the maintained parity inventory. Current-game asset and
+server validation remain necessary before claiming full compatibility. IO,
+loot/vending/spawners and special patrol/server extension formats need dedicated,
+verified serializers and runtime tests rather than a decorative configuration UI.
