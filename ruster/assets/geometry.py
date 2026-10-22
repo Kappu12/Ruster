@@ -29,6 +29,24 @@ def info(path):
     return {'vertices':vertices,'uv_count':uv,'faces':faces,'submesh_counts':list(counts)}
 
 
+def bounds(path):
+    """Read only vertex coordinates in small chunks for model metadata queries."""
+    import numpy as np
+    low=high=None
+    with gzip.open(path,'rb') as stream:
+        vertices,_,_,_=_header(stream)
+        for start in range(0,vertices,16384):
+            length=min(16384,vertices-start)*12
+            data=stream.read(length)
+            if len(data)!=length:raise ValueError('Truncated mesh coordinate payload')
+            points=np.frombuffer(data,dtype='<f4').reshape(-1,3)
+            if not np.isfinite(points).all():raise ValueError('Mesh contains nonfinite coordinates')
+            lo,hi=points.min(axis=0),points.max(axis=0)
+            low=lo if low is None else np.minimum(low,lo)
+            high=hi if high is None else np.maximum(high,hi)
+    return None if low is None else (low.tolist(),high.tolist())
+
+
 def write(path,vertices,uv,submeshes):
     import numpy as np
     vertices=np.asarray(vertices,dtype='<f4').reshape(-1,3)

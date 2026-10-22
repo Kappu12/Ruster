@@ -1,6 +1,6 @@
 """Ruster: a Rust-focused Blender application."""
 
-__version__ = "0.8.4"
+__version__ = "0.8.5"
 
 
 def register():

@@ -192,6 +192,7 @@ def import_prefab(path):
         text = bpy.data.texts.new('RustEdit source: ' + path.name)
         text.write(base64.b64encode(data.original).decode('ascii'))
         root['ruster_prefab_source'] = text.name
+        app.request_missing_visuals(created)
         return root
     except Exception:
         for obj in created:

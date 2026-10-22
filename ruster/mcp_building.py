@@ -63,7 +63,7 @@ def details(uid):
         result['next_step']='Call request_prefab_assets, then poll get_editor_status and retry get_prefab_details.';return result
     with gzip.open(path,'rt') as stream:asset=json.load(stream)
     if asset.get('schema')!=1:raise ValueError('Cached model uses an unsupported schema; refresh its assets')
-    transforms=[];points=[]
+    transforms=[];points=[];mesh_boxes={}
     for node in asset['nodes']:
         parent=node['parent']
         transform=Matrix.Identity(4) if parent is None else transforms[parent]@Matrix.LocRotScale(
@@ -72,11 +72,23 @@ def details(uid):
         mesh=asset['meshes'].get(node.get('mesh'))
         if mesh and mesh['vertices']:
             # Enclosing mesh boxes keep metadata small even for large monuments.
-            box=bounds(mesh['vertices'])
+            ident=node['mesh']
+            if ident not in mesh_boxes:
+                if mesh.get('buffer'):
+                    from .assets import geometry
+                    source=(path.parent/mesh['buffer']).resolve()
+                    if not source.is_relative_to(path.parent.resolve()):raise ValueError('Invalid mesh buffer path')
+                    limits=geometry.bounds(source)
+                    box={'min':limits[0],'max':limits[1]} if limits else None
+                else:box=bounds(mesh['vertices'])
+                mesh_boxes[ident]=box
+            box=mesh_boxes[ident]
+            if not box:continue
             from itertools import product
             points.extend(transform@Vector(scene.to_blender(p)) for p in product(*zip(box['min'],box['max'])))
     result.update(cached=True,mesh_count=len(asset['meshes']),material_count=len(asset['materials']),node_count=len(asset['nodes']),
-        triangle_count=sum(len(s) for m in asset['meshes'].values() for s in m['submeshes']),local_bounds=bounds(points),bounds_kind='enclosing mesh boxes',coordinates='Editor local metres; Z up')
+        triangle_count=sum(m['faces'] if m.get('buffer') else sum(len(s) for s in m['submeshes']) for m in asset['meshes'].values()),
+        local_bounds=bounds(points),bounds_kind='enclosing mesh boxes',coordinates='Editor local metres; Z up')
     return result
 
 
@@ -122,8 +134,14 @@ def set_nodes(obj,nodes,bridge):
 
 def dispatch(server,kind,p,bridge):
     if kind=='get_editor_status':
+        from . import __version__
+        from .assets import CONVERTER_VERSION
         state=bpy.context.scene.ruster
-        return {'mode':state.mode,'busy':state.busy or bool(app._visual_queue),'worker_busy':state.busy,'pending_visuals':len(app._visual_queue),
+        roots=scene.prefab_roots()
+        return {'version':__version__,'converter_version':CONVERTER_VERSION,'restart_required':bool(app.updated_version()),
+            'prefab_count':len(roots),'visible_prefabs':sum(bool(obj.get('ruster_visual')) for obj in roots),
+            'unloaded_prefabs':sum(not obj.get('ruster_visual') and not obj.get('ruster_marker') for obj in roots),
+            'mode':state.mode,'busy':state.busy or bool(app._visual_queue),'worker_busy':state.busy,'pending_visuals':len(app._visual_queue),
             'queued_prefabs':len(app._pending_asset_ids),'asset_status':state.asset_status,'asset_progress':state.asset_progress,
             'catalog_ready':(scene.cache_dir()/'catalog.sqlite3').is_file(),'coordinates':{'units':'metres','up_axis':'Z','rotation':'XYZ Euler degrees','map_xy_bounds':[-state.map_size/2,state.map_size/2]},
             'capabilities':['catalog discovery','original asset metadata','batch prefab composition','grouping','placement transforms','terrain sampling and painting','Rust paths','viewport images','assemblies','save/export','undo/redo'],

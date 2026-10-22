@@ -33,3 +33,22 @@ def test_mesh_buffer_rejects_invalid_slot_counts(tmp_path):
     path=tmp_path/'bad.gz'
     path.write_bytes(gzip.compress(geometry.HEADER.pack(b'RMS1',0,0,1,1)+struct.pack('<I',2)))
     with pytest.raises(ValueError,match='triangle counts'):geometry.read(path)
+
+
+def test_bounds_read_only_coordinate_chunks_without_uv_or_triangles(tmp_path):
+    path=tmp_path/'mesh.gz'
+    points=np.tile([[1,2,3],[-4,-5,9]],(20000,1)).astype('<f4')
+    # Deliberately omit the unused UV/index payload: metadata needs only vertices.
+    path.write_bytes(gzip.compress(geometry.HEADER.pack(b'RMS1',len(points),len(points),1,1)+
+                                  struct.pack('<I',1)+points.tobytes()))
+    assert geometry.bounds(path)==([-4,-5,3],[1,2,9])
+    with pytest.raises(ValueError,match='payload'):geometry.read(path)
+
+
+def test_bounds_reject_truncated_nonfinite_and_oversized_coordinates(tmp_path):
+    path=tmp_path/'mesh.gz'
+    for points in (b'',struct.pack('<fff',float('nan'),0,0)):
+        path.write_bytes(gzip.compress(geometry.HEADER.pack(b'RMS1',1,0,0,0)+points))
+        with pytest.raises(ValueError):geometry.bounds(path)
+    path.write_bytes(gzip.compress(geometry.HEADER.pack(b'RMS1',100000000,0,0,0)))
+    with pytest.raises(ValueError,match='oversized'):geometry.bounds(path)

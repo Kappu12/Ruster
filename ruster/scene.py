@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import uuid
 
@@ -136,11 +137,18 @@ def create_paths(world):
 
 
 def name_prefab(obj, source):
+    generated=obj.get('ruster_generated_name')
+    if generated and obj.name!=generated:return  # Keep a placement the user renamed.
+    if not generated and not re.fullmatch(r'Prefab '+str(obj.get('ruster_uid',''))+r'(?:\.\d+)?',obj.name):
+        # Older saved projects do not record generated names. Preserve their
+        # existing labels while recovering/reloading their model instances.
+        return
     base=display_name(source)
     name=base;number=2
     while (existing:=bpy.data.objects.get(name)) is not None and existing!=obj:
         name=f'{base} {number}';number+=1
     obj.name=name
+    obj['ruster_generated_name']=obj.name
 
 
 def root_object(fields, collection):
@@ -227,7 +235,16 @@ def attach_visual(root,force=False):
     if signature.startswith('converter-') and not signature.startswith(CONVERTER_VERSION+':'):
         # Reconvert only a requested model after a material format upgrade.
         # Already linked/packed projects keep their offline models above.
+        from . import app
+        updated=app.updated_version()
+        message=(f'Ruster {updated} is installed; save your project and restart Ruster to load these models.' if updated else
+                 'This model cache was made by a different Ruster version. Save and restart Ruster, then use Assets > Load Selected Models.')
+        root['ruster_model_error']=message;root['ruster_model_error_kind']='CACHE_VERSION'
+        root['ruster_model_status']='Model cache version mismatch'
         return False
+    if root.get('ruster_model_error_kind')=='CACHE_VERSION':
+        del root['ruster_model_error_kind']
+        if 'ruster_model_error' in root:del root['ruster_model_error']
     token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
     # Display-only changes rebuild the small Blender preview from cached data;
     # existing packed originals remain valid for offline projects.

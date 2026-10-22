@@ -78,6 +78,11 @@ their placement transforms. Browser
 redraws reuse their current page. Loading progress and cancellation stay beside
 the search controls. Model completion follows prefab IDs, so renaming or deleting
 a placement while loading cannot lose or redirect its model.
+Saved placeholders recover available cached models one unique model per tick.
+Native imports and replacements request missing models automatically. An app
+update during an open session reports that a restart is needed before launching
+its updated asset worker. MCP status distinguishes converted assets from visible
+placements; bounds queries stream only small vertex chunks from binary caches.
 Opening a prefab remembers the bundle directories and root locations encountered
 for that request. Later requests reuse those small metadata records; a changed
 game installation invalidates them. This never starts a full asset index.

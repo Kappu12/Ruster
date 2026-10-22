@@ -130,10 +130,42 @@ def run():
         (cache/'43.json.gz').write_bytes(gzip.compress(json.dumps(asset).encode()))
         (cache/'43.stamp').write_text('converter-5:old-material-format')
         assert not scene.attach_visual(roots[1]),'An old material conversion skipped its on-demand upgrade'
+        assert roots[1]['ruster_model_error_kind']=='CACHE_VERSION'
+        assert 'restart' in roots[1]['ruster_model_error'].lower()
         (cache/'43.stamp').unlink()
         assert scene.attach_visual(roots[1])
+        assert not roots[1].get('ruster_model_error'),'A repaired model retained its cache mismatch error'
         helpers=[o for o in roots[1].instance_collection.all_objects if o.type=='EMPTY']
         assert helpers and all(o.empty_display_size<=.0001 for o in helpers),'Source transform axes leaked into the viewport'
+        # Reopening a saved stalled project recovers repeated cached placements
+        # without extracting game assets or changing the placement transforms.
+        copies=[scene.root_object([wire.encode(2,0,43)],bpy.context.scene.collection) for _ in range(3)]
+        for i,obj in enumerate(copies):obj.name='Unloaded placement '+str(i);obj.location=(i*3,2,4)
+        bpy.context.view_layer.update()
+        before={obj:(obj.name,obj.matrix_world.copy()) for obj in copies}
+        app._job_ids.clear();app._visual_queue.clear()
+        native_request=app.request_assets;requests=[]
+        app.request_assets=lambda ids:requests.append(set(ids)) or True
+        try:
+            app.after_load(None)
+            assert app._visual_queue.count(43)==1 and not requests
+            while app._visual_queue:app.load_visuals()
+            assert all(obj.get('ruster_visual') for obj in copies)
+            assert len({obj.instance_collection for obj in copies})==1
+            assert all(obj.name==before[obj][0] and obj.matrix_world==before[obj][1] for obj in copies)
+            pending=scene.root_object([wire.encode(2,0,99)],bpy.context.scene.collection)
+            app.request_missing_visuals([*copies,pending,pending,sound])
+            assert requests==[{99}],'Missing imports were not deduplicated or helpers requested a mesh'
+        finally:app.request_assets=native_request
+        # An external app update must be reported before an incompatible worker starts.
+        version=ruster.__version__
+        try:
+            ruster.__version__='0.0.0-old-session'
+            assert app.updated_version()==version
+            try:app.start_job('extract',[43])
+            except ValueError as error:assert 'restart' in str(error).lower()
+            else:raise AssertionError('An old session launched the new on-disk worker')
+        finally:ruster.__version__=version
         ruster.unregister()
     print('RUSTER_CATALOG_ON_DEMAND_OK',flush=True)
 

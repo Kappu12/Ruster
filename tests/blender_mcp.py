@@ -40,6 +40,14 @@ def run():
         assert call('list_prefab_categories')['total_prefabs']==1
         details=call('get_prefab_details',uid=123456)
         assert details['cached'] and details['local_bounds']['dimensions']==[2,1,2] and details['triangle_count']==1
+        # The current converter stores mesh counts in JSON and coordinates in RMS1.
+        from ruster.assets import geometry
+        spec=asset['meshes']['mesh'];buffer=cache/'meshes/triangle.mesh.gz'
+        asset['meshes']['mesh']=geometry.write(buffer,spec['vertices'],[],spec['submeshes'])
+        asset['meshes']['mesh']['buffer']='meshes/triangle.mesh.gz'
+        (cache/'123456.json.gz').write_bytes(gzip.compress(json.dumps(asset).encode()))
+        binary_details=call('get_prefab_details',uid=123456)
+        assert binary_details['local_bounds']==details['local_bounds'] and binary_details['triangle_count']==1
         assert abs(call('sample_surface',positions=[[0,0]])['samples'][0]['position'][2]-20)<.1
         placed=call('place_prefab',uid=123456,position=[1,2,25],rotation_degrees=[0,0,45],scale=[2,2,2]);name=placed['name']
         assert placed['geometry_read_only'] and abs(placed['rotation_degrees'][2]-45)<.001

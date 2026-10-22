@@ -152,6 +152,8 @@ class RUSTER_OT_assembly_import(bpy.types.Operator,ImportHelper):
                 obj=scene.root_object(update_transform(fields,position,rotation,scale),collection)
                 scene.attach_visual(obj);created.append(obj)
             group(created,title)
+            from . import app
+            app.request_missing_visuals(created)
             return {'FINISHED'}
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 
@@ -199,6 +201,8 @@ class RUSTER_OT_scatter(bpy.types.Operator):
                 fields=update_transform(source,position,rotation_,[v*factor for v in scale])
                 obj=scene.root_object(fields,collection);scene.attach_visual(obj);created.append(obj)
             select(created)
+            from . import app
+            app.request_missing_visuals(created)
             self.report({'INFO'},f'Placed {len(created)} prefabs within spacing and slope limits')
             return {'FINISHED'}
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
@@ -228,14 +232,19 @@ class RUSTER_OT_replace(bpy.types.Operator):
             uid=int(self.uid)
             if not 0<=uid<=0xFFFFFFFF or not find(scene.cache_dir(),uid):
                 raise ValueError('Replacement prefab ID is not in the local catalog')
-            for obj in selected_prefabs():
+            objects=selected_prefabs()
+            for obj in objects:
                 fields=wire.parse(base64.b64decode(obj['ruster_record']))
                 fields=wire.replace(fields,2,0,uid)
                 obj['ruster_record']=base64.b64encode(wire.serialize(fields)).decode()
                 obj['ruster_uid']=str(uid)
                 obj.instance_collection=None;obj.instance_type='NONE'
                 obj['ruster_visual']=False
+                for key in ('ruster_marker','ruster_helper_bounds','ruster_model_error','ruster_model_error_kind'):
+                    if key in obj:del obj[key]
                 scene.attach_visual(obj)
+            from . import app
+            app.request_missing_visuals(objects)
             return {'FINISHED'}
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 

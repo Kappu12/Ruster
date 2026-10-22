@@ -84,10 +84,22 @@ def worker_python():
     return str(sorted(candidates)[0].resolve())
 
 
+def updated_version():
+    """External app files may change while this editor still runs old modules."""
+    import re
+    from . import __version__
+    try:
+        match=re.search(r'__version__\s*=\s*[\'"]([^\'"]+)',Path(__file__).with_name('__init__.py').read_text())
+    except OSError:return None
+    return match[1] if match and match[1]!=__version__ else None
+
+
 def start_job(action, ids=None):
     global _job, _job_log, _job_action, _job_cancelled, _job_ids
     if _job is not None:
         raise ValueError('An asset operation is already running')
+    if version:=updated_version():
+        raise ValueError(f'Ruster {version} was installed while this editor was open. Save your project and restart Ruster before loading models.')
     config = settings.load()
     root = settings.validate_install(config.get('rust_install', ''))
     cache = scene.cache_dir()
@@ -132,6 +144,7 @@ def request_assets(ids):
         if int(obj['ruster_uid']) in ids:
             obj['ruster_model_status']='Loading model and materials…'
             if 'ruster_model_error' in obj:del obj['ruster_model_error']
+            if 'ruster_model_error_kind' in obj:del obj['ruster_model_error_kind']
     if _job is not None:
         if not bpy.app.timers.is_registered(poll_job):
             bpy.app.timers.register(poll_job,first_interval=.2,persistent=True)
@@ -236,7 +249,8 @@ def load_visuals():
                     obj['ruster_model_status']='Model loaded'
                     frame_first_model(obj)
                 elif not loaded:
-                    obj['ruster_model_status']='Model unavailable — retry loading'
+                    if not obj.get('ruster_model_error'):obj['ruster_model_status']='Model unavailable — retry loading'
+                    bpy.context.scene.ruster.asset_status=obj.get('ruster_model_error',obj['ruster_model_status'])
             except Exception as error:
                 obj['ruster_model_status']='Model loading failed'
                 obj['ruster_model_error']=str(error)
@@ -244,6 +258,25 @@ def load_visuals():
     bpy.context.scene.ruster.busy=bool(_visual_queue or _pending_asset_ids or (_job is not None and _job.poll() is None))
     redraw()
     return .05 if _visual_queue else None
+
+
+def restore_cached_visuals():
+    """Recover saved placeholders one unique cached model per tick, without extraction."""
+    waiting=set(_visual_queue)|_pending_asset_ids|_job_ids
+    cache=scene.cache_dir()/'prefabs'
+    ids={int(obj['ruster_uid']) for obj in scene.prefab_roots()
+         if not obj.get('ruster_visual') and not obj.get('ruster_marker')}
+    ready=sorted(uid for uid in ids-waiting if (cache/f'{uid}.json.gz').is_file())
+    if not ready:return
+    _visual_queue.extend(ready)
+    bpy.context.scene.ruster.busy=True
+    if not bpy.app.timers.is_registered(load_visuals):
+        bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
+
+
+def request_missing_visuals(objects):
+    ids={int(obj['ruster_uid']) for obj in objects if not obj.get('ruster_visual') and not obj.get('ruster_marker')}
+    if ids:request_assets(ids)
 
 
 def frame_first_model(obj):
@@ -673,6 +706,7 @@ def after_load(_dummy):
             bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
         from . import mcp_bridge
         mcp_bridge.sync_state()
+        restore_cached_visuals()
 
 
 def startup():
