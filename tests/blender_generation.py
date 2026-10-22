@@ -20,7 +20,8 @@ def run():
         binary=root/('RustDedicated.exe' if sys.platform=='win32' else 'RustDedicated');binary.touch();binary.chmod(0o700)
         prefs.dedicated=str(binary)
         assert bpy.ops.ruster.generator_install()=={'FINISHED'}
-        assert settings.load()['rust_dedicated']==str(binary)
+        # Windows may canonicalize RUNNER~1 to runneradmin during validation.
+        assert Path(settings.load()['rust_dedicated']).resolve()==binary.resolve()
         source=root/'generated.map';source.write_bytes(sample_world().write())
         original=bpy.context.scene;names=set(bpy.data.objects)
         class FakeJob:
