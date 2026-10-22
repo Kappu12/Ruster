@@ -18,6 +18,22 @@ in a GPL-compliant manner. An upstream URL alone is not a substitute for complyi
 with source-distribution requirements. This repository and its private build
 artifacts are a development workflow, not a public binary/source release process.
 
+## Community Blender MCP
+
+Ruster adapts selected bridge/inspection methods from `addon.py` and the
+`BlenderConnection` class from `src/blender_mcp/server.py` of
+https://github.com/ahujasid/mcp-for-blender at commit
+`5a3618fccb2d982d0dd61e7a1879912c3100073b` (MIT, Copyright 2025 Siddharth Ahuja).
+The retained license is `ruster/vendor/BLENDER_MCP_LICENSE`; the pinned origin and
+edits are recorded in `ruster/vendor/upstream.json`. These files remain MIT code
+within the GPL-compatible application. Ruster's command policy, settings and
+MCP tool registration are its own implementation. Upstream telemetry, arbitrary
+code execution, external asset services and addon installers are not included.
+
+The adapter uses the official Python MCP SDK, pinned to `mcp==1.30.0` (MIT).
+Its distribution metadata and dependency licenses remain in `python_modules`.
+Source: https://github.com/modelcontextprotocol/python-sdk
+
 ## UnityPy and dependencies
 
 Asset conversion uses UnityPy 1.25.4 (MIT), installed from PyPI, with its dependency

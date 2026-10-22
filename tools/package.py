@@ -62,7 +62,7 @@ def main():
             stream.extractall(extract, filter='data')
     engine = next(p for p in extract.iterdir() if p.is_dir())
     shutil.move(str(engine), output/'runtime')
-    for name in ('ruster','bootstrap.py','launch.py','Ruster.cmd','Ruster.sh','LICENSE',
+    for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Ruster.cmd','Ruster.sh','LICENSE',
                  'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name
         if source.is_dir():
@@ -70,12 +70,16 @@ def main():
         else:
             shutil.copy2(source, destination)
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--only-binary=:all:', '--no-binary=tpk_ar',
-                    '--target', str(output/'python_modules'), '-r', str(ROOT/'requirements-assets.txt')], check=True)
+                    '--target', str(output/'python_modules'), '-r', str(ROOT/'requirements-assets.txt'),
+                    '-r',str(ROOT/'requirements-mcp.txt')], check=True)
     executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
-    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py','blender_protection.py','blender_ui.py'):
+    for test in ('blender_smoke.py','blender_editing.py','blender_placement.py','blender_protection.py','blender_ui.py','blender_mcp.py'):
         subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec',
                         '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
+    python=next(p for p in sorted((output/'runtime').glob('*/python/bin/python*'))
+        if p.is_file() and '-config' not in p.name and (system!='Windows' or p.name=='python.exe'))
+    subprocess.run([str(python),str(ROOT/'tests/mcp_stdio_smoke.py'),str(output)],check=True)
     if system == 'Windows':
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller==6.16.0'], check=True)
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',

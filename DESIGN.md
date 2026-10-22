@@ -22,8 +22,11 @@ Dark and light themes must both work, and New Project must preserve preferences.
 
 ## Entry and modes
 
-First launch asks for the Rust game installation folder. Store this per user,
-outside project files. Indexing is visible and runs outside the UI process.
+First launch tries the saved valid Rust folder, then standard Steam paths,
+Windows registry, secondary libraries and Rust's app manifest. Ask for a folder
+only if discovery finds no valid installation. Never recursively scan drives or
+modify Steam files. Store the result per user, outside project files. Indexing
+is visible and runs outside the UI process.
 
 The start screen has two primary actions: Open Map or Project, and New Project.
 Opening `.map` selects Rust map mode; opening `.ruster` restores its saved mode.
@@ -63,6 +66,18 @@ editing one topology bit must preserve all the others, including unknown bits.
 Validate and compute the complete result before committing an undoable terrain
 snapshot. No-op imports must not create redundant snapshots. Never touch prefab
 geometry or unrelated layers, and never export a mask at reduced preview detail.
+
+## MCP connection
+
+MCP settings use the same native Blender controls and icon vocabulary as the
+rest of the app. The bridge is off by default, bound only to loopback, and uses
+per-user authentication. Its enablement, port and token belong to local settings,
+never project data. Offer a copied client configuration pointing at the bundled
+Python/stdio adapter. Scene observation and typed Rust edits run on Blender's
+main thread through the community bridge queue. Stop closes active connections
+and drops queued work. No arbitrary code execution, prefab mesh operations,
+third-party generation services or telemetry are exposed. Block mutations during
+strokes/path node edits and preserve native undo, original models and source maps.
 
 ## Saving
 

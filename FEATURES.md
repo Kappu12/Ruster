@@ -10,7 +10,8 @@ still need validation against an installed game and a live test server.
 | Area | Ruster support |
 |---|---|
 | Application | Separate Windows/Linux app package; isolated Blender configuration; native Blender styling and bundled icon pack; shared action labels, collapsible sections, distinct terrain/prefab toolbar icons; preserve dark/light theme on New Project |
-| Startup | First-launch game location, open `.map` / `.ruster`, normal Blender projects, new Rust maps, recent files |
+| Startup | Automatic validated Rust discovery from standard Steam paths, Windows registry, secondary libraries and manifests; manual fallback; open `.map` / `.ruster`, normal Blender projects, new Rust maps, recent files |
+| MCP | Optional built-in community Blender MCP adaptation; native settings toggle, bundled stdio client adapter, 14 typed inspection/prefab/transform/terrain/save/export/undo tools, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
 | Projects | Self-contained `.ruster`, atomic saves, source map retention, packed model previews, integrity checks |
 | Terrain | Full-resolution edits; independent adjustable viewport detail; height and slope masks |
 | Height tools | Raise, lower, flatten, smooth, erode, sharpen, terrace, noise, pinch, twist, slope plane |

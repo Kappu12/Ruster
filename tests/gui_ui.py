@@ -13,7 +13,7 @@ import bpy
 
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import ruster
-from ruster import app,ui,editing,placement,protection,painting,layers
+from ruster import app,ui,editing,placement,protection,painting,layers,mcp_bridge
 from ruster.assets import catalog
 from tests.fixtures import sample_world
 
@@ -68,6 +68,7 @@ class RUSTER_PT_ui_contract(bpy.types.Panel):
 dialogs=[app.RUSTER_OT_setup,app.RUSTER_OT_welcome,editing.RUSTER_OT_new_map,
          editing.RUSTER_OT_generate,placement.RUSTER_OT_surface_snap,
          placement.RUSTER_OT_scatter,placement.RUSTER_OT_replace]
+dialogs.append(mcp_bridge.RUSTER_OT_preferences)
 
 
 def mask_dialog(layer):

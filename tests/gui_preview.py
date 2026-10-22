@@ -34,6 +34,7 @@ def prepare():
         with bpy.context.temp_override(area=area,region=region):
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=1)
             if mode=='setup':bpy.ops.ruster.setup('INVOKE_DEFAULT')
+            elif mode=='settings':bpy.ops.ruster.preferences('INVOKE_DEFAULT')
             else:
                 next(r for r in area.regions if r.type=='UI').active_panel_category='Ruster'
                 area.tag_redraw()

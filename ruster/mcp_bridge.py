@@ -1,0 +1,306 @@
+"""Optional community Blender MCP bridge with typed, placement-only Rust edits."""
+import hmac
+import json
+import math
+from pathlib import Path
+import bpy
+from bpy.props import BoolProperty,IntProperty,StringProperty,PointerProperty
+from mathutils import Matrix,Euler,Vector
+from .vendor.blender_mcp_bridge import BlenderMCPServer
+from .core import settings,mcp_config,wire
+from . import app,scene,editing,painting,placement
+from .assets import catalog
+from .ui_style import ICONS as I,action,properties,wrapped
+
+_server=None
+_loading=False
+_classes=[]
+
+
+def vector(values,label,nonzero=False):
+    if not isinstance(values,(list,tuple)) or len(values)!=3 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) for v in values):
+        raise ValueError(label+' must contain three finite numbers')
+    if nonzero and any(abs(v)<1e-7 for v in values):raise ValueError('Scale must be nonzero')
+    return tuple(values)
+
+
+def map_object(name):
+    obj=bpy.context.scene.objects.get(name)
+    if not obj or obj.library or obj.get('ruster_kind') not in {'PREFAB','GROUP','PATH'}:
+        raise ValueError('Choose an editable Ruster placement, group or path; original models are read-only')
+    return obj
+
+
+def require_map():
+    if bpy.context.scene.ruster.mode!='MAP':raise ValueError('Open or create a Rust map first')
+
+
+def require_idle():
+    if bpy.context.window_manager.is_interface_locked or editing.stroke_active or painting.stroke_active or bpy.context.mode!='OBJECT':
+        raise ValueError('Finish the active brush, path edit or operation before MCP changes the map')
+
+
+def object_info(server,name):
+    obj=bpy.context.scene.objects.get(name)
+    if not obj:raise ValueError('Object is not in the current scene')
+    result=server.get_object_info(name)
+    location,rotation,scale=obj.matrix_world.decompose()
+    result.update(kind=obj.get('ruster_kind','BLENDER'),prefab_id=obj.get('ruster_uid'),
+        position=list(location),rotation_degrees=[math.degrees(v) for v in rotation.to_euler('XYZ')],
+        world_scale=list(scale),transform_space='WORLD',rotation_order='XYZ',
+        editable_placement=obj.get('ruster_kind') in {'PREFAB','GROUP','PATH'},geometry_read_only=obj.get('ruster_kind')=='PREFAB')
+    return result
+
+
+def prefab_search(query='',category='',limit=20,offset=0):
+    if not isinstance(query,str) or not isinstance(category,str):raise ValueError('Search and category must be strings')
+    if type(limit)!=int or type(offset)!=int or not 1<=limit<=100 or offset<0:raise ValueError('Use a limit of 1–100 and a nonnegative offset')
+    return {'prefabs':[{'id':uid,'path':path,'available':bool(available)} for uid,path,available in
+        catalog.search(scene.cache_dir(),query,limit=limit,offset=offset,category=category)],'offset':offset,'limit':limit}
+
+
+def set_transform(obj,position=None,rotation_degrees=None,scale=None):
+    bpy.context.view_layer.update()
+    location,rotation,old_scale=obj.matrix_world.decompose()
+    if position is not None:location=Vector(vector(position,'Position'))
+    if rotation_degrees is not None:rotation=Euler(tuple(math.radians(v) for v in vector(rotation_degrees,'Rotation')),'XYZ').to_quaternion()
+    if scale is not None:old_scale=Vector(vector(scale,'Scale',True))
+    original=obj.matrix_basis.copy()
+    desired=Matrix.LocRotScale(location,rotation,old_scale)
+    if not all(math.isfinite(v) for row in desired for v in row):raise ValueError('Transform exceeds Blender number range')
+    obj.matrix_world=desired
+    bpy.context.view_layer.update()
+    # Nonuniform group scale plus child rotation cannot be exported as Rust TRS.
+    affected=[obj]+list(obj.children_recursive)
+    try:
+        if max(abs(desired[i][j]-obj.matrix_world[i][j]) for i in range(4) for j in range(4))>1e-4:
+            raise ValueError('Parent transforms cannot represent this world transform without shear')
+        for item in affected:
+            if item.get('ruster_kind') not in {'PREFAB','GROUP','PATH'}:continue
+            if not all(math.isfinite(v) for row in item.matrix_world for v in row):raise ValueError('Transform exceeds Blender number range')
+            loc,rot,scl=item.matrix_world.decompose();rebuilt=Matrix.LocRotScale(loc,rot,scl)
+            if any(abs(v)<1e-7 for v in scl) or max(abs(rebuilt[i][j]-item.matrix_world[i][j]) for i in range(4) for j in range(4))>1e-4:
+                raise ValueError('This transform introduces shear or zero scale; use uniform group scale')
+    except Exception:
+        obj.matrix_basis=original;bpy.context.view_layer.update();raise
+
+
+def place_prefab(uid,position,rotation_degrees=None,scale=None):
+    if type(uid)!=int or not 0<=uid<=0xFFFFFFFF:raise ValueError('Invalid Rust prefab ID')
+    found=catalog.find(scene.cache_dir(),uid)
+    if not found or not found[1]:raise ValueError('Prefab is unavailable in the local Rust catalog')
+    position=vector(position,'Position')
+    if rotation_degrees is not None:vector(rotation_degrees,'Rotation')
+    if scale is not None:vector(scale,'Scale',True)
+    fields=[wire.encode(1,2,b'Decor'),wire.encode(2,0,uid)]
+    fields=wire.replace(fields,3,2,wire.set_vector(None,scene.to_unity(position)))
+    fields=wire.replace(fields,5,2,wire.set_vector(None,(1.,1.,1.)))
+    obj=scene.root_object(fields,bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs'))
+    try:
+        scene.attach_visual(obj);set_transform(obj,position,rotation_degrees,scale)
+    except Exception:
+        for child in list(obj.children_recursive):bpy.data.objects.remove(child,do_unlink=True)
+        bpy.data.objects.remove(obj,do_unlink=True);raise
+    placement.select([obj])
+    if not obj.get('ruster_visual'):app.request_assets([uid])
+    return obj
+
+
+def file_target(path,extension,overwrite):
+    if not isinstance(path,str) or not path:raise ValueError('Provide a destination path')
+    target=Path(path).expanduser()
+    if not target.is_absolute():raise ValueError('Provide an absolute destination path')
+    target=target.resolve()
+    if target.suffix.lower()!=extension:raise ValueError('Choose a '+extension+' destination')
+    if target.exists() and not overwrite:raise ValueError('Destination exists; choose a new name or explicitly enable overwrite')
+    return target
+
+
+class RusterMCPServer(BlenderMCPServer):
+    def __init__(self,port,token):
+        super().__init__(host='127.0.0.1',port=port)
+        self.token=token
+
+    def execute_command(self,command):
+        try:
+            if not isinstance(command,dict) or not isinstance(command.get('token'),str) or not hmac.compare_digest(command['token'],self.token):
+                raise ValueError('MCP authentication failed; use the Ruster MCP client configuration')
+            params=command.get('params',{})
+            if not isinstance(params,dict):raise ValueError('Command parameters must be an object')
+            windows=list(bpy.context.window_manager.windows)
+            if not windows:raise ValueError('Ruster has no active window')
+            window=next((w for w in windows if any(a.type=='VIEW_3D' for a in w.screen.areas)),windows[0])
+            with bpy.context.temp_override(window=window):
+                result=self.dispatch(command.get('type'),params)
+            return {'status':'success','result':result}
+        except Exception as error:return {'status':'error','message':str(error)}
+
+    def dispatch(self,kind,params):
+        if kind=='ping':return {'pong':True,'application':'Ruster'}
+        if kind=='get_scene_info':
+            result=self.get_scene_info();state=bpy.context.scene.ruster
+            result.update(mode=state.mode,title=state.title,map_size=state.map_size,
+                prefab_count=len(scene.prefab_roots()),coordinates='Editor world metres; Z is height, rotations XYZ degrees')
+            return result
+        if kind=='get_object_info':return object_info(self,**params)
+        if kind=='search_prefabs':return prefab_search(**params)
+        if kind=='list_map_objects':
+            limit=params.get('limit',100);offset=params.get('offset',0)
+            if type(limit)!=int or type(offset)!=int or not 1<=limit<=200 or offset<0:raise ValueError('Invalid object page')
+            objects=[o for o in bpy.context.scene.objects if o.get('ruster_kind') in {'PREFAB','GROUP','PATH'}]
+            return {'total':len(objects),'objects':[object_info(self,o.name) for o in objects[offset:offset+limit]]}
+        if kind=='validate_map':
+            errors,notes=scene.validate();return {'valid':not errors,'errors':errors,'notes':notes}
+        # There is deliberately no generic eval/exec or upstream asset downloader.
+        if kind not in {'place_prefab','transform_object','duplicate_object','delete_object','paint_terrain','save_project','export_map','undo','redo'}:
+            raise ValueError('Unsupported Ruster MCP command; arbitrary Python and prefab mesh editing are not exposed')
+        require_idle()
+        if kind in {'save_project','export_map'}:
+            target=file_target(params.get('path'),'.ruster' if kind=='save_project' else '.map',params.get('overwrite') is True)
+            if kind=='save_project':app.save_project(target)
+            else:scene.export_map(target)
+            return {'path':str(target)}
+        if kind in {'undo','redo'}:
+            result=getattr(bpy.ops.ed,kind)()
+            if result!={'FINISHED'}:raise ValueError('Nothing to '+kind)
+            return {'finished':True}
+        require_map()
+        if kind=='place_prefab':obj=place_prefab(**params);result=object_info(self,obj.name)
+        elif kind=='transform_object':
+            values=dict(params);obj=map_object(values.pop('name'))
+            set_transform(obj,**values);result=object_info(self,obj.name)
+        elif kind in {'duplicate_object','delete_object'}:
+            obj=map_object(params['name']);placement.select([obj])
+            if kind=='duplicate_object':result={'objects':[object_info(self,o.name) for o in placement.duplicate_selected()]}
+            else:placement.delete_selected();result={'deleted':params['name']}
+        elif kind=='paint_terrain':
+            document=editing.terrain(fresh=True)
+            values=dict(params);values['z']=values.pop('y')
+            if values.get('layer') not in {'terrain','water','splat','biome','topology','alpha'}:raise ValueError('Invalid terrain layer')
+            if values.get('tool') not in {'RAISE','LOWER','FLATTEN','SMOOTH','ERODE','SHARPEN','TERRACE','NOISE','PAINT'}:raise ValueError('Unsupported terrain tool')
+            for key in ('x','z','radius','strength','height'):
+                if key in values and (isinstance(values[key],bool) or not isinstance(values[key],(int,float)) or not math.isfinite(values[key])):raise ValueError('Brush values must be finite numbers')
+            if not 0<=values.get('strength',.3)<=1:raise ValueError('Strength must be between 0 and 1')
+            if values['layer'] not in {'terrain','water'} and values['tool']!='PAINT':raise ValueError('Use PAINT for texture, biome, topology and terrain-hole layers')
+            if type(values.get('channel',0))!=int:raise ValueError('Channel must be an integer')
+            if document.brush(**values):editing.commit(document)
+            result={'modified_layers':sorted(document.modified_layers)}
+        if bpy.context.preferences.edit.use_global_undo:bpy.ops.ed.undo_push(message='MCP: '+kind.replace('_',' ').title())
+        app.redraw()
+        return result
+
+
+def stop():
+    global _server
+    if _server:_server.stop();_server=None
+
+
+def start(port):
+    global _server
+    if _server and _server.running:return
+    candidate=RusterMCPServer(port,mcp_config.token());candidate.start()
+    if not candidate.running:raise ValueError('Could not start MCP. The selected local port may already be in use.')
+    _server=candidate
+
+
+def running():return bool(_server and _server.running)
+
+
+def update_enabled(state,context):
+    if _loading:return
+    config=settings.load();settings.save({**config,'mcp_enabled':bool(state.enabled),'mcp_port':state.port})
+    try:
+        if state.enabled:start(state.port)
+        else:stop()
+        state.status='Running on 127.0.0.1:'+str(state.port) if running() else 'Disabled'
+    except Exception as error:state.status=str(error)
+
+
+def update_port(state,context):
+    if _loading:return
+    if running():
+        sync_state();return  # Stop before changing the listener address.
+    config=settings.load();settings.save({**config,'mcp_port':state.port})
+    if state.enabled:update_enabled(state,context)
+
+
+class RUSTER_PG_mcp(bpy.types.PropertyGroup):
+    enabled:BoolProperty(name='Enable MCP',description='Allow local MCP clients to inspect Ruster and edit map placements and terrain',default=False,options={'SKIP_SAVE'},update=update_enabled)
+    port:IntProperty(name='Local Port',default=mcp_config.DEFAULT_PORT,min=1024,max=65535,options={'SKIP_SAVE'},update=update_port)
+    status:StringProperty(default='Disabled',options={'SKIP_SAVE'})
+
+
+def sync_state():
+    global _loading
+    if not hasattr(bpy.context.window_manager,'ruster_mcp'):return
+    _loading=True
+    try:
+        config=settings.load();state=bpy.context.window_manager.ruster_mcp
+        state.enabled=mcp_config.enabled(config);state.port=mcp_config.port(config)
+        state.status='Running on 127.0.0.1:'+str(_server.port) if running() else ('Enabled; waiting to start' if state.enabled else 'Disabled')
+    finally:_loading=False
+
+
+def startup():
+    sync_state()
+    state=bpy.context.window_manager.ruster_mcp
+    if state.enabled:update_enabled(state,bpy.context)
+    return None
+
+
+def client_config():
+    root=Path(__file__).resolve().parent.parent
+    entry={'command':app.worker_python(),'args':[str(root/'mcp_server.py')]}
+    if 'RUSTER_USER_DIR' in __import__('os').environ:entry['env']={'RUSTER_USER_DIR':str(settings.user_root())}
+    return {'mcpServers':{'ruster':entry}}
+
+
+class RUSTER_OT_mcp_config(bpy.types.Operator):
+    bl_idname='ruster.mcp_config'
+    bl_label='Copy MCP Client Configuration'
+    def execute(self,context):
+        try:context.window_manager.clipboard=json.dumps(client_config(),indent=2)
+        except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
+        self.report({'INFO'},'MCP client configuration copied');return {'FINISHED'}
+
+
+class RUSTER_OT_mcp_retry(bpy.types.Operator):
+    bl_idname='ruster.mcp_retry'
+    bl_label='Retry MCP Connection'
+    def execute(self,context):update_enabled(context.window_manager.ruster_mcp,context);return {'FINISHED'}
+
+
+class RUSTER_OT_preferences(bpy.types.Operator):
+    bl_idname='ruster.preferences'
+    bl_label='Ruster Settings'
+    def invoke(self,context,event):return context.window_manager.invoke_popup(self,width=520)
+    def execute(self,context):return {'FINISHED'}
+    def draw(self,context):
+        layout=self.layout
+        layout.label(text='Ruster Settings',icon=I['settings'])
+        action(layout,'ruster.setup')
+        layout.separator()
+        box=layout.box();state=context.window_manager.ruster_mcp
+        box.label(text='MCP · AI Editor Connection',icon=I['settings'])
+        properties(box).prop(state,'enabled')
+        row=box.row();row.enabled=not running();row.prop(state,'port')
+        wrapped(box,context,state.status,icon='validate' if running() else ('info' if not state.enabled else 'error'),width=500)
+        if state.enabled and not running():action(box,'ruster.mcp_retry')
+        action(box,'ruster.mcp_config')
+        wrapped(box,context,'Connect an MCP client using the copied configuration. Keep Ruster open while connected.',width=500)
+        wrapped(box,context,'Uses the community Blender MCP bridge with Rust placement and terrain tools. Prefab geometry stays read-only.',icon='locked',width=500)
+
+
+def register():
+    for cls in (RUSTER_PG_mcp,RUSTER_OT_mcp_config,RUSTER_OT_mcp_retry,RUSTER_OT_preferences):bpy.utils.register_class(cls);_classes.append(cls)
+    bpy.types.WindowManager.ruster_mcp=PointerProperty(type=RUSTER_PG_mcp)
+    sync_state()
+    if not bpy.app.background:bpy.app.timers.register(startup,first_interval=1.,persistent=True)
+
+
+def unregister():
+    if bpy.app.timers.is_registered(startup):bpy.app.timers.unregister(startup)
+    stop()
+    del bpy.types.WindowManager.ruster_mcp
+    for cls in reversed(_classes):bpy.utils.unregister_class(cls)
+    _classes.clear()

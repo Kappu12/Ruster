@@ -38,6 +38,9 @@ ACTIONS={
     'ruster.save':('Save Project','save'),
     'ruster.export_map':('Export Rust Map…','export'),
     'ruster.setup':('Rust Installation…','settings'),
+    'ruster.preferences':('Ruster Settings…','settings'),
+    'ruster.mcp_config':('Copy MCP Client Configuration','duplicate'),
+    'ruster.mcp_retry':('Retry MCP Connection','refresh'),
     'wm.quit_blender':('Quit Ruster','quit'),
     'ed.undo':('Undo','undo'),'ed.redo':('Redo','redo'),
     'ruster.duplicate':('Duplicate Prefabs','duplicate'),
@@ -93,12 +96,13 @@ def section(layout,identifier,title,icon,*,closed=True):
     return body
 
 
-def wrapped(layout,context,text,*,icon=None):
+def wrapped(layout,context,text,*,icon=None,width=None):
     """Wrap full-width hints using region width and the user's UI scale."""
     region=getattr(context,'region',None)
     scale=context.preferences.system.ui_scale
-    width=max(12,min(64,int((getattr(region,'width',320)-48*scale)/(7*max(scale,.5)))))
-    lines=textwrap.wrap(str(text),width=width,break_long_words=True,break_on_hyphens=False) or ['']
+    available=width*scale if width is not None else getattr(region,'width',320)
+    columns=max(12,min(64,int((available-48*scale)/(7*max(scale,.5)))))
+    lines=textwrap.wrap(str(text),width=columns,break_long_words=True,break_on_hyphens=False) or ['']
     for index,line in enumerate(lines):
         layout.label(text=line,icon=ICONS[icon] if index==0 and icon else ICONS['blank' if icon else 'none'])
 

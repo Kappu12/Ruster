@@ -35,6 +35,7 @@ class RUSTER_MT_file(bpy.types.Menu):
         if is_map(context):action(layout,'ruster.export_map')
         layout.separator()
         action(layout,'ruster.setup')
+        action(layout,'ruster.preferences')
         layout.separator()
         action(layout,'wm.quit_blender')
 

@@ -198,13 +198,18 @@ class RUSTER_OT_setup(bpy.types.Operator):
     directory: StringProperty(name='Rust installation', subtype='DIR_PATH')
 
     def invoke(self, context, event):
-        self.directory = settings.load().get('rust_install', '')
+        config=settings.load()
+        self.directory=config.get('rust_install','')
+        try:settings.validate_install(self.directory)
+        except (OSError,ValueError,RuntimeError):
+            from .core.steam import detect_install
+            if detected:=detect_install():self.directory=str(detected)
         return context.window_manager.invoke_props_dialog(self, width=520)
 
     def draw(self, context):
         col = self.layout.column()
         col.label(text='Welcome to Ruster', icon=I['world'])
-        wrapped(col,context,'Select the Rust game folder in your Steam library.')
+        wrapped(col,context,'Choose the Rust game folder. Ruster checks Steam libraries automatically.')
         wrapped(col,context,'Assets stay on your computer. Your game files are read-only.',icon='locked')
         col.separator()
         properties(col).prop(self, 'directory')
@@ -248,6 +253,7 @@ class RUSTER_OT_welcome(bpy.types.Operator):
         action(col,'ruster.new_map')
         col.separator()
         action(col,'ruster.setup')
+        action(col,'ruster.preferences')
         col.label(text='Rust .map   ·   Ruster .ruster')
         recent=settings.load().get('recent_projects',[])
         recovery=settings.load().get('last_recovery','')
@@ -574,6 +580,8 @@ def after_load(_dummy):
     editing.clear_cache()
     if hasattr(bpy.context.scene, 'ruster'):
         bpy.context.scene.ruster.busy = _job is not None and _job.poll() is None
+        from . import mcp_bridge
+        mcp_bridge.sync_state()
 
 
 def startup():
@@ -588,9 +596,16 @@ def startup():
     config = settings.load()
     try:
         settings.validate_install(config.get('rust_install', ''))
-    except ValueError:
-        bpy.ops.ruster.setup('INVOKE_DEFAULT')
-        return None
+    except (OSError,ValueError,RuntimeError):
+        from .core.steam import detect_install
+        detected=detect_install()
+        if not detected:
+            bpy.ops.ruster.setup('INVOKE_DEFAULT')
+            return None
+        config['rust_install']=str(detected)
+        settings.save(config)
+        try:start_job('index')
+        except Exception as error:bpy.context.scene.ruster.asset_status=str(error)
     if _pending_project:
         try:
             pending, _pending_project = _pending_project, None
@@ -625,6 +640,8 @@ def register():
     painting.register()
     from . import layers
     layers.register()
+    from . import mcp_bridge
+    mcp_bridge.register()
     ui.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
@@ -654,6 +671,8 @@ def unregister():
         km.keymap_items.remove(item)
     _keymaps.clear()
     _pending_asset_ids.clear()
+    from . import mcp_bridge
+    mcp_bridge.unregister()
     ui.unregister()
     from . import layers
     layers.unregister()

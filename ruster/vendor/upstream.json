@@ -1,0 +1,15 @@
+{
+  "project": "https://github.com/ahujasid/mcp-for-blender",
+  "revision": "5a3618fccb2d982d0dd61e7a1879912c3100073b",
+  "license": "MIT",
+  "source_files": [
+    "addon.py",
+    "src/blender_mcp/server.py"
+  ],
+  "scope": "Adapted socket lifecycle, main-thread queue, scene/object inspection and BlenderConnection; other upstream integrations are not bundled.",
+  "changes": [
+    "Removed telemetry, consent prompts, third-party asset services and arbitrary code execution.",
+    "Added bounded requests/queue/responses, local connection timeout, token field and socket cleanup.",
+    "Rust commands, settings, MCP tool registration and authentication are implemented outside these files."
+  ]
+}

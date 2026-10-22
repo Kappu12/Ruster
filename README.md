@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: 0.4 development preview, with protected prefab models, terrain/path editing and layer image masks.**
+**Status: 0.5 development preview, with local MCP control, automatic Rust discovery and protected map editing.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -12,7 +12,11 @@ work toward RustEdit parity.
 
 ## Start
 
-On the first launch, select your Rust installation folder, for example:
+On first launch, Ruster checks standard Steam locations, Windows Steam registry
+entries and Steam's secondary library folders for Rust. It validates the game
+executable and `Bundles` folder, remembers the location and starts indexing.
+Your saved valid location takes priority. If discovery fails, choose the folder,
+for example:
 
 ```text
 C:\Program Files (x86)\Steam\steamapps\common\Rust
@@ -96,6 +100,35 @@ Use **Recover Autosaved Session** on the start screen after a crash. Recovery do
 not replace the normal project save destination. Recent projects are listed there
 as well. Native file drops support `.map` and `.ruster`.
 
+## MCP / AI editor connection
+
+Open **Ruster → Ruster Settings** and turn on **Enable MCP**. It is off by default.
+Click **Copy MCP Client Configuration** and add the JSON to your MCP client's
+configuration. Keep Ruster open. The packaged app includes the stdio adapter and
+its Python dependencies; there is no separate community addon or `uv` install.
+For a source checkout, run `tools/setup_assets.py` to install both asset and MCP
+dependencies into the local `python_modules` directory.
+
+The integration adapts the MIT-licensed community
+[MCP for Blender](https://github.com/ahujasid/mcp-for-blender) bridge at revision
+`5a3618fccb2d982d0dd61e7a1879912c3100073b`. Ruster exposes 14 typed MCP tools:
+scene/object inspection, paginated map objects and prefab search, prefab
+placement, move/rotate/scale, duplicate/delete, terrain painting, validation,
+project saving, map export and native undo/redo. Open/create maps in the app first.
+Positions use editor world metres, with Z as height; rotations are XYZ degrees.
+
+The listener is local-only (`127.0.0.1`, default port `9877`), with a per-user token
+read automatically by the bundled adapter. The toggle stops active connections;
+stop it before changing ports. Existing save/export destinations require an
+explicit overwrite request, and source maps cannot be overwritten. Edits wait
+until brush strokes and path node editing have finished.
+
+Ruster uses the community transport and inspection code, not its unrestricted
+Python execution or external model-generation/download tools. Prefab models stay
+read-only through MCP as well as the UI. No community telemetry or consent prompts
+are bundled. Port, token and enablement belong to user settings, not projects.
+Connect it in an MCP-compatible client using the copied configuration.
+
 ## Run from source
 
 Requires Blender **4.5 LTS** (tested against the pinned 4.5.14 runtime). Python
@@ -166,12 +199,14 @@ to the source repository. macOS standalone packaging is not implemented yet.
 ## Validation
 
 ```bash
-python -m pip install pytest lz4 numpy -r requirements-assets.txt
+python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
 python -m pytest -q
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_smoke.py
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_editing.py
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_placement.py
 /path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_protection.py
+/path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_ui.py
+/path/to/blender -b --factory-startup --disable-autoexec --python tests/blender_mcp.py
 ```
 
 The Blender test checks real terrain construction, coordinate/rotation conversion,
@@ -184,6 +219,10 @@ The graphical test (`tests/gui_interaction.py`, `--enable-event-simulate`) exerc
 actual mouse-driven terrain and prefab strokes, one-step undo, redo and cancel.
 Model protection tests also remove the source map, cache and texture files before
 reopening the packed project, and reject editable preview copies.
+The graphical MCP test (`tests/gui_mcp.py`) uses a real stdio SDK client through
+the local bridge, checks typed edits and undo, rejects unauthenticated/Python
+commands, and verifies disable/restart and automatic Steam discovery. Packaging
+also checks the stdio entry point with its own bundled Python and dependencies.
 
 These tests use synthetic map data and original test geometry. They do **not**
 establish compatibility with every Rust asset or confirm a map in a running Rust
