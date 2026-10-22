@@ -113,12 +113,12 @@ def model_error(root,checked=None):
 
 
 def pack_models():
-    # Native packing accepts relative paths only. Stage cross-drive libraries on
-    # the active file's drive, then restore their real paths after packing. This
-    # keeps Windows portable apps working when the app/cache use different drives.
+    # Native packing checks every library path, including already-packed ones.
+    # Normalize all paths for that call, staging only unpacked cross-drive data.
+    # Packed libraries must keep working when their original cache is offline.
     pending=[lib for lib in bpy.data.libraries if not lib.packed_file]
     if not pending:return
-    originals={lib:str(Path(bpy.path.abspath(lib.filepath,library=lib.parent)).resolve()) for lib in pending}
+    originals={lib:str(Path(bpy.path.abspath(lib.filepath,library=lib.parent)).resolve()) for lib in bpy.data.libraries}
     previous_cwd=Path.cwd()
     try:
         if not bpy.data.filepath:
@@ -127,13 +127,12 @@ def pack_models():
             os.chdir(user_root())
         base=Path(bpy.path.abspath('//')).resolve()
         with tempfile.TemporaryDirectory(prefix='ruster-pack-',dir=base) as temporary:
-            for index,lib in enumerate(pending):
-                path=originals[lib]
+            for index,(lib,path) in enumerate(originals.items()):
                 relative=bpy.path.relpath(path)
                 if not relative.startswith('//'):
                     staged=Path(temporary)/f'model-{index}.blend'
-                    shutil.copyfile(path,staged)
-                    relative=bpy.path.relpath(str(staged))
+                    if not lib.packed_file:shutil.copyfile(path,staged)
+                    relative='//'+str(staged.relative_to(base))
                 lib.filepath=relative
             bpy.ops.file.pack_libraries()
     finally:

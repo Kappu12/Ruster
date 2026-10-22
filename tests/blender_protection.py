@@ -131,6 +131,40 @@ def run():
         finally:bpy.path.relpath=native_relpath
         assert library.packed_file and Path.cwd()==previous_cwd
         assert library.filepath==absolute
+        # A reopened project can retain an already-packed absolute library while
+        # a newly loaded model still needs packing. Native Blender validates both
+        # paths, even if the packed model's original cache has gone offline.
+        extra_uid=uid+100000
+        (cache/f'{extra_uid}.json.gz').write_bytes(gzip.compress(json.dumps(triangle_asset(extra_uid)).encode()))
+        extra=scene.root_object([wire.encode(2,0,extra_uid)],bpy.data.collections['Prefabs'])
+        assert scene.attach_visual(extra)
+        extra_library=extra.instance_collection.library
+        assert not extra_library.packed_file
+        original_paths={lib:lib.filepath for lib in bpy.data.libraries}
+        packed_data=bytes(library.packed_file.data)
+        original_file=Path(absolute).read_bytes();Path(absolute).unlink()
+        bpy.path.relpath=lambda path,*args,**kwargs:str(path)  # Force cross-drive staging for every library.
+        native_copy=shutil.copyfile
+        def failed_copy(_source,_destination):raise OSError('Simulated library staging failure')
+        try:
+            shutil.copyfile=failed_copy
+            try:protection.pack_models()
+            except OSError as error:assert 'Simulated library staging failure' in str(error)
+            else:raise AssertionError('Library staging failure was swallowed')
+            finally:shutil.copyfile=native_copy
+            assert all(lib.filepath==path for lib,path in original_paths.items())
+            assert Path.cwd()==previous_cwd and not extra_library.packed_file
+            protection.pack_models()
+        finally:
+            shutil.copyfile=native_copy
+            bpy.path.relpath=native_relpath
+            Path(absolute).write_bytes(original_file)
+        assert library.packed_file and extra_library.packed_file
+        assert bytes(library.packed_file.data)==packed_data,'Offline packed model data changed'
+        assert all(lib.filepath==path for lib,path in original_paths.items())
+        assert Path.cwd()==previous_cwd
+        assert not protection.model_error(extra)
+        bpy.data.objects.remove(extra,do_unlink=True)
         # Make-local/override-style data must be rejected, including after reopen.
         editable=prefab.instance_collection.copy()
         prefab.instance_collection=editable
