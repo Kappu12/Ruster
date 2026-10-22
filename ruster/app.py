@@ -359,32 +359,38 @@ class RUSTER_OT_welcome(bpy.types.Operator):
             layout.separator(factor=.7)
         else:
             branding.label(layout,text=f'Ruster {__version__}',context=context)
-        split = layout.split(factor=.52)
+        split = layout.split(factor=.5)
         col = split.column()
         col.label(text='Create or Open')
-        col.scale_y = 1.15
+        buttons = col.column()
+        buttons.scale_y = 1.15
         for op in ('ruster.new','ruster.open'):
-            action(col,op)
-            col.separator(factor=.35)
-        col.operator('ruster.import_map',text='Import .map…',icon=I['import'])
+            action(buttons,op)
+            buttons.separator(factor=.35)
+        buttons.operator('ruster.import_map',text='Import .map…',icon=I['import'])
         recent_col = split.column()
         recent_col.label(text='Recent Projects')
+        recent_buttons = recent_col.column()
+        recent_buttons.scale_y = 1.15
         recent=settings.load().get('recent_projects',[])
         recovery=settings.load().get('last_recovery','')
         if recovery and Path(recovery).is_file():
-            action(recent_col,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=recovery
+            action(recent_buttons,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=recovery
+            recent_buttons.separator(factor=.35)
         recent=[Path(path) for path in recent[:5] if Path(path).is_file()]
         if recent:
             for path in recent:
-                action(recent_col,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)
+                action(recent_buttons,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)
+                recent_buttons.separator(factor=.35)
         else:
             recent_col.label(text='No recent projects')
             wrapped(recent_col,context,'Start an empty prefab composition or import existing placements.')
         layout.separator(factor=1.5)
-        row = layout.row()
-        row.scale_y = 1.15
-        action(row,'ruster.preferences')
-        row.label(text=f'Blender {bpy.app.version_string}')
+        footer = layout.split(factor=.5)
+        preferences = footer.column()
+        preferences.scale_y = 1.15
+        action(preferences,'ruster.preferences')
+        footer.column().label(text=f'Blender {bpy.app.version_string}')
         layout.separator(factor=1.5)
 
     def execute(self, context):
