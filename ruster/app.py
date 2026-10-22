@@ -671,10 +671,18 @@ def register():
 
 
 def unregister():
+    global _job,_job_log,_job_action,_job_cancelled
     from . import ui,preferences
     preferences.unregister()
-    if _job is not None and _job.poll() is None:
-        _job.terminate()
+    if _job is not None:
+        if _job.poll() is None:_job.terminate()
+        try:_job.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            _job.kill();_job.wait(timeout=2)
+        _job=None
+    if _job_log:
+        _job_log.close();_job_log=None
+    _job_action=None;_job_cancelled=False
     for callback in (poll_job, load_visuals, startup,recovery_tick):
         if bpy.app.timers.is_registered(callback):
             bpy.app.timers.unregister(callback)

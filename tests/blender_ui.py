@@ -1,5 +1,6 @@
 """Validate the UI against the exact bundled Blender, including theme preservation."""
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -56,15 +57,16 @@ def run():
             bpy.context.preferences.active_section='INTERFACE';preferences.native_changed()
             assert pref_state.section=='INTERFACE' and bpy.types.USERPREF_PT_interface_display.poll(bpy.context)
             game=Path(directory)/'Rust';(game/'Bundles').mkdir(parents=True,exist_ok=True);(game/'RustClient.exe').touch()
-            previous=app.start_job;jobs=[]
+            from ruster.core import settings
+            previous=app.start_job;jobs=[];original_config=settings.load()
             try:
                 app.start_job=lambda action,*_args:jobs.append(action)
                 pref_state.directory=str(game)
                 assert bpy.ops.ruster.setup('EXEC_DEFAULT')=={'FINISHED'}
                 assert jobs==['index']
-                from ruster.core import settings
                 assert settings.load()['rust_install']==str(game.resolve())
-            finally:app.start_job=previous
+            finally:
+                app.start_job=previous;settings.save(original_config)
             for name in ui_style.ACTIONS:
                 group,operator=name.split('.')
                 getattr(getattr(bpy.ops,group),operator).get_rna_type()
@@ -95,7 +97,13 @@ def run():
             assert not ui.is_map(bpy.context)
             assert bpy.data.objects.get('Cube') and 'Modeling' in bpy.data.workspaces
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
+            # A background worker inherits the log handle. Unregister must reap
+            # the process and release both handles, including on Windows.
+            log=(Path(directory)/'cleanup-worker.log').open('w')
+            child=subprocess.Popen([app.worker_python(),'-c','import time; time.sleep(30)'],stdout=log,stderr=subprocess.STDOUT)
+            app._job,app._job_log=child,log
             ruster.unregister()
+            assert child.poll() is not None and log.closed and app._job is None and app._job_log is None
             assert bpy.types.USERPREF_PT_navigation_bar.draw==old_navigation
             assert bpy.types.VIEW3D_HT_header.draw==old_header
             assert bpy.types.SCENE_PT_scene.__dict__.get('poll')==old_scene_poll
