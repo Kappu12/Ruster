@@ -62,11 +62,15 @@ async def run():
             group=composition['group']['name']
             await call('transform_objects',transforms=[{'name':group,'position':[0,0,22],'scale':[2,2,2]}])
             await call('focus_view',names=[group],axis='TOP')
+            await call('focus_view',names=[group],axis='OBLIQUE')
+            await call('focus_view',names=[group],rotation_degrees=[65,0,35])
             image=await session.call_tool('get_viewport_image',{})
             assert not image.isError and any(c.type=='image' and c.mimeType=='image/png' for c in image.content),image
             image_data=base64.b64decode(next(c.data for c in image.content if c.type=='image'))
             assert image_data[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack('>II',image_data[16:24])==(1280,720)
             (directory/'viewport.png').write_bytes(image_data)
+            with_guides=await session.call_tool('get_viewport_image',{'include_overlays':True})
+            assert not with_guides.isError and any(c.type=='image' for c in with_guides.content)
             await call('export_assembly',names=[group],path=str(directory/'composition.rusterprefab'))
             imported=await call('import_assembly',path=str(directory/'composition.rusterprefab'),position=[5,5,20],name='Imported SDK composition')
             assert imported['prefab_count']==2

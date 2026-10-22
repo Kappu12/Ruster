@@ -1,6 +1,7 @@
 """Stdio MCP adapter for the bundled, authenticated community Blender bridge."""
 import base64
 import threading
+from typing import Literal
 from pydantic import BaseModel,Field,ConfigDict
 from mcp.server.fastmcp import FastMCP,Image
 from mcp.types import ToolAnnotations
@@ -177,27 +178,27 @@ def rename_object(name:str,new_name:str)->dict:
 
 
 @mcp.tool(annotations=EDIT)
-def focus_view(names:list[str],axis:str='CURRENT')->dict:
-    """Select and frame placements/groups in Blender's native viewport for visual inspection. Does not change geometry."""
-    return command('focus_view',names=names,axis=axis)
+def focus_view(names:list[str],axis:Literal['CURRENT','TOP','BOTTOM','FRONT','BACK','LEFT','RIGHT','OBLIQUE']='CURRENT',rotation_degrees:list[float]|None=None)->dict:
+    """Select and frame placements/groups without transforming models. Native axes or OBLIQUE (60,0,45 degrees); alternatively pass finite XYZ viewport Euler rotation_degrees with axis=CURRENT. Oblique/custom views use perspective."""
+    return command('focus_view',names=names,axis=axis,rotation_degrees=rotation_degrees)
 
 
 @mcp.tool(annotations=READ)
-def get_viewport_image()->Image:
-    """Return a PNG image of the current 3D viewport for vision-capable AI. Focus the composition first. Requires the desktop app; renders the current viewport without altering models."""
-    result=command('get_viewport_image')
+def get_viewport_image(include_overlays:bool=False)->Image:
+    """Return a clean PNG of the current 3D viewport. Overlays (grids, relationships and selection outlines) are hidden by default; include_overlays=True includes them. Restores viewport/render settings on success or failure. Requires the desktop app."""
+    result=command('get_viewport_image',include_overlays=include_overlays)
     return Image(data=base64.b64decode(result['data']),format='png')
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-def export_assembly(names:list[str],path:str,overwrite:bool=False)->dict:
-    """Export selected placements/groups as reusable .rusterprefab composition, using original prefab IDs. Absolute destination; existing file requires overwrite=True. Positions become relative to the composition center."""
-    return command('export_assembly',names=names,path=path,overwrite=overwrite)
+def export_assembly(names:list[str],path:str,overwrite:bool=False,origin:list[float]|None=None)->dict:
+    """Export reusable .rusterprefab using original prefab IDs. Positions are relative to explicit world XYZ origin, the pivot of a single selected group, or the mean placement position for other selections. Absolute destination; existing file requires overwrite=True."""
+    return command('export_assembly',names=names,path=path,overwrite=overwrite,origin=origin)
 
 
 @mcp.tool(annotations=EDIT)
 def import_assembly(path:str,position:list[float],name:str|None=None)->dict:
-    """Load a .rusterprefab composition at a world XYZ origin, as an editable placement group. Uses only available local original prefabs; 1000-placement limit. Rolls back on failure; supports undo. Does not import arbitrary meshes."""
+    """Load a .rusterprefab composition at a world XYZ origin, preserving that group pivot. Uses only available local original prefabs; 2000-placement limit. Rolls back on failure; supports undo. Does not import arbitrary meshes."""
     return command('import_assembly',path=path,position=position,name=name)
 
 
@@ -209,8 +210,8 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 5. Compose whole prefabs using atomic place_prefabs (up to 100) and transform_objects (up to 200). Groups preserve world transforms. Select parent groups OR descendants per batch. Prefer uniform group scale to avoid shear. Original meshes/materials remain linked and read-only.
 6. list_objects/get_selection paginate lightweight metadata. include_bounds opts into model world bounds; get_objects_info batches up to 200 objects, get_prefabs_details up to 20 IDs. Child and mutation names are capped at 200; list_objects locates more without returning huge groups.
 7. duplicate_objects makes one translated copy. array_objects makes count NEW copies using per-step world offset and XYZ rotation about the chosen roots' mean origin. Requests roll back on failure and allow at most 2000 new prefab placements/4000 hierarchy objects. delete_objects validates all targets before deletion. Undo/redo also affects manual edits.
-8. focus_view and get_viewport_image provide visual feedback. Bounds enclose render geometry, not collision shapes; they do not certify server gameplay.
-9. export_prefab/import_prefab exchange native RustEdit .prefab while preserving supported imported metadata. get_io_settings/set_io_settings expose only verified EXISTING imported IO scalar fields; wiring creation is unsupported. export_assembly/import_assembly exchange .rusterprefab compositions. get_export_formats lists available GLB/FBX/OBJ and other model exporters; export_models uses bounded disposable copies and preserves source scene and selection.
+8. focus_view frames native axes, OBLIQUE, or explicit XYZ rotation_degrees without transforming models. get_viewport_image defaults to a clean image; include_overlays=True includes guides. Viewport/render settings are restored after capture. Bounds enclose render geometry, not collision shapes; they do not certify server gameplay.
+9. export_prefab/import_prefab exchange native RustEdit .prefab while preserving supported imported metadata. get_io_settings/set_io_settings expose only verified EXISTING imported IO scalar fields; wiring creation is unsupported. export_assembly uses explicit world origin when supplied, otherwise the single selected group's pivot or the mean placement position. import_assembly supports 2000 placements and preserves its requested position as group pivot. get_export_formats lists available GLB/FBX/OBJ and other model exporters; export_models uses bounded disposable copies and preserves source scene and selection.
 10. import_map_prefabs appends ONLY prefab placements from .map, ignoring terrain/paths. export_map writes ONLY current placements floating in void, with no terrain/path layers. validate_map checks compositions, save_project writes .ruster. Destinations are absolute; existing files require overwrite=True. Source models and selection survive exports.
 11. After timeout inspect the scene before replaying a mutation. No arbitrary Python execution, mesh edits, terrain tools, path tools or map generation are exposed.
 """

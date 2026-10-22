@@ -142,10 +142,16 @@ uncached models and poll status before relying on visible geometry/bounds.
 Coordinates are world XYZ metres with Z up; rotations are XYZ Euler degrees.
 Atomic placement batches allow 100 items, transforms 200; array/duplicate requests
 allow at most 2,000 new placements. Bounds alignment and plane snapping use loaded
-render geometry, not collision certification. MCP native-prefab and map imports
-are limited to 2,000 placements; assembly imports to 1,000. Model exports have a
+render geometry, not collision certification. MCP native-prefab, map and assembly
+imports are limited to 2,000 placements. Model exports have a
 bounded copy budget and may require smaller selections. After a timed-out
 mutation, inspect the scene before repeating it.
+
+`focus_view` supports native axes, `OBLIQUE`, or explicit `rotation_degrees`
+without moving the composition. Viewport images hide overlays by default and
+restore the user's display settings after capture. Assembly exports preserve a
+single group's pivot; `origin` can explicitly set the world XYZ export anchor.
+Importing an assembly preserves its requested position as the group pivot.
 
 The authenticated listener uses `127.0.0.1:9877` by default and a per-user token.
 Port and enablement belong to preferences. Existing output files require explicit

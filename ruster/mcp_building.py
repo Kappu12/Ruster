@@ -1,12 +1,14 @@
 """Typed AI composition tools; all geometry remains original Rust prefab data."""
 import base64
+from contextlib import closing
 import gzip
 import json
 import math
+import sqlite3
 from pathlib import Path
 import tempfile
 import bpy
-from mathutils import Matrix,Vector,Quaternion
+from mathutils import Euler,Matrix,Vector,Quaternion
 from . import app,scene,editing,placement
 from .assets import catalog
 from .core import paths,prefabs,wire
@@ -185,11 +187,16 @@ def dispatch(server,kind,p,bridge):
     if kind=='get_prefab_details':return details(**p)
     if kind=='get_viewport_image':
         bridge.require_idle()
+        include_overlays=p.get('include_overlays',False)
+        if type(include_overlays)!=bool:raise ValueError('include_overlays must be boolean')
         if bpy.app.background:raise ValueError('Viewport images require the desktop app')
         window,area,region=viewport();render=bpy.context.scene.render
+        overlay=area.spaces.active.overlay
+        old_overlays=overlay.show_overlays
         old_format=render.image_settings.file_format
         old_size=(render.resolution_x,render.resolution_y,render.resolution_percentage)
         try:
+            overlay.show_overlays=include_overlays
             render.image_settings.file_format='PNG'
             render.resolution_x=1280;render.resolution_y=720;render.resolution_percentage=100
             with tempfile.TemporaryDirectory(prefix='ruster-viewport-') as directory:
@@ -200,6 +207,7 @@ def dispatch(server,kind,p,bridge):
                 if len(data)>5*1024*1024:raise ValueError('Viewport image is too large; reduce viewport complexity')
                 return {'data':base64.b64encode(data).decode(),'format':'png'}
         finally:
+            overlay.show_overlays=old_overlays
             render.image_settings.file_format=old_format
             render.resolution_x,render.resolution_y,render.resolution_percentage=old_size
     bridge.require_idle();bridge.require_editor()
@@ -213,26 +221,56 @@ def dispatch(server,kind,p,bridge):
         if not app.request_assets(ids):raise ValueError(bpy.context.scene.ruster.asset_status)
         return {'requested':ids,'next_step':'Poll get_editor_status until busy is false, then get_prefab_details.'}
     if kind=='import_assembly':
+        from .mcp_prefab_ops import MAX_NEW
         path=bridge.file_target(p['path'],'.rusterprefab',True)
         if not path.is_file() or path.stat().st_size>32*1024*1024:raise ValueError('Choose an existing assembly of at most 32 MiB')
         title,records=prefabs.decode_assembly(path.read_bytes())
-        if len(records)>1000:raise ValueError('MCP imports support at most 1000 prefab placements per assembly')
+        if len(records)>MAX_NEW:raise ValueError(f'MCP imports support at most {MAX_NEW} prefab placements per assembly')
         title=checked_name(p.get('name') or title)
         offset=Vector(bridge.vector(p['position'],'Assembly position'))
+        if not all(math.isfinite(v) for v in offset):raise ValueError('Assembly position exceeds Blender number range')
         from .core.rust_map import prefab_id,prefab_transform
-        specs=[]
+        ids=set()
         for record in records:
             uid=prefab_id(record);location,rotation,scale=prefab_transform(record)
-            rot=scene.unity_euler(rotation)
-            specs.append((record,uid,list(Vector(scene.to_blender(location))+offset),[math.degrees(v) for v in rot.to_euler('XYZ')],list(scene.to_blender(scale))))
-        created=[]
+            bounded_int(uid,0,0xffffffff,'Prefab ID')
+            bridge.vector(scale,'Scale',True)
+            matrix=Matrix.LocRotScale(scene.to_blender(location)+offset,scene.unity_euler(rotation),scene.to_blender(scale))
+            if not all(math.isfinite(v) for row in matrix for v in row):
+                raise ValueError('Assembly transform exceeds Blender number range')
+            if scene.matrix_has_shear(matrix):raise ValueError('Assembly contains shear or zero scale')
+            ids.add(uid)
+        database=scene.cache_dir()/'catalog.sqlite3'
+        if not database.is_file():raise ValueError('The local Rust catalog is unavailable')
+        with closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+            query=f'SELECT n.uid,n.path,{catalog.AVAILABLE} FROM names n WHERE n.uid IN ({",".join("?" for _ in ids)})'
+            sources={uid:path for uid,path,available in db.execute(query,sorted(ids)) if available}
+        if missing:=ids-sources.keys():raise ValueError(f'Prefab {min(missing)} is unavailable in the local Rust catalog')
+        selected=list(bpy.context.selected_objects);active=bpy.context.view_layer.objects.active
+        created=[];root=None;before_group=None
         try:
-            for record,uid,position,rotation,scale in specs:
-                obj=bridge.place_prefab(uid,position,rotation,scale)
-                created.append(obj);obj['ruster_record']=base64.b64encode(wire.serialize(record)).decode()
-            root=placement.group(created,title)
+            collection=bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs')
+            for record in records:
+                obj=scene.root_object(record,collection);created.append(obj)
+                obj.location+=offset
+                scene.name_prefab(obj,sources[int(obj['ruster_uid'])])
+            # One evaluation validates the whole batch. Per-placement transform
+            # operators made large assemblies exceed the MCP socket timeout.
+            bpy.context.view_layer.update()
+            for obj in created:
+                if not all(math.isfinite(v) for row in obj.matrix_world for v in row):
+                    raise ValueError('Assembly transform exceeds Blender number range')
+                if scene.matrix_has_shear(obj.matrix_world):raise ValueError('Assembly contains shear or zero scale')
+            before_group=set(bpy.data.objects)
+            root=placement.group(created,title,origin=offset)
         except Exception:
-            placement.select(created);placement.delete_selected();raise
+            if before_group is not None:
+                for obj in set(bpy.data.objects)-before_group:bpy.data.objects.remove(obj,do_unlink=True)
+            for obj in created:bpy.data.objects.remove(obj,do_unlink=True)
+            placement.select(selected);bpy.context.view_layer.objects.active=active
+            raise
+        try:app.request_missing_visuals(created)
+        except Exception as error:bpy.context.scene.ruster.asset_status=f'Assembly imported. Could not queue models: {error}'
         result={'group':bridge.object_info(server,root.name),'prefab_count':len(created)}
     elif kind=='place_prefabs':
         items=p['placements']
@@ -271,10 +309,19 @@ def dispatch(server,kind,p,bridge):
         obj=bridge.map_object(p['name']);obj.name=checked_name(p['new_name']);result=bridge.object_info(server,obj.name)
     elif kind=='focus_view':
         axis=p.get('axis','CURRENT')
-        if axis not in {'CURRENT','TOP','BOTTOM','FRONT','BACK','LEFT','RIGHT'}:raise ValueError('Invalid view axis')
+        if axis not in {'CURRENT','TOP','BOTTOM','FRONT','BACK','LEFT','RIGHT','OBLIQUE'}:raise ValueError('Invalid view axis')
+        angles=p.get('rotation_degrees')
+        if angles is not None:
+            if axis!='CURRENT':raise ValueError('Choose a view axis or explicit rotation_degrees, not both')
+            angles=bridge.vector(angles,'View rotation')
+        elif axis=='OBLIQUE':angles=(60.,0.,45.)
+        rotation=Euler(tuple(math.radians(angle%360.) for angle in angles),'XYZ').to_quaternion() if angles is not None else None
         objects=object_names(p['names'],bridge);window,area,region=viewport();placement.select(objects)
         with bpy.context.temp_override(window=window,area=area,region=region):
-            if axis!='CURRENT':bpy.ops.view3d.view_axis(type=axis,align_active=False)
+            if rotation is not None:
+                area.spaces.active.region_3d.view_rotation=rotation
+                area.spaces.active.region_3d.view_perspective='PERSP'
+            elif axis!='CURRENT':bpy.ops.view3d.view_axis(type=axis,align_active=False)
             bpy.ops.view3d.view_selected(use_all_regions=False)
         result={'focused':[o.name for o in objects]}
     elif kind=='export_assembly':
@@ -283,7 +330,12 @@ def dispatch(server,kind,p,bridge):
         objects=object_names(p['names'],bridge);independent(objects)
         prefab_objects=mcp_prefab_ops.prefabs_in(objects)
         if not prefab_objects:raise ValueError('Choose prefab placements or groups')
-        origin=sum((o.matrix_world.translation for o in prefab_objects),Vector())/len(prefab_objects)
+        bpy.context.view_layer.update()
+        origin=p.get('origin')
+        if origin is not None:origin=Vector(bridge.vector(origin,'Assembly origin'))
+        elif len(objects)==1 and objects[0].get('ruster_kind')=='GROUP':origin=objects[0].matrix_world.translation.copy()
+        else:origin=sum((o.matrix_world.translation for o in prefab_objects),Vector())/len(prefab_objects)
+        if not all(math.isfinite(v) for v in origin):raise ValueError('Assembly origin exceeds Blender number range')
         atomic_write(target,prefabs.encode_assembly([placement.world_record(o,origin) for o in prefab_objects],target.stem))
         return {'path':str(target),'prefab_count':len(prefab_objects),'origin':list(origin)}
     else:raise ValueError('Unsupported composition tool')

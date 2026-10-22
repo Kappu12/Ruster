@@ -35,6 +35,11 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert {'get_prefab_details','list_prefab_categories','place_prefabs','transform_objects','group_objects','get_viewport_image','export_assembly','get_objects_info','get_prefabs_details','list_objects','get_selection','select_objects','duplicate_objects','delete_objects','array_objects','align_objects','snap_objects_to_plane','get_export_formats','export_prefab','import_prefab','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=tools.keys()
                 schema=tools['place_prefabs'].inputSchema
                 assert 'PrefabPlacement' in schema['$defs'] and 'position' in schema['$defs']['PrefabPlacement']['required']
+                assert tools['get_viewport_image'].inputSchema['properties']['include_overlays']['default'] is False
+                view=tools['focus_view'].inputSchema['properties']
+                assert 'OBLIQUE' in view['axis']['enum'] and 'rotation_degrees' in view
+                assert 'origin' in tools['export_assembly'].inputSchema['properties']
+                assert '2000-placement' in tools['import_assembly'].description
                 resources=(await session.list_resources()).resources
                 assert {str(r.uri) for r in resources}=={'ruster://guide/building'}
                 guide=await session.read_resource('ruster://guide/building')

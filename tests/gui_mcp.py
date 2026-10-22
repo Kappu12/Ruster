@@ -36,6 +36,10 @@ def perform():
             assert bpy.context.scene.ruster.mode=='PREFAB' and not bpy.context.scene.objects
         finally:steam.detect_install,app.start_job=old_detect,old_job
         window=bpy.context.window
+        view=next(area for area in window.screen.areas if area.type=='VIEW_3D')
+        view.spaces.active.overlay.show_overlays=True
+        render=bpy.context.scene.render
+        state['capture_settings']=(render.image_settings.file_format,render.resolution_x,render.resolution_y,render.resolution_percentage)
         window.event_simulate(type='ESC',value='PRESS')
         bpy.context.preferences.edit.use_global_undo=True
         bpy.ops.ed.undo_push(message='MCP fixture empty composition')
@@ -68,6 +72,10 @@ def perform():
             state['log'].flush();raise AssertionError((directory/'client.log').read_text(encoding='utf8',errors='replace'))
         if not (directory/'ready.json').exists():return .1
         data=json.loads((directory/'ready.json').read_text())
+        view=next(area for area in bpy.context.window.screen.areas if area.type=='VIEW_3D')
+        assert view.spaces.active.overlay.show_overlays,'MCP capture changed the user overlay setting'
+        render=bpy.context.scene.render
+        assert state['capture_settings']==(render.image_settings.file_format,render.resolution_x,render.resolution_y,render.resolution_percentage)
         assert not protection.model_error(bpy.data.objects[data['object']])
         bpy.context.window_manager.ruster_mcp.enabled=False
         assert not mcp_bridge.running()

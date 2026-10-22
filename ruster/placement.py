@@ -50,18 +50,20 @@ def world_record(obj,origin=None):
     return update_transform(fields,scene.to_unity(location),scene.blender_euler(rotation),scene.to_unity(scale))
 
 
-def group(objects,name='Custom Prefab'):
+def group(objects,name='Custom Prefab',origin=None):
     if not objects:raise ValueError('Select prefab placements first')
     bpy.context.view_layer.update()
+    matrices=[(obj,obj.matrix_world.copy()) for obj in objects]
     root=bpy.data.objects.new(name,None)
     (bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs')).objects.link(root)
     root['ruster_kind']='GROUP'
     root.empty_display_type='PLAIN_AXES'
     root.empty_display_size=5
-    root.location=sum((o.matrix_world.translation for o in objects),Vector())/len(objects)
+    root.location=(sum((matrix.translation for _obj,matrix in matrices),Vector())/len(objects)
+                   if origin is None else origin)
     bpy.context.view_layer.update()
-    for obj in objects:
-        matrix=obj.matrix_world.copy();obj.parent=root;obj.matrix_world=matrix
+    for obj,matrix in matrices:
+        obj.parent=root;obj.matrix_world=matrix
     select([root])
     return root
 

@@ -1,5 +1,5 @@
 """Typed MCP commands run against real Blender data; no game install needed."""
-import gzip,json,os,sys,tempfile,traceback
+import base64,gzip,json,os,sys,tempfile,time,traceback
 from pathlib import Path
 from contextlib import closing
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
@@ -7,10 +7,52 @@ if '--' in sys.argv and sys.argv[sys.argv.index('--')+1:]:sys.path.insert(0,sys.
 import bpy
 import ruster
 from ruster import app,scene,editing,placement,protection,mcp_bridge,studio
-from ruster.core import settings
+from ruster.core import settings,prefabs
 from ruster.core.terrain import empty_world
 from ruster.assets import catalog
 from tests.fixtures import triangle_asset
+
+
+def viewport_capture_restore(server,call):
+    """Exercise native viewport/render properties even in a background fixture."""
+    from types import SimpleNamespace
+    from ruster import mcp_building
+    _window,area,_region=mcp_building.viewport()
+    overlay=area.spaces.active.overlay;render=bpy.context.scene.render
+    original=(overlay.show_overlays,render.image_settings.file_format,
+              render.resolution_x,render.resolution_y,render.resolution_percentage)
+    real_bpy=mcp_building.bpy;captured=[]
+    def capture(**_kwargs):captured.append(overlay.show_overlays)
+    fake_render=SimpleNamespace(opengl=capture)
+    mcp_building.bpy=SimpleNamespace(app=SimpleNamespace(background=False),context=bpy.context,
+        ops=SimpleNamespace(render=fake_render),data=SimpleNamespace(images={
+            'Render Result':SimpleNamespace(save_render=lambda path:Path(path).write_bytes(b'fixture PNG'))}))
+    def unchanged(expected):
+        assert (overlay.show_overlays,render.image_settings.file_format,
+                render.resolution_x,render.resolution_y,render.resolution_percentage)==expected
+    try:
+        render.image_settings.file_format='JPEG'
+        render.resolution_x,render.resolution_y,render.resolution_percentage=640,480,50
+        overlay.show_overlays=True
+        expected=(True,'JPEG',640,480,50)
+        call('get_viewport_image');unchanged(expected)
+        assert captured==[False]
+        overlay.show_overlays=False
+        expected=(False,'JPEG',640,480,50)
+        call('get_viewport_image',include_overlays=True);unchanged(expected)
+        assert captured==[False,True]
+        def failed_capture(**_kwargs):raise RuntimeError('Synthetic viewport capture failure')
+        fake_render.opengl=failed_capture
+        result=server.execute_command({'token':server.token,'type':'get_viewport_image','params':{'include_overlays':True}})
+        assert result['status']=='error' and 'Synthetic viewport capture failure' in result['message']
+        unchanged(expected)
+        result=server.execute_command({'token':server.token,'type':'get_viewport_image','params':{'include_overlays':'false'}})
+        assert result['status']=='error' and 'boolean' in result['message']
+        unchanged(expected)
+    finally:
+        mcp_building.bpy=real_bpy
+        (overlay.show_overlays,render.image_settings.file_format,
+         render.resolution_x,render.resolution_y,render.resolution_percentage)=original
 
 
 def run():
@@ -54,6 +96,20 @@ def run():
         assert not protection.model_error(bpy.data.objects[name])
         call('undo');assert len(scene.prefab_roots())==0
         call('redo');assert len(scene.prefab_roots())==1
+        matrix=bpy.data.objects[name].matrix_world.copy()
+        call('focus_view',names=[name],axis='OBLIQUE')
+        area=next(area for area in bpy.context.window.screen.areas if area.type=='VIEW_3D')
+        assert area.spaces.active.region_3d.view_perspective=='PERSP'
+        rotation=area.spaces.active.region_3d.view_rotation.copy()
+        call('focus_view',names=[name],rotation_degrees=[65,0,25])
+        assert area.spaces.active.region_3d.view_rotation.rotation_difference(rotation).angle>.01
+        assert bpy.data.objects[name].matrix_world==matrix,'View rotation changed a model'
+        for params in ({'rotation_degrees':[0,float('nan'),0]}, {'axis':'TOP','rotation_degrees':[1,2,3]}):
+            old_view=area.spaces.active.region_3d.view_rotation.copy()
+            failed=server.execute_command({'token':server.token,'type':'focus_view','params':{'names':[name],**params}})
+            assert failed['status']=='error' and area.spaces.active.region_3d.view_rotation==old_view
+        call('focus_view',names=[name],axis='TOP')
+        viewport_capture_restore(server,call)
         call('transform_object',name=name,position=[10,20,30],rotation_degrees=[0,0,90],scale=[2,3,4])
         assert tuple(round(v,3) for v in bpy.data.objects[name].location)==(10,20,30)
         before=bpy.data.objects[name].matrix_world.copy()
@@ -79,10 +135,30 @@ def run():
         assert abs(call('get_object_info',name=group)['world_bounds']['min'][2]-2)<.001
         assert call('list_map_objects',query='AI Composition',kind='GROUP')['total']==1
         assert call('list_map_objects',prefab_id=123456)['total']==3
-        call('export_assembly',names=[group],path=str(root/'build.rusterprefab'))
+        pivot=bpy.data.objects[group]
+        worlds={bpy.data.objects[n]:bpy.data.objects[n].matrix_world.copy() for n in children}
+        pivot.location.x+=8;bpy.context.view_layer.update()
+        for obj,matrix in worlds.items():obj.matrix_world=matrix
+        bpy.context.view_layer.update()
+        exported_assembly=call('export_assembly',names=[group],path=str(root/'build.rusterprefab'))
+        assert exported_assembly['origin']==list(pivot.matrix_world.translation)
+        call('export_prefab',names=[group],path=str(root/'same-pivot.prefab'))
+        from ruster.core.rustedit_prefab import RustEditPrefab
+        from ruster.core.rust_map import prefab_transform
+        _title,assembly_records=prefabs.decode_assembly((root/'build.rusterprefab').read_bytes())
+        native_records=RustEditPrefab.load(root/'same-pivot.prefab').prefabs
+        assert sorted(prefab_transform(r)[0] for r in assembly_records)==sorted(prefab_transform(r)[0] for r in native_records)
+        explicit=call('export_assembly',names=[group],path=str(root/'explicit.rusterprefab'),origin=[9,8,7])
+        assert explicit['origin']==[9,8,7]
+        mean=call('export_assembly',names=children,path=str(root/'mean.rusterprefab'))
+        assert mean['origin']==list(sum((obj.matrix_world.translation for obj in worlds),__import__('mathutils').Vector())/2)
+        for origin in ([0,float('nan'),0],[1e300,0,0]):
+            failed=server.execute_command({'token':server.token,'type':'export_assembly','params':{'names':[group],'path':str(root/'invalid-origin.rusterprefab'),'origin':origin}})
+            assert failed['status']=='error' and not (root/'invalid-origin.rusterprefab').exists()
         assert (root/'build.rusterprefab').is_file()
         imported=call('import_assembly',path=str(root/'build.rusterprefab'),position=[10,10,20],name='Imported Composition')
         assert imported['prefab_count']==2
+        assert imported['group']['position']==[10,10,20]
         call('delete_object',name=imported['group']['name'])
         call('ungroup_object',name=group)
         assert not bpy.data.objects.get(group)
@@ -221,6 +297,83 @@ def run():
         app._visual_queue.append(name)
         try:assert call('get_editor_status')['busy'] and call('get_editor_status')['pending_visuals']>0
         finally:app._visual_queue.clear()
+        # Assemblies authored within the existing 2000-placement operation
+        # budget must reload, including compositions larger than the old 1000 cap.
+        from ruster.core import wire
+        records=[[wire.encode(2,0,123456)] for _ in range(1001)]
+        records[0].append(wire.encode(77,2,b'keep assembly metadata'))
+        large=root/'large.rusterprefab';large.write_bytes(prefabs.encode_assembly(records,'Large synthetic assembly'))
+        before=len(scene.prefab_roots())
+        old_attach=scene.attach_visual
+        def no_sync_model(*_args,**_kwargs):raise AssertionError('Assembly imported a model synchronously')
+        scene.attach_visual=no_sync_model
+        started=time.monotonic()
+        try:imported=call('import_assembly',path=str(large),position=[4,5,6])
+        finally:scene.attach_visual=old_attach
+        print('Synthetic1001 assembly import seconds',round(time.monotonic()-started,3),flush=True)
+        assert imported['prefab_count']==1001 and len(scene.prefab_roots())==before+1001
+        assert imported['group']['position']==[4,5,6]
+        assert any(wire.get(wire.parse(base64.b64decode(obj['ruster_record'])),77)==b'keep assembly metadata'
+                   for obj in bpy.data.objects[imported['group']['name']].children)
+        assert all(not protection.model_error(obj) for obj in scene.prefab_roots())
+        call('delete_objects',names=[imported['group']['name']])
+        assert len(scene.prefab_roots())==before
+        too_many=root/'too-many.rusterprefab'
+        too_many.write_bytes(prefabs.encode_assembly(records*2,'Too many placements'))
+        failed=server.execute_command({'token':server.token,'type':'import_assembly','params':{'path':str(too_many),'position':[0,0,0]}})
+        assert failed['status']=='error' and '2000' in failed['message']
+        assert len(scene.prefab_roots())==before,'Rejected assembly changed the composition'
+        # Distinct uncached IDs remain placeholders and do not bypass the
+        # existing100-unique asynchronous loading limit.
+        distinct_ids=range(5000,5101)
+        with closing(catalog.connect(scene.cache_dir())) as db:
+            for uid in distinct_ids:
+                path=f'assets/test/assembly_{uid}.prefab'
+                db.execute('INSERT INTO names VALUES(?,?)',(uid,path))
+                db.execute('INSERT INTO assets VALUES(?,?,?,?)',(path,'bundle','file',uid))
+            db.commit()
+        distinct=root/'distinct.rusterprefab'
+        distinct.write_bytes(prefabs.encode_assembly([[wire.encode(2,0,uid)] for uid in distinct_ids]))
+        scene.attach_visual=no_sync_model
+        try:imported=call('import_assembly',path=str(distinct),position=[0,0,0])
+        finally:scene.attach_visual=old_attach
+        imported_children=bpy.data.objects[imported['group']['name']].children
+        assert len(imported_children)==101 and all(not obj.get('ruster_visual') for obj in imported_children)
+        assert app._job is None and not set(distinct_ids)&set(app._visual_queue)
+        assert '100 different models' in bpy.context.scene.ruster.asset_status
+        call('delete_objects',names=[imported['group']['name']])
+        # A grouping failure after creating its root must roll back that root,
+        # every placement, and the prior selection without queuing any models.
+        before_objects=set(bpy.data.objects);before_selection=set(bpy.context.selected_objects)
+        before_active=bpy.context.view_layer.objects.active
+        old_group=placement.group
+        def failed_group(*args,**kwargs):
+            old_group(*args,**kwargs)
+            raise RuntimeError('Synthetic grouping failure')
+        placement.group=failed_group
+        try:failed=server.execute_command({'token':server.token,'type':'import_assembly','params':{'path':str(root/'build.rusterprefab'),'position':[0,0,0]}})
+        finally:placement.group=old_group
+        assert failed['status']=='error' and 'Synthetic grouping failure' in failed['message']
+        assert set(bpy.data.objects)==before_objects and set(bpy.context.selected_objects)==before_selection
+        assert bpy.context.view_layer.objects.active==before_active
+        # Invalid later records are rejected before even the first root exists.
+        invalid=root/'invalid-assembly.rusterprefab'
+        invalid.write_bytes(prefabs.encode_assembly([records[0],[wire.encode(2,0,123456),wire.encode(5,2,wire.set_vector(None,(0,1,1)))]]))
+        old_root=scene.root_object
+        def no_creation(*_args,**_kwargs):raise AssertionError('Created placements before validation')
+        scene.root_object=no_creation
+        try:failed=server.execute_command({'token':server.token,'type':'import_assembly','params':{'path':str(invalid),'position':[0,0,0]}})
+        finally:scene.root_object=old_root
+        assert failed['status']=='error' and 'Scale must be nonzero' in failed['message']
+        assert set(bpy.data.objects)==before_objects
+        # Preview queuing is optional after the placement transaction commits.
+        old_request=app.request_missing_visuals
+        def failed_queue(_objects):raise OSError('Synthetic queue failure')
+        app.request_missing_visuals=failed_queue
+        try:imported=call('import_assembly',path=str(root/'build.rusterprefab'),position=[0,0,0])
+        finally:app.request_missing_visuals=old_request
+        assert imported['prefab_count']==2 and 'Synthetic queue failure' in bpy.context.scene.ruster.asset_status
+        call('delete_objects',names=[imported['group']['name']])
         ruster.unregister()
     print('RUSTER_BLENDER_MCP_TYPED_COMMANDS_OK',flush=True)
 
