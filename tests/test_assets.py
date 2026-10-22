@@ -1,6 +1,7 @@
 """Adapter regressions using current UnityPy component layouts and original data."""
 import gzip
 import json
+import pytest
 from types import SimpleNamespace as S
 from PIL import Image
 from UnityPy.classes.generated import ComponentPair
@@ -186,3 +187,52 @@ def test_current_rust_base_color_and_mask_properties_are_loaded(tmp_path,monkeyp
     spec=next(iter(json.loads(gzip.decompress(output.read_bytes()))['materials'].values()))
     assert spec['texture'] and spec['metallic_gloss_texture']
     assert spec['alpha_clip'] and spec['alpha_cutoff']==.35
+
+
+@pytest.mark.parametrize('kind', ['MeshRenderer','SkinnedMeshRenderer'])
+@pytest.mark.parametrize('cast_shadows', [0,1,2,3])
+def test_shadow_casting_modes_preserve_only_visible_surfaces(tmp_path,monkeypatch,kind,cast_shadows):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph()
+    transform=root.read().m_Component[0].component.read()
+    visible,proxy=[pointer.read().m_GameObject.read() for pointer in transform.m_Children]
+    # Names cannot decide visibility: a visible mesh may have a proxy-like name.
+    visible.m_Name='visible surface';proxy.m_Name='shadow_proxy'
+    root.read().m_Component=root.read().m_Component[:1]  # Both are in the same visible LOD.
+    proxy_renderer=proxy.m_Component[2].component.deref()
+    proxy_renderer.type.name=kind
+    proxy_renderer.data.m_CastShadows=cast_shadows
+    if kind=='SkinnedMeshRenderer':
+        proxy_renderer.data.m_Mesh=proxy.m_Component[1].component.read().m_Mesh
+    if cast_shadows==3:
+        # Unity's ShadowsOnly renderer must never decode its geometry/material.
+        def hidden_read():pytest.fail('Decoded a shadow-only surface')
+        proxy.m_Component[1].component.read().m_Mesh.deref().read=hidden_read
+        proxy_renderer.data.m_Materials=[Pointer(Reader('Material',None))]
+        proxy_renderer.data.m_Materials[0].deref().read=hidden_read
+    output=tmp_path/'visibility.json.gz'
+    assert not export_prefab(None,root,output,49,'assets/cabin.prefab')
+    asset=json.loads(gzip.decompress(output.read_bytes()))
+    proxy_node=next(node for node in asset['nodes'] if node['name']=='shadow_proxy')
+    assert bool(proxy_node['mesh'])==(cast_shadows!=3)
+    assert len(asset['meshes'])==(1 if cast_shadows==3 else 2)
+    assert not asset['marker']
+
+
+def test_shadow_only_renderer_keeps_visible_children_and_transforms(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph()
+    transform=root.read().m_Component[0].component.read()
+    hidden_transform,child_transform=[pointer.read() for pointer in transform.m_Children]
+    hidden=hidden_transform.m_GameObject.read();child=child_transform.m_GameObject.read()
+    hidden.m_Name='casting only';child.m_Name='visible child'
+    hidden.m_Component[2].component.read().m_CastShadows=3
+    hidden_transform.m_Children=[transform.m_Children[1]]
+    transform.m_Children=transform.m_Children[:1]
+    root.read().m_Component=root.read().m_Component[:1]
+    output=tmp_path/'hierarchy.json.gz'
+    assert not export_prefab(None,root,output,50,'assets/cabin.prefab')
+    asset=json.loads(gzip.decompress(output.read_bytes()))
+    assert [(node['name'],node['parent']) for node in asset['nodes']]==[
+        ('Root',None),('casting only',0),('visible child',1)]
+    assert asset['nodes'][1]['mesh'] is None and asset['nodes'][2]['mesh']

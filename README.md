@@ -69,7 +69,11 @@ Pending (Cyan Glow)**; search `cyan tube`, `glowing hose`, or `tube hose` in the
 sidebar. Native Shift+A search accepts its displayed words in any order.
 Model materials preserve source emission and metallic/smoothness masks; Material
 Preview and model exports use these shader properties. Solid mode shows the base
-texture/color for immediate feedback. Browser
+texture/color for immediate feedback. Shadow-only renderers stay hidden, so the
+game's untextured shadow proxies cannot cover the visible model. To refresh an
+existing project after an importer update, select its placements or group and use
+**Assets → Load Selected Models**; instances share each refreshed model and keep
+their placement transforms. Browser
 redraws reuse their current page. Loading progress and cancellation stay beside
 the search controls. Model completion follows prefab IDs, so renaming or deleting
 a placement while loading cannot lose or redirect its model.

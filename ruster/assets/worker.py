@@ -323,7 +323,12 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         renderer = components.get('MeshRenderer') or components.get('SkinnedMeshRenderer')
         filter_ = components.get('MeshFilter') or components.get('SkinnedMeshRenderer')
         renderer_key=component_keys.get('MeshRenderer',component_keys.get('SkinnedMeshRenderer'))
-        if renderer and filter_ and renderer_key not in excluded_renderers and getattr(renderer, 'm_Enabled', True):
+        # Unity's ShadowsOnly (3) meshes cover the visible model to cast cheaper
+        # shadows. Drawing them as surfaces creates white patches and z-fighting.
+        # Keep the transform node and walk its children, without decoding the
+        # hidden mesh or its materials. Off/On/TwoSided (0/1/2) remain visible.
+        visible = renderer and getattr(renderer, 'm_Enabled', True) and getattr(renderer, 'm_CastShadows', 1) != 3
+        if visible and filter_ and renderer_key not in excluded_renderers:
             try:
                 if filter_.m_Mesh.path_id:
                     node['mesh'] = mesh(filter_.m_Mesh)
