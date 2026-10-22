@@ -14,7 +14,7 @@ Rust-engine parity.
 | Browser | Shift+A categories, descriptive tokens in any order, favorites, local-availability filter, full-path/ID tooltips, paginated counts, Hidden & IO Helpers and all-assets search. |
 | Placement | Native selection, translation, rotation, scale, groups, duplicate/delete, same-type selection and replacement; shared model instances. |
 | Snapping | Left-toolbar object snap and settings; vertices, edges or faces of loaded instances; 45°/90° native rotation increments and world-angle alignment. |
-| Symmetry | Left-toolbar radial symmetry with 2–16 sides around a configurable Z-axis center; new prefab copies follow their original's transforms; independent-set release, undo and project persistence. |
+| Symmetry | Left-toolbar radial symmetry with 2–16 sides around a configurable Z-axis center; any member drives its set's transforms and deletion while enabled; independent editing while off, permanent release, undo and project persistence. |
 | Loading | Wireframe placement boxes until original linked models attach; progress, cancellation and failure reports; bounded incremental cache recovery; installed-version mismatch/restart guidance. |
 | Protected originals | Linked read-only meshes/materials, original-model restoration, export guards against editable/unpacked previews; placement TRS remains editable. |
 | Materials | Source base colors/textures and UV transforms, supported metallic/smoothness masks, emission, alpha blending/cutouts; Solid color/texture feedback and native shader-node previews. Shadow-only surfaces excluded. |

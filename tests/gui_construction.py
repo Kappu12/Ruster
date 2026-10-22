@@ -13,6 +13,8 @@ import traceback
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+if '--' in sys.argv and sys.argv[sys.argv.index('--')+1:]:
+    sys.path.insert(0, sys.argv[sys.argv.index('--')+1])
 import bpy
 from bpy_extras import view3d_utils
 from mathutils import Quaternion, Vector
@@ -47,6 +49,12 @@ def point(world):
     result = view3d_utils.location_3d_to_region_2d(state['region'], state['area'].spaces.active.region_3d, Vector(world))
     assert result is not None
     return round(result.x+state['region'].x), round(result.y+state['region'].y)
+
+
+def assert_matrices(expected):
+    for name, matrix in expected.items():
+        actual = bpy.context.scene.objects[name].matrix_world
+        assert max(abs(a-b) for row, other in zip(actual, matrix) for a, b in zip(row, other)) < 2e-4, name
 
 
 def perform():
@@ -163,8 +171,70 @@ def perform():
     elif stage == 19:
         moving = bpy.data.objects[state['moving']]
         assert abs(abs(moving.rotation_euler.z)-math.pi/2) < 1e-4, 'Native rotation did not snap to 90 degrees'
+    elif stage == 20:
+        settings = bpy.context.scene.ruster_construction
+        settings.symmetry, settings.object_snap, settings.angle_snap = True, False, 'OFF'
+        source = bpy.context.scene.objects[state['source_name']]
+        peer = construction.symmetry_members([source])[1]
+        state['peer_name'] = peer.name
+        state['before_peer_move'] = {obj.name: obj.matrix_world.copy() for obj in [source, *construction.symmetry_members([source])]}
+        state['independent_matrix'] = bpy.context.scene.objects[state['moving']].matrix_world.copy()
+        placement.select([peer])
+        state['desired_peer'] = peer.matrix_world.copy()
+        state['desired_peer'].translation += Vector((1.5, -.75, 1.))
+        with at_view():
+            bpy.ops.ed.undo_push(message='Before companion translation')
+            assert bpy.ops.transform.translate(value=(1.5, -.75, 1.)) == {'FINISHED'}
+    elif stage == 21:
+        peer = bpy.context.scene.objects[state['peer_name']]
+        source = bpy.context.scene.objects[state['source_name']]
+        assert_matrices({peer.name: state['desired_peer'], state['moving']: state['independent_matrix']})
+        canonical = construction.radial_matrix(peer.matrix_world, (0,0,0), -peer['ruster_symmetry_angle'])
+        for obj in [source, *construction.symmetry_members([source])]:
+            assert_matrices({obj.name: construction.radial_matrix(canonical, (0,0,0), obj.get('ruster_symmetry_angle', 0.))})
+        state['after_peer_move'] = {name: bpy.context.scene.objects[name].matrix_world.copy() for name in state['before_peer_move']}
+        with at_view():bpy.ops.ed.undo_push(message='Companion translation')
+    elif stage == 22:
+        with at_view():assert bpy.ops.ed.undo() == {'FINISHED'}
+        assert_matrices(state['before_peer_move'])
+    elif stage == 23:
+        with at_view():assert bpy.ops.ed.redo() == {'FINISHED'}
+        assert_matrices(state['after_peer_move'])
+    elif stage == 24:
+        placement.select([bpy.context.scene.objects[state['peer_name']]])
+        with at_view():assert bpy.ops.ruster.delete() == {'FINISHED'}
+    elif stage == 25:
+        assert len(scene.prefab_roots()) == 1, 'Companion deletion did not remove exactly its linked set'
+        assert_matrices({state['moving']: state['independent_matrix']})
+        with at_view():
+            bpy.ops.ed.undo_push(message='Delete companion set')
+            assert bpy.ops.ed.undo() == {'FINISHED'}
+    elif stage == 26:
+        assert len(scene.prefab_roots()) == 7
+        assert_matrices(state['after_peer_move'])
+        with at_view():assert bpy.ops.ed.redo() == {'FINISHED'}
+    elif stage == 27:
+        assert len(scene.prefab_roots()) == 1
+        with at_view():assert bpy.ops.ed.undo() == {'FINISHED'}
+    elif stage == 28:
+        assert len(scene.prefab_roots()) == 7
+        bpy.context.scene.ruster_construction.symmetry = False
+        placement.select([bpy.context.scene.objects[state['peer_name']]])
+        with at_view():assert bpy.ops.ruster.delete() == {'FINISHED'}
+    elif stage == 29:
+        assert len(scene.prefab_roots()) == 6, 'Disabled symmetry deleted another member'
+        peer = next(obj for obj in scene.prefab_roots() if obj.get('ruster_symmetry_source'))
+        state['disabled_others'] = {obj.name: obj.matrix_world.copy() for obj in scene.prefab_roots() if obj != peer}
+        state['disabled_peer'] = peer.name
+        state['disabled_desired'] = peer.matrix_world.copy()
+        state['disabled_desired'].translation += Vector((2, 1, 0))
+        placement.select([peer])
+        with at_view():assert bpy.ops.transform.translate(value=(2, 1, 0)) == {'FINISHED'}
+    elif stage == 30:
+        assert_matrices(state['disabled_others'])
+        assert_matrices({state['disabled_peer']: state['disabled_desired']})
     else:
-        print('Graphical construction controls, native angle snapping and symmetry undo/redo passed', flush=True)
+        print('Graphical construction controls, native snapping, any-member symmetry and undo/redo passed', flush=True)
         bpy.ops.wm.quit_blender()
         return None
     state['stage'] += 1

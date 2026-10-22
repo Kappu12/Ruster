@@ -273,9 +273,8 @@ def duplicate_selected():
 
 def delete_selected():
     roots=selected_roots()
-    from .construction import symmetry_members
-    for obj in symmetry_members(roots):
-        if not any(parent in roots for parent in parent_chain(obj)) and obj not in roots:roots.append(obj)
+    from .construction import deletion_roots
+    roots=deletion_roots(roots)
     for root in roots:
         for child in list(root.children_recursive):bpy.data.objects.remove(child,do_unlink=True)
         bpy.data.objects.remove(root,do_unlink=True)

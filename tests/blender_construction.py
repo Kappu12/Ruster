@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 if '--' in sys.argv and sys.argv[sys.argv.index('--')+1:]:
     sys.path.insert(0, sys.argv[sys.argv.index('--')+1])
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 import ruster
 from ruster import app, construction, placement, scene, studio
 from ruster.assets import catalog
@@ -21,6 +21,177 @@ from tests.fixtures import triangle_asset
 
 def near(a, b):
     assert (Vector(a)-Vector(b)).length < 1e-4, (a, b)
+
+
+def refresh():
+    bpy.context.view_layer.update()
+    construction.sync_symmetry(bpy.context.scene)
+    bpy.context.view_layer.update()
+
+
+def matrix_near(actual, expected):
+    assert max(abs(a-b) for row, other in zip(actual, expected) for a, b in zip(row, other)) < 2e-4, (actual, expected)
+
+
+def assert_set(source_id, canonical, center):
+    members = [obj for obj in scene.prefab_roots() if obj.get('ruster_instance') == source_id
+               or obj.get('ruster_symmetry_source') == source_id]
+    for obj in members:
+        matrix_near(obj.matrix_world, construction.radial_matrix(canonical, center, obj.get('ruster_symmetry_angle', 0.)))
+    return members
+
+
+def new_set(uid, sides=4, center=(3, -2, 1)):
+    studio.new_prefab()
+    refresh()
+    settings = bpy.context.scene.ruster_construction
+    settings.symmetry, settings.sides, settings.center = True, sides, center
+    settings.object_snap, settings.angle_snap = False, 'OFF'
+    bpy.context.scene.cursor.location = Vector(center)+Vector((7, 0, 2))
+    assert bpy.ops.ruster.place(uid=str(uid)) == {'FINISHED'}
+    source = bpy.context.object
+    refresh()
+    return source, [obj for obj in scene.prefab_roots() if obj != source]
+
+
+def any_member_regressions(uid, directory):
+    center = (3, -2, 1)
+    source, peers = new_set(uid, center=center)
+    source_id, model = source['ruster_instance'], source.instance_collection
+    driver = peers[1]
+    desired = Matrix.LocRotScale(Vector((9, 7, 5)), Euler((.2, -.35, .7), 'XYZ').to_quaternion(), Vector((1.25, .8, 2.)))
+    driver.matrix_world = desired
+    refresh()
+    canonical = construction.radial_matrix(desired, center, -driver['ruster_symmetry_angle'])
+    assert len(assert_set(source_id, canonical, center)) == 4
+    matrix_near(driver.matrix_world, desired)
+    assert all(obj.instance_collection == model and obj.instance_collection.library for obj in scene.prefab_roots())
+    # The original remains a driver after editing a companion.
+    desired = Matrix.LocRotScale(Vector((5, -7, 8)), Euler((-.4, .1, -.6), 'XYZ').to_quaternion(), Vector((.75, 1.5, 2.5)))
+    source.matrix_world = desired
+    refresh()
+    assert_set(source_id, desired, center)
+    # New-set controls must not replace this set's saved center/angles.
+    settings = bpy.context.scene.ruster_construction
+    settings.center, settings.sides = (40, 30, 20), 7
+    desired = driver.matrix_world.copy()
+    desired.translation += Vector((2, 3, -1))
+    driver.matrix_world = desired
+    refresh()
+    canonical = construction.radial_matrix(desired, center, -driver['ruster_symmetry_angle'])
+    assert_set(source_id, canonical, center)
+    saved = {obj['ruster_instance']: obj.matrix_world.copy() for obj in scene.prefab_roots()}
+    app.save_project(directory/'any-member.ruster')
+    app.open_path(directory/'any-member.ruster')
+    refresh()
+    for obj in scene.prefab_roots():matrix_near(obj.matrix_world, saved[obj['ruster_instance']])
+    source = next(obj for obj in scene.prefab_roots() if obj.get('ruster_instance') == source_id)
+    driver = next(obj for obj in scene.prefab_roots() if obj.get('ruster_symmetry_source') == source_id)
+    desired = driver.matrix_world.copy()
+    desired.translation += Vector((-3, 1, 2))
+    driver.matrix_world = desired
+    refresh()
+    canonical = construction.radial_matrix(desired, center, -driver['ruster_symmetry_angle'])
+    assert_set(source_id, canonical, center)
+    # Disabled edits and deletion leave every other member in place.
+    bpy.context.scene.ruster_construction.symmetry = False
+    refresh()
+    others = {obj.name: obj.matrix_world.copy() for obj in scene.prefab_roots() if obj != driver}
+    desired = driver.matrix_world.copy()
+    desired.translation += Vector((11, -4, 3))
+    driver.matrix_world = desired
+    refresh()
+    matrix_near(driver.matrix_world, desired)
+    for name, matrix in others.items():matrix_near(bpy.context.scene.objects[name].matrix_world, matrix)
+    bpy.data.objects.remove(source, do_unlink=True)
+    refresh()
+    assert len(scene.prefab_roots()) == 3
+    bpy.context.scene.ruster_construction.symmetry = True
+    refresh()
+    desired = driver.matrix_world.copy()
+    desired.translation += Vector((1, 2, 3))
+    driver.matrix_world = desired
+    refresh()
+    canonical = construction.radial_matrix(desired, center, -driver['ruster_symmetry_angle'])
+    assert len(assert_set(source_id, canonical, center)) == 3
+    # Both Ruster deletion and direct Blender removal expand from any member.
+    for direct in (False, True):
+        for original in (False, True):
+            source, peers = new_set(uid)
+            victim = source if original else peers[0]
+            if direct:bpy.data.objects.remove(victim, do_unlink=True)
+            else:
+                placement.select([victim])
+                placement.delete_selected()
+            refresh()
+            assert not scene.prefab_roots(), 'Deleting a member did not remove its enabled symmetry set'
+    for original in (False, True):
+        source, peers = new_set(uid)
+        bpy.context.scene.ruster_construction.symmetry = False
+        refresh()
+        placement.select([source if original else peers[0]])
+        placement.delete_selected()
+        refresh()
+        assert len(scene.prefab_roots()) == 3, 'Disabled deletion removed another member'
+    source, peers = new_set(uid, sides=2)
+    bpy.data.objects.remove(peers[0], do_unlink=True)
+    refresh()
+    assert not scene.prefab_roots(), 'Deleting the sole companion left the original'
+    # MCP duplicates remain independent; its delete count covers the whole set.
+    from ruster import mcp_bridge
+    server = mcp_bridge.RusterMCPServer(9877, 'construction-test-token-1234567890123456789')
+    source, peers = new_set(uid)
+    result = server.dispatch('duplicate_objects', {'names': [peers[0].name], 'offset': [2, 0, 0]})
+    duplicate = bpy.context.scene.objects[result['objects'][0]]
+    assert not duplicate.get('ruster_symmetry_source')
+    result = server.dispatch('delete_objects', {'names': [peers[0].name]})
+    refresh()
+    assert result['deleted_objects'] == 4 and len(result['deleted']) == 4
+    assert scene.prefab_roots() == [duplicate]
+    # Undo restores complete sets and seeds the next companion edit.
+    studio.new_prefab()
+    refresh()
+    bpy.context.preferences.edit.use_global_undo = True
+    bpy.ops.ed.undo_push(message='Before symmetry regression')
+    source, peers = new_set(uid)
+    source_id, driver_id = source['ruster_instance'], peers[1]['ruster_instance']
+    before = {obj['ruster_instance']: obj.matrix_world.copy() for obj in scene.prefab_roots()}
+    bpy.ops.ed.undo_push(message='Symmetry regression placement')
+    desired = peers[1].matrix_world.copy()
+    desired.translation += Vector((2, -3, 1))
+    peers[1].matrix_world = desired
+    refresh()
+    moved = {obj['ruster_instance']: obj.matrix_world.copy() for obj in scene.prefab_roots()}
+    bpy.ops.ed.undo_push(message='Symmetry regression companion move')
+    assert bpy.ops.ed.undo() == {'FINISHED'}
+    refresh()
+    assert len(scene.prefab_roots()) == 4
+    for obj in scene.prefab_roots():matrix_near(obj.matrix_world, before[obj['ruster_instance']])
+    assert bpy.ops.ed.redo() == {'FINISHED'}
+    refresh()
+    for obj in scene.prefab_roots():matrix_near(obj.matrix_world, moved[obj['ruster_instance']])
+    driver = next(obj for obj in scene.prefab_roots() if obj['ruster_instance'] == driver_id)
+    placement.select([driver])
+    placement.delete_selected()
+    refresh()
+    bpy.ops.ed.undo_push(message='Symmetry regression delete set')
+    assert not scene.prefab_roots()
+    assert bpy.ops.ed.undo() == {'FINISHED'}
+    refresh()
+    assert len(scene.prefab_roots()) == 4
+    for obj in scene.prefab_roots():matrix_near(obj.matrix_world, moved[obj['ruster_instance']])
+    assert bpy.ops.ed.redo() == {'FINISHED'}
+    refresh()
+    assert not scene.prefab_roots()
+    assert bpy.ops.ed.undo() == {'FINISHED'}
+    refresh()
+    driver = next(obj for obj in scene.prefab_roots() if obj['ruster_instance'] == driver_id)
+    desired = driver.matrix_world.copy()
+    desired.translation += Vector((-1, 2, 0))
+    driver.matrix_world = desired
+    refresh()
+    canonical = construction.radial_matrix(desired, center, -driver['ruster_symmetry_angle'])
+    assert len(assert_set(source_id, canonical, center)) == 4
 
 
 def run():
@@ -122,6 +293,7 @@ def run():
         settings.symmetry = False
         assert bpy.ops.ruster.place(uid=str(uid)) == {'FINISHED'}
         assert len(scene.prefab_roots()) == count+1
+        any_member_regressions(uid, directory)
         ruster.unregister()
         assert construction.sync_symmetry not in bpy.app.handlers.depsgraph_update_post
     print('Construction snapping and symmetry checks passed', flush=True)

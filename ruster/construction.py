@@ -9,6 +9,8 @@ from mathutils import Matrix, Vector
 
 _classes = []
 _syncing = False
+_restoring = False
+_snapshots = {}
 COPY_KEYS = ('ruster_symmetry_source', 'ruster_symmetry_center', 'ruster_symmetry_angle')
 
 
@@ -32,6 +34,18 @@ def update_snapping(settings, context):
         tools.snap_angle_increment_3d_precision = angle
 
 
+def update_symmetry(settings, context):
+    """Resume from current placements, without replaying edits made while off."""
+    global _syncing
+    if _syncing or _restoring:return
+    _syncing = True
+    try:
+        if context and context.view_layer:context.view_layer.update()
+        remember_symmetry(settings.id_data)
+    finally:
+        _syncing = False
+
+
 class RUSTER_PG_construction(bpy.types.PropertyGroup):
     object_snap: BoolProperty(name='Object Snapping', default=False, update=update_snapping,
         description='Snap moving placements to nearby original model geometry')
@@ -41,8 +55,8 @@ class RUSTER_PG_construction(bpy.types.PropertyGroup):
     angle_snap: EnumProperty(name='Rotation Step', default='OFF', update=update_snapping,
         items=[('OFF', 'Off', 'Free rotation'), ('45', '45°', 'Rotate in 45 degree steps'),
                ('90', '90°', 'Rotate in 90 degree steps')])
-    symmetry: BoolProperty(name='Radial Symmetry', default=False,
-        description='Repeat newly added prefabs around the center; use Make Independent to unlink an existing set')
+    symmetry: BoolProperty(name='Radial Symmetry', default=False, update=update_symmetry,
+        description='Repeat new prefabs around the center; editing or deleting any member affects its set while enabled')
     sides: IntProperty(name='Sides', default=4, min=2, max=16,
         description='Total placements per set, including the original (applies to newly added prefabs)')
     center: FloatVectorProperty(name='Center', size=3, subtype='TRANSLATION',
@@ -77,38 +91,109 @@ def add_symmetry(source, context):
             if 'ruster_frame_on_load' in obj:del obj['ruster_frame_on_load']
             obj.matrix_world = radial_matrix(source.matrix_world, settings.center, obj['ruster_symmetry_angle'])
             obj.select_set(False)
+        remember_symmetry(context.scene)
         return created
     except Exception:
         for obj in created:bpy.data.objects.remove(obj, do_unlink=True)
         raise
 
 
+def symmetry_groups(context_scene, previous=None):
+    """Read saved links; snapshots retain IDs and matrices, never deleted objects."""
+    roots = {obj['ruster_instance']: obj for obj in context_scene.objects
+             if obj.get('ruster_kind') == 'PREFAB' and obj.get('ruster_instance') and not obj.library}
+    groups = {}
+    for instance, obj in roots.items():
+        source = obj.get('ruster_symmetry_source')
+        if source:groups.setdefault(source, {})[instance] = obj
+    # Also recognize deletion of the only companion in a two-member set.
+    for source in previous or ():
+        if source in roots:groups.setdefault(source, {})
+    for source, members in groups.items():
+        if source in roots and not roots[source].get('ruster_symmetry_source'):
+            members[source] = roots[source]
+    return groups
+
+
+def remember_symmetry(context_scene):
+    _snapshots[context_scene.as_pointer()] = {
+        source: {instance: obj.matrix_world.copy() for instance, obj in members.items()}
+        for source, members in symmetry_groups(context_scene).items()}
+
+
+def matrix_changed(matrix, previous):
+    return any(abs(a-b) > 1e-6 for row, other in zip(matrix, previous) for a, b in zip(row, other))
+
+
+@persistent
+def suspend_symmetry(_dummy):
+    global _restoring
+    _restoring = True
+    _snapshots.clear()
+
+
+@persistent
+def restore_symmetry(_dummy):
+    global _restoring
+    try:
+        for context_scene in bpy.data.scenes:remember_symmetry(context_scene)
+    finally:
+        _restoring = False
+
+
 @persistent
 def sync_symmetry(context_scene, _depsgraph=None):
     global _syncing
-    if _syncing:return
+    if _syncing or _restoring:return
     _syncing = True
     try:
-        roots = [obj for obj in context_scene.objects if obj.get('ruster_kind') == 'PREFAB']
-        copies = [obj for obj in roots if obj.get('ruster_symmetry_source')]
-        if not copies:return
-        sources = {obj['ruster_instance']: obj for obj in roots
-                   if obj.get('ruster_instance') and not obj.get('ruster_symmetry_source')}
-        for obj in copies:
-            source = sources.get(obj.get('ruster_symmetry_source'))
-            if source is None:continue
-            target = radial_matrix(source.matrix_world, obj['ruster_symmetry_center'], obj['ruster_symmetry_angle'])
-            if any(abs(a-b) > 1e-6 for row, other in zip(obj.matrix_world, target) for a, b in zip(row, other)):
-                obj.matrix_world = target
+        previous = _snapshots.get(context_scene.as_pointer(), {})
+        groups = symmetry_groups(context_scene, previous)
+        if context_scene.ruster_construction.symmetry:
+            active = bpy.context.view_layer.objects.active if bpy.context.view_layer else None
+            for source, members in groups.items():
+                before = previous.get(source, {})
+                if before.keys() - members.keys():
+                    # Cover native Delete and scripted removal too. Linked model
+                    # collections are untouched; only local placement roots go.
+                    for obj in members.values():bpy.data.objects.remove(obj, do_unlink=True)
+                    continue
+                changed = [obj for instance, obj in members.items()
+                           if instance in before and matrix_changed(obj.matrix_world, before[instance])]
+                if not changed:continue
+                driver = active if active in changed else changed[0]
+                companion = next((obj for obj in members.values() if obj.get('ruster_symmetry_source')), None)
+                if companion is None:continue
+                center = companion['ruster_symmetry_center']
+                angle = driver.get('ruster_symmetry_angle', 0.) if driver.get('ruster_symmetry_source') else 0.
+                anchor = radial_matrix(driver.matrix_world, center, -angle)
+                for obj in members.values():
+                    target = radial_matrix(anchor, center, obj.get('ruster_symmetry_angle', 0.)
+                                           if obj.get('ruster_symmetry_source') else 0.)
+                    if obj != driver and matrix_changed(obj.matrix_world, target):obj.matrix_world = target
+        remember_symmetry(context_scene)
     finally:
         _syncing = False
 
 
 def symmetry_members(roots):
-    """Deleting an original also deletes its generated companions."""
-    sources = {obj['ruster_instance'] for root in roots for obj in [root, *root.children_recursive]
-               if obj.get('ruster_kind') == 'PREFAB' and obj.get('ruster_instance')}
-    return [obj for obj in bpy.context.scene.objects if obj.get('ruster_symmetry_source') in sources]
+    """Return other members of selected sets, including placements inside groups."""
+    selected = {obj for root in roots for obj in [root, *root.children_recursive]}
+    sources = {obj.get('ruster_symmetry_source') or obj.get('ruster_instance') for obj in selected
+               if obj.get('ruster_kind') == 'PREFAB'}
+    sources.discard(None)
+    return [obj for obj in bpy.context.scene.objects if obj not in selected and
+            ((obj.get('ruster_symmetry_source') in sources) or
+             (obj.get('ruster_kind') == 'PREFAB' and obj.get('ruster_instance') in sources))]
+
+
+def deletion_roots(roots):
+    """Expand enabled symmetry sets and keep each selected hierarchy only once."""
+    from .placement import parent_chain
+    roots = list(roots)
+    if bpy.context.scene.ruster_construction.symmetry:roots.extend(symmetry_members(roots))
+    selected = set(roots)
+    return [obj for obj in roots if not any(parent in selected for parent in parent_chain(obj))]
 
 
 class RUSTER_OT_symmetry_center(bpy.types.Operator):
@@ -141,13 +226,14 @@ class RUSTER_OT_symmetry_release(bpy.types.Operator):
         ids = {obj.get('ruster_symmetry_source') or obj.get('ruster_instance') for obj in selected}
         for obj in context.scene.objects:
             if obj.get('ruster_symmetry_source') in ids:clear_copy_link(obj)
+        remember_symmetry(context.scene)
         return {'FINISHED'}
 
 
 class RUSTER_OT_symmetry_original(bpy.types.Operator):
     bl_idname = 'ruster.symmetry_original'
     bl_label = 'Select Symmetry Original'
-    bl_description = 'Select the original placement to move, rotate or scale this entire symmetry set'
+    bl_description = 'Select the first placement of this set; any member can move, rotate or scale the set'
 
     @classmethod
     def poll(cls, context):return bool(context.object and context.object.get('ruster_symmetry_source'))
@@ -157,7 +243,7 @@ class RUSTER_OT_symmetry_original(bpy.types.Operator):
         source_id = context.object.get('ruster_symmetry_source')
         source = next((obj for obj in context.scene.objects if obj.get('ruster_instance') == source_id), None)
         if source is None:
-            self.report({'WARNING'}, 'The original has been deleted; make this set independent')
+            self.report({'WARNING'}, 'The original was deleted; edit any remaining member or make the set independent')
             return {'CANCELLED'}
         select([source])
         return {'FINISHED'}
@@ -178,7 +264,6 @@ class RUSTER_OT_snap_rotation(bpy.types.Operator):
         angle = math.radians(int(context.scene.ruster_construction.angle_snap))
         context.view_layer.update()
         for obj in selected_roots():
-            if obj.get('ruster_symmetry_source'):continue
             location, rotation, scale = obj.matrix_world.decompose()
             euler = rotation.to_euler('XYZ')
             for axis in range(3):euler[axis] = round(euler[axis] / angle) * angle
@@ -224,7 +309,9 @@ class RUSTER_PT_symmetry(bpy.types.Panel):
         col.prop(settings, 'center')
         col.operator('ruster.symmetry_center', icon='CURSOR')
         layout.label(text='New prefabs repeat around Z.')
-        layout.label(text='Move the original to move its copies.')
+        layout.label(text='Move, rotate or scale any member.')
+        layout.label(text='Delete any member to delete its set.')
+        layout.label(text='Turn symmetry off to edit independently.')
         layout.operator('ruster.symmetry_release', icon='UNLINKED')
 
 
@@ -256,10 +343,20 @@ def register():
         _classes.append(cls)
     bpy.types.Scene.ruster_construction = PointerProperty(type=RUSTER_PG_construction)
     bpy.app.handlers.depsgraph_update_post.append(sync_symmetry)
+    for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):
+        handlers.append(suspend_symmetry)
+    for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post, bpy.app.handlers.load_post):
+        handlers.append(restore_symmetry)
+    restore_symmetry(None)
 
 
 def unregister():
     bpy.app.handlers.depsgraph_update_post.remove(sync_symmetry)
+    for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):
+        handlers.remove(suspend_symmetry)
+    for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post, bpy.app.handlers.load_post):
+        handlers.remove(restore_symmetry)
+    _snapshots.clear()
     del bpy.types.Scene.ruster_construction
     for cls in reversed(_classes):bpy.utils.unregister_class(cls)
     _classes.clear()

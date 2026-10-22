@@ -59,6 +59,7 @@ def prefabs_in(objects):
 
 
 def clone_arrays(objects,count,offset,rotation,bridge):
+    from .construction import clear_copy_link
     source_trees=trees(objects)
     n=sum(o.get('ruster_kind')=='PREFAB' for tree in source_trees for o in tree)
     if n*count>MAX_NEW or sum(map(len,source_trees))*count>4000:
@@ -78,6 +79,7 @@ def clone_arrays(objects,count,offset,rotation,bridge):
                 for obj in source_tree:
                     copy=obj.copy();created.append(copy);obj.users_collection[0].objects.link(copy);copies[obj]=copy
                     copy['ruster_instance']=uuid.uuid4().hex
+                    clear_copy_link(copy)
                     if obj.get('ruster_prefab_source'):
                         text=bpy.data.texts.get(obj['ruster_prefab_source'])
                         if not text:raise ValueError('Imported prefab source metadata is missing')
@@ -238,7 +240,11 @@ def dispatch(server,kind,p,bridge):
             return {'path':str(target)}
         if kind=='select_objects':placement.select(objects);return {'selected':[o.name for o in objects]}
         if kind=='delete_objects':
+            from .construction import deletion_roots
+            objects=deletion_roots(objects)
+            mcp_building.independent(objects)
             names=[o.name for o in objects];all_objects=[o for tree in trees(objects) for o in tree]
+            for obj in all_objects:bridge.map_object(obj.name)
             # All targets and hierarchies have been validated before deletion.
             for obj in reversed(all_objects):bpy.data.objects.remove(obj,do_unlink=True)
             result={'deleted':names,'deleted_objects':len(all_objects)}
