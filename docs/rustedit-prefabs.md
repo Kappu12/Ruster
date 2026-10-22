@@ -17,10 +17,12 @@ high three bytes, dropping the least significant byte. Existing checksums are
 preserved for unchanged inputs, including older prefabs with different hashes.
 
 An unchanged import/export preserves the entire original file byte-for-byte.
-Unknown fields remain intact. Placement changes in files with populated linked
-extension records are currently rejected, because their positions and links
-must be updated together. New placement-only compositions can be edited and
-exported normally. This is not yet complete RustEdit feature parity.
+Unknown fields remain intact. IO entity positions and both connection ends follow
+placement movements when IDs and ordering remain intact and positions identify
+unique placements. Ambiguous references, IO-linked replacement/deletion, and
+changes with other populated extension families are rejected to avoid corrupting
+links. New placement-only compositions can be edited and exported normally.
+This is not yet complete RustEdit feature parity.
 
 Validation uses synthetic fixtures plus the locally supplied Maze prefab. To
 check an export against RustEdit's actual protobuf deserializer and checksum

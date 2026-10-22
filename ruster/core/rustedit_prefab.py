@@ -89,11 +89,49 @@ class RustEditPrefab:
         validate_records(records)
         current = self.prefabs
         if [wire.serialize(r) for r in current] == [wire.serialize(r) for r in records]:return
-        if self.populated_extensions:
-            raise FormatError('This prefab carries ' + ', '.join(self.populated_extensions)
+        blocked = [label for label in self.populated_extensions if label != 'IO']
+        if blocked:
+            raise FormatError('This prefab carries ' + ', '.join(blocked)
                               + '; changing its placements requires editing those linked records too')
+        fields = self.fields
+        if 'IO' in self.populated_extensions:
+            # Current RustEdit addresses IO entities and wire endpoints by their
+            # prefab path and position. Keep placement identity/order stable and
+            # move both ends with their corresponding placements.
+            if len(current) != len(records) or any(prefab_id(a) != prefab_id(b) for a,b in zip(current, records)):
+                raise FormatError('IO-linked prefabs must retain their placement IDs and order')
+            positions = {}
+            for old, new in zip(current, records):
+                old_pos, new_pos = prefab_transform(old)[0], prefab_transform(new)[0]
+                positions.setdefault(tuple(round(v, 3) for v in old_pos), []).append((old_pos, new_pos))
+            def moved(message):
+                value = wire.get(message, 2)
+                if value is None:raise FormatError('IO record has no position; cannot safely move its links')
+                position = wire.vector(value)
+                matches = positions.get(tuple(round(v, 3) for v in position), [])
+                if len(matches) != 1:
+                    raise FormatError('IO position does not identify one unique prefab; cannot safely move its links')
+                old, new = matches[0]
+                if old == new:return message
+                return wire.replace(message, 2, 2, wire.set_vector(value, new))
+            fields = []
+            for field_ in self.fields:
+                if field_.number != 5 or field_.wire != 2 or not field_.value:
+                    fields.append(field_);continue
+                entities = []
+                for entry in wire.parse(field_.value):
+                    if entry.number != 1 or entry.wire != 2:
+                        entities.append(entry);continue
+                    entity = moved(wire.parse(entry.value))
+                    links = []
+                    for link in entity:
+                        if link.number in (3,4) and link.wire == 2 and link.value:
+                            links.append(wire.encode(link.number, 2, wire.serialize(moved(wire.parse(link.value)))))
+                        else:links.append(link)
+                    entities.append(wire.encode(1, 2, wire.serialize(links)))
+                fields.append(wire.encode(5, 2, wire.serialize(entities)))
         result, inserted = [], False
-        for f in self.fields:
+        for f in fields:
             if f.number == 3:
                 if not inserted:
                     result.extend(wire.encode(3, 2, wire.serialize(row)) for row in records)
