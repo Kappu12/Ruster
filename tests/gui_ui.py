@@ -21,6 +21,21 @@ temporary=tempfile.TemporaryDirectory(prefix='ruster-ui-draw-')
 os.environ['RUSTER_USER_DIR']=str(Path(temporary.name)/'user')
 ruster.register()
 state={'stage':0,'draws':set(),'dialogs':set()}
+
+
+def property_guard(original):
+    def draw(self,context):
+        if ui.is_map(context):
+            print('Unrelated Blender properties leaked into map mode',type(self).__name__,flush=True)
+            os._exit(1)
+        original(self,context)
+    return draw
+
+
+# Panels with no original poll need a fresh RNA callback registration.
+for name in ('SCENE_PT_scene','SCENE_PT_unit','SCENE_PT_keying_sets'):
+    cls=getattr(bpy.types,name)
+    cls.draw=property_guard(cls.draw)
 native_section=ui.section
 def open_section(layout,identifier,title,icon,**_kwargs):
     return native_section(layout,'test_'+identifier,title,icon,closed=False)
@@ -78,8 +93,6 @@ def perform():
         state['area']=area
         area.spaces.active.show_region_ui=True
         with bpy.context.temp_override(area=area):bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=1)
-        region=next(r for r in area.regions if r.type=='UI')
-        region.active_panel_category='Item'
         from contextlib import closing
         with closing(catalog.connect(app.scene.cache_dir())) as db:
             for uid in range(20):
@@ -91,7 +104,14 @@ def perform():
         state['prefab']=app.scene.prefab_roots()[0]
         state['path']=next(o for o in bpy.context.scene.objects if o.get('ruster_kind')=='PATH')
     elif 1<=stage<=6:
-        assert stage in state['draws'],f'UI did not draw in stage {stage}'
+        if stage==1:
+            region=next(r for r in state['area'].regions if r.type=='UI')
+            if region.active_panel_category!='Ruster' or bpy.app.timers.is_registered(ui.close_map_timeline):
+                state['focus_attempts']=state.get('focus_attempts',0)+1
+                assert state['focus_attempts']<25,'Map did not focus its Rust controls'
+                return .2
+            region.active_panel_category='Item'
+        else:assert stage in state['draws'],f'UI did not draw in stage {stage}'
         brush=bpy.context.scene.ruster_brush
         brush.layer=('terrain','water','splat','biome','topology','alpha')[stage-1]
         brush.tool=('STAMP','CLONE','SLOPE','FLATTEN','TERRACE','NOISE')[stage-1]

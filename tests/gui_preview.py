@@ -34,7 +34,10 @@ def prepare():
         with bpy.context.temp_override(area=area,region=region):
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=1)
             if mode=='setup':bpy.ops.ruster.setup('INVOKE_DEFAULT')
-            else:next(r for r in area.regions if r.type=='UI').active_panel_category='Ruster'
+            else:
+                next(r for r in area.regions if r.type=='UI').active_panel_category='Ruster'
+                area.tag_redraw()
+                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=2)
     return None
 
 
@@ -48,4 +51,4 @@ def capture():
 
 bpy.app.timers.register(start,first_interval=2)
 bpy.app.timers.register(prepare,first_interval=4)
-bpy.app.timers.register(capture,first_interval=8)
+bpy.app.timers.register(capture,first_interval=12)

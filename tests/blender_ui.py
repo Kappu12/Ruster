@@ -43,6 +43,7 @@ def run():
             bpy.ops.script.execute_preset(filepath=str(theme),menu_idname='USERPREF_MT_interface_theme_presets')
             before=theme_snapshot(bpy.context.preferences.themes[0])
             old_header=bpy.types.VIEW3D_HT_header.draw
+            old_scene_poll=bpy.types.SCENE_PT_scene.__dict__.get('poll')
             ruster.register()
             for name in ui_style.ACTIONS:
                 group,operator=name.split('.')
@@ -59,6 +60,7 @@ def run():
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
             ruster.unregister()
             assert bpy.types.VIEW3D_HT_header.draw==old_header
+            assert bpy.types.SCENE_PT_scene.__dict__.get('poll')==old_scene_poll
             assert theme_snapshot(bpy.context.preferences.themes[0])==before
     print('RUSTER_BLENDER_UI_THEME_ICONS_OK',flush=True)
 

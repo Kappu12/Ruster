@@ -7,6 +7,7 @@ from .ui_style import ICONS as I,action,properties,section,wrapped,tool_button
 _classes=[]
 _draws=[]
 _polls=[]
+_refreshed_panels=[]
 
 
 def is_map(context):
@@ -347,12 +348,41 @@ def topbar(self,context):
 def close_map_timeline():
     from . import editing,painting
     if editing.stroke_active or painting.stroke_active:return .5
+    # Joining areas rebuilds region state. Focus the sidebar on a later tick.
+    for window in bpy.context.window_manager.windows:
+        if window.scene.ruster.mode!='MAP':continue
+        for area in window.screen.areas:
+            if area.type=='DOPESHEET_EDITOR' and area.ui_type=='TIMELINE':
+                with bpy.context.temp_override(window=window,area=area):bpy.ops.screen.area_close()
+                return .2
+    retry=False
     for window in bpy.context.window_manager.windows:
         if window.scene.ruster.mode!='MAP':continue
         for area in list(window.screen.areas):
-            if area.type=='DOPESHEET_EDITOR' and area.ui_type=='TIMELINE':
-                with bpy.context.temp_override(window=window,area=area):bpy.ops.screen.area_close()
-    return None
+            if area.type=='VIEW_3D':
+                region=next((r for r in area.regions if r.type=='UI'),None)
+                if region and region.active_panel_category!='Ruster':
+                    try:region.active_panel_category='Ruster';area.tag_redraw()
+                    except RuntimeError:pass  # Category list needs its first draw.
+                    retry=True
+    return .2 if retry else None
+
+
+def refresh_panels(classes):
+    """Refresh RNA callbacks, unregistering children before their parents.
+
+    Blender doesn't install a previously absent poll callback on assignment.
+    Panels that had no poll at registration need registration refreshed once.
+    Include their children so Blender's parent panel pointers remain valid.
+    """
+    remaining=list(classes);ordered=[]
+    while remaining:
+        ids={getattr(cls,'bl_idname',cls.__name__) or cls.__name__ for cls in remaining}
+        ready=[cls for cls in remaining if getattr(cls,'bl_parent_id','') not in ids]
+        if not ready:raise RuntimeError('Cyclic Blender panel parent IDs')
+        for cls in ready:remaining.remove(cls);ordered.append(cls)
+    for cls in reversed(ordered):bpy.utils.unregister_class(cls)
+    for cls in ordered:bpy.utils.register_class(cls)
 
 
 def map_workspace():
@@ -377,16 +407,28 @@ def register():
     for cls in (bpy.types.OUTLINER_MT_context_menu,bpy.types.OUTLINER_MT_object,bpy.types.OUTLINER_MT_collection):patch_draw(cls,context_menu)
     for cls in (bpy.types.OUTLINER_MT_id_data,bpy.types.OUTLINER_MT_liboverride,bpy.types.OUTLINER_MT_edit_datablocks):patch_draw(cls,readonly_source_menu)
     patch_draw(bpy.types.PROPERTIES_HT_header,properties_header)
+    panels=[]
     for name in dir(bpy.types):
         cls=getattr(bpy.types,name)
         if not isinstance(cls,type) or not issubclass(cls,bpy.types.Panel) or name.startswith('RUSTER_'):continue
         if getattr(cls,'bl_space_type','')!='PROPERTIES':continue
-        own_poll=cls.__dict__.get('poll');original=getattr(cls,'poll',None)
+        panels.append(cls)
+    # Snapshot before changing parents, so inherited polls retain their originals.
+    originals=[(cls,cls.__dict__.get('poll'),getattr(cls,'poll',None)) for cls in panels]
+    refresh={cls for cls,_own,original in originals if original is None}
+    while True:
+        ids={getattr(cls,'bl_idname',cls.__name__) or cls.__name__ for cls in refresh}
+        children={cls for cls in panels if getattr(cls,'bl_parent_id','') in ids}
+        if children<=refresh:break
+        refresh.update(children)
+    for cls,own_poll,original in originals:
         _polls.append((cls,own_poll))
         def make_poll(original):
             def poll(panel,context):return False if is_map(context) else (original(context) if original else True)
             return poll
         cls.poll=classmethod(make_poll(original))
+    _refreshed_panels.extend(cls for cls in panels if cls in refresh)
+    refresh_panels(_refreshed_panels)
 
 
 def unregister():
@@ -395,6 +437,8 @@ def unregister():
         if poll is None:delattr(cls,'poll')
         else:cls.poll=poll
     _polls.clear()
+    refresh_panels(_refreshed_panels)
+    _refreshed_panels.clear()
     for cls,draw in reversed(_draws):cls.draw=draw
     _draws.clear()
     for cls in reversed(_classes):bpy.utils.unregister_class(cls)

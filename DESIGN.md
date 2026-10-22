@@ -34,6 +34,9 @@ property panels and the Ruster sidebar. Replace unrelated top-level authoring
 menus with project, edit, map and asset actions. Retain normal viewport navigation,
 selection, transforms, snapping, shading, undo and redo. Expose only implemented
 Rust workflows. Do not add nonfunctional brushes or decorative controls.
+Select the Ruster sidebar after the first map draw. Native Properties panels
+without an existing poll need their RNA registration refreshed when installing
+map-mode filtering; restore their original registrations on app unload.
 
 ## Editing contract
 
