@@ -2,6 +2,7 @@
 import hmac
 import json
 import math
+import sys
 from pathlib import Path
 import bpy
 from bpy.props import BoolProperty,IntProperty,StringProperty,PointerProperty
@@ -10,6 +11,7 @@ from .vendor.blender_mcp_bridge import BlenderMCPServer
 from .core import settings,mcp_config,wire
 from . import app,scene,editing,painting,placement
 from .assets import catalog
+from . import mcp_building
 from .ui_style import ICONS as I,action,properties,wrapped
 
 _server=None
@@ -48,15 +50,19 @@ def object_info(server,name):
     result.update(kind=obj.get('ruster_kind','BLENDER'),prefab_id=obj.get('ruster_uid'),
         position=list(location),rotation_degrees=[math.degrees(v) for v in rotation.to_euler('XYZ')],
         world_scale=list(scale),transform_space='WORLD',rotation_order='XYZ',
-        editable_placement=obj.get('ruster_kind') in {'PREFAB','GROUP','PATH'},geometry_read_only=obj.get('ruster_kind')=='PREFAB')
+        editable_placement=obj.get('ruster_kind') in {'PREFAB','GROUP','PATH'},geometry_read_only=obj.get('ruster_kind')=='PREFAB',
+        parent=obj.parent.name if obj.parent else None,children=[o.name for o in obj.children if o.get('ruster_kind') in {'PREFAB','GROUP','PATH'}],
+        world_bounds=mcp_building.object_bounds(obj),visual_loaded=bool(obj.get('ruster_visual')))
     return result
 
 
 def prefab_search(query='',category='',limit=20,offset=0):
     if not isinstance(query,str) or not isinstance(category,str):raise ValueError('Search and category must be strings')
     if type(limit)!=int or type(offset)!=int or not 1<=limit<=100 or offset<0:raise ValueError('Use a limit of 1–100 and a nonnegative offset')
-    return {'prefabs':[{'id':uid,'path':path,'available':bool(available)} for uid,path,available in
-        catalog.search(scene.cache_dir(),query,limit=limit,offset=offset,category=category)],'offset':offset,'limit':limit}
+    rows=catalog.search(scene.cache_dir(),query,limit=limit+1,offset=offset,category=category)
+    return {'prefabs':[{'id':uid,'path':path,'available':bool(available)} for uid,path,available in rows[:limit]],
+        'offset':offset,'limit':limit,'has_more':len(rows)>limit,'next_offset':offset+limit if len(rows)>limit else None,
+        'catalog_ready':(scene.cache_dir()/'catalog.sqlite3').is_file()}
 
 
 def set_transform(obj,position=None,rotation_degrees=None,scale=None):
@@ -137,6 +143,8 @@ class RusterMCPServer(BlenderMCPServer):
 
     def dispatch(self,kind,params):
         if kind=='ping':return {'pong':True,'application':'Ruster'}
+        if kind in mcp_building.READ|mcp_building.EDIT:
+            return mcp_building.dispatch(self,kind,params,sys.modules[__name__])
         if kind=='get_scene_info':
             result=self.get_scene_info();state=bpy.context.scene.ruster
             result.update(mode=state.mode,title=state.title,map_size=state.map_size,
@@ -147,8 +155,11 @@ class RusterMCPServer(BlenderMCPServer):
         if kind=='list_map_objects':
             limit=params.get('limit',100);offset=params.get('offset',0)
             if type(limit)!=int or type(offset)!=int or not 1<=limit<=200 or offset<0:raise ValueError('Invalid object page')
-            objects=[o for o in bpy.context.scene.objects if o.get('ruster_kind') in {'PREFAB','GROUP','PATH'}]
-            return {'total':len(objects),'objects':[object_info(self,o.name) for o in objects[offset:offset+limit]]}
+            objects=sorted((o for o in bpy.context.scene.objects if o.get('ruster_kind') in {'PREFAB','GROUP','PATH'}),key=lambda o:o.name)
+            query=params.get('query','');uid=params.get('prefab_id');object_kind=params.get('kind','')
+            if not isinstance(query,str) or object_kind not in {'','PREFAB','GROUP','PATH'}:raise ValueError('Invalid object filter')
+            objects=[o for o in objects if query.casefold() in o.name.casefold() and (not object_kind or o.get('ruster_kind')==object_kind) and (uid is None or o.get('ruster_uid')==str(uid))]
+            return {'total':len(objects),'objects':[object_info(self,o.name) for o in objects[offset:offset+limit]],'next_offset':offset+limit if offset+limit<len(objects) else None}
         if kind=='validate_map':
             errors,notes=scene.validate();return {'valid':not errors,'errors':errors,'notes':notes}
         # There is deliberately no generic eval/exec or upstream asset downloader.

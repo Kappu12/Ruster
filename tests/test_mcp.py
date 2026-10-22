@@ -31,6 +31,17 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
                 assert tools['delete_object'].annotations.destructiveHint
+                assert {'get_prefab_details','list_prefab_categories','place_prefabs','transform_objects','group_objects','get_viewport_image','create_path','export_assembly'}<=tools.keys()
+                schema=tools['place_prefabs'].inputSchema
+                assert 'PrefabPlacement' in schema['$defs'] and 'position' in schema['$defs']['PrefabPlacement']['required']
+                resources=(await session.list_resources()).resources
+                assert {str(r.uri) for r in resources}=={'ruster://guide/building','ruster://guide/terrain'}
+                guide=await session.read_resource('ruster://guide/building')
+                assert 'Never guess IDs' in guide.contents[0].text
+                prompts=(await session.list_prompts()).prompts
+                assert {p.name for p in prompts}=={'build_rust_composition','audit_rust_map'}
+                prompt=await session.get_prompt('build_rust_composition',{'description':'A Rust watchtower'})
+                assert 'watchtower' in prompt.messages[0].content.text
                 result=await session.call_tool('get_scene_info',{})
                 assert result.isError and 'Enable MCP' in result.content[0].text
     asyncio.run(run())

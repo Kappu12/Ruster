@@ -1,5 +1,5 @@
 """External MCP SDK client used by the native GUI integration test."""
-import asyncio,json,os,sys
+import asyncio,base64,json,os,struct,sys
 from pathlib import Path
 from mcp import ClientSession,StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -21,6 +21,9 @@ async def run():
                 return result.structuredContent or json.loads(result.content[0].text)
             assert (await call('get_scene_info'))['mode']=='MAP'
             assert (await call('search_prefabs',query=''))['prefabs'][0]['id']==123456
+            assert (await call('get_editor_status'))['catalog_ready']
+            assert (await call('list_prefab_categories'))['total_prefabs']==1
+            assert (await call('get_prefab_details',uid=123456))['cached']
             obj=await call('place_prefab',uid=123456,position=[1,2,25])
             name=obj['name'];assert obj['geometry_read_only']
             await call('transform_object',name=name,position=[10,20,30],rotation_degrees=[0,0,90],scale=[2,2,2])
@@ -29,6 +32,25 @@ async def run():
             assert (await call('get_object_info',name=name))['position']==[1,2,25]
             await call('redo')
             assert (await call('get_object_info',name=name))['position']==[10,20,30]
+            composition=await call('place_prefabs',placements=[{'uid':123456,'position':[0,0,20]},{'uid':123456,'position':[3,0,20]}],group_name='SDK composition')
+            group=composition['group']['name']
+            await call('transform_objects',transforms=[{'name':group,'position':[0,0,22],'scale':[2,2,2]}])
+            await call('focus_view',names=[group],axis='TOP')
+            image=await session.call_tool('get_viewport_image',{})
+            assert not image.isError and any(c.type=='image' and c.mimeType=='image/png' for c in image.content),image
+            image_data=base64.b64decode(next(c.data for c in image.content if c.type=='image'))
+            assert image_data[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack('>II',image_data[16:24])==(1280,720)
+            (directory/'viewport.png').write_bytes(image_data)
+            await call('export_assembly',names=[group],path=str(directory/'composition.rusterprefab'))
+            imported=await call('import_assembly',path=str(directory/'composition.rusterprefab'),position=[5,5,20],name='Imported SDK composition')
+            assert imported['prefab_count']==2
+            await call('delete_object',name=imported['group']['name'])
+            await call('delete_object',name=group)
+            surface=await call('sample_surface',positions=[[0,0]])
+            assert abs(surface['samples'][0]['position'][2]-20)<.1
+            road=await call('create_path',kind='Road',nodes=[[0,0,20],[5,0,20]],settings={'width':10})
+            assert (await call('get_path_info',name=road['object']))['width']==10
+            await call('delete_object',name=road['object'])
             duplicate=(await call('duplicate_object',name=name))['objects'][0]['name']
             await call('delete_object',name=duplicate)
             await call('paint_terrain',layer='alpha',tool='PAINT',x=0,y=0,radius=20,strength=1,invert=True)

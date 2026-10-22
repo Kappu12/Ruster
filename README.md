@@ -4,7 +4,7 @@ A Blender-based desktop editor for Rust worlds. Ruster uses Blender's native UI
 widgets, theme, viewport, selection tools, transforms and undo system. It has its
 own launcher and `.ruster` project format.
 
-**Status: 0.5 development preview, with local MCP control, automatic Rust discovery and protected map editing.**
+**Status: 0.6 development preview, with local MCP control, automatic Rust discovery and protected map editing.**
 Rust asset compatibility and exported game behavior still require testing against
 a current local game installation and server. There are no game assets in this
 repository. [FEATURES.md](FEATURES.md) tracks implemented workflows and the remaining
@@ -111,11 +111,41 @@ dependencies into the local `python_modules` directory.
 
 The integration adapts the MIT-licensed community
 [MCP for Blender](https://github.com/ahujasid/mcp-for-blender) bridge at revision
-`5a3618fccb2d982d0dd61e7a1879912c3100073b`. Ruster exposes 14 typed MCP tools:
-scene/object inspection, paginated map objects and prefab search, prefab
-placement, move/rotate/scale, duplicate/delete, terrain painting, validation,
-project saving, map export and native undo/redo. Open/create maps in the app first.
+`5a3618fccb2d982d0dd61e7a1879912c3100073b`. Ruster exposes **32 typed MCP tools**, two resource guides and two reusable prompts. Open/create a map in the app first.
+
+| AI workflow | Tools |
+| --- | --- |
+| Discover assets | `get_editor_status`, `list_prefab_categories`, `search_prefabs`, `get_prefab_details`, `request_prefab_assets` |
+| Inspect the build | `get_scene_info`, `list_map_objects`, `get_object_info`, `sample_surface` |
+| Compose Rust models | `place_prefab`, `place_prefabs`, `transform_object`, `transform_objects`, `duplicate_object`, `delete_object`, `group_objects`, `ungroup_object`, `rename_object`, `snap_objects_to_terrain` |
+| See the result | `focus_view` (current/front/back/left/right/top/bottom), `get_viewport_image` (PNG image for vision-capable clients) |
+| Terrain and paths | `paint_terrain`, `get_path_info`, `create_path`, `update_path` |
+| Reuse and finish | `import_assembly`, `export_assembly`, `validate_map`, `save_project`, `export_map`, `undo`, `redo` |
+
+The AI can enumerate **every indexed prefab**: browse categories or call
+`search_prefabs` with an empty query, following `next_offset` until it is null.
+Asset details include cached local dimensions/bounds and mesh/material/triangle
+counts. Uncached models return instructions to preload them and poll extraction
+status. IDs always come from the local catalog; they must never be invented.
+Catalog coverage depends on the installed game's index and supported extraction.
+
+Modeling means composing **whole original Rust prefabs**, including scaled and
+rotated parts, into named reusable groups. Batch placement (up to 100) and batch
+transforms (up to 200) roll back completely on failure and create one undo step.
+Nonuniform transforms that would introduce shear are rejected. Paths support
+2–4096 world nodes with typed width, masks, offsets and connection settings.
+Compositions export/import as `.rusterprefab` (MCP import limit: 1000 placements).
+The map exporter flattens composition groups into original prefab records.
+
+The server's initialization instructions describe discovery, sizing, terrain
+sampling, building and visual inspection. Resources `ruster://guide/building`
+and `ruster://guide/terrain` provide detailed conventions; prompts
+`build_rust_composition` and `audit_rust_map` guide creation and inspection.
 Positions use editor world metres, with Z as height; rotations are XYZ degrees.
+Surface snapping moves the object's origin, so use model bounds for bottom
+clearance. Bounds enclose meshes; they do not certify game collisions. Viewport
+images require the desktop app. Actual current-game assets/server behavior still
+need real-game validation.
 
 The listener is local-only (`127.0.0.1`, default port `9877`), with a per-user token
 read automatically by the bundled adapter. The toggle stops active connections;

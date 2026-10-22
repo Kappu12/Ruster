@@ -93,3 +93,11 @@ bundle identity and timestamps, share Blender mesh datablocks for repeated
 prefabs, and attach converted visuals incrementally. Keep the original terrain
 samples separately from the reduced viewport mesh. Report unsupported assets
 without hiding their placement data.
+
+The MCP models Rust structures through compositions of original whole prefabs.
+It exposes catalog pages/categories and cached model bounds so AI clients never
+need to invent IDs. Typed placement/transform batches roll back on failure;
+source geometry and materials stay immutable. Scene pages include hierarchy and
+world bounds, terrain sampling supplies surface context, and viewport PNG results
+supply visual feedback. Resource guides and prompts document the workflow and its
+limits. None of these operations introduce custom UI widgets or icon systems.

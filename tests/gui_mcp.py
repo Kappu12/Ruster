@@ -66,6 +66,8 @@ def perform():
         if code is None:return .1
         state['log'].close()
         assert code==0,(directory/'client.log').read_text()
+        if os.environ.get('RUSTER_MCP_PREVIEW'):
+            Path(os.environ['RUSTER_MCP_PREVIEW']).write_bytes((directory/'viewport.png').read_bytes())
         bpy.context.window_manager.ruster_mcp.enabled=True
         assert mcp_bridge.running(),'MCP could not restart on the same port'
         ruster.unregister()
