@@ -13,6 +13,19 @@ import pytest
 from ruster.assets.streaming import BlockStream, MAX_READ, SliceStream, streamed_bundles
 
 
+def test_builtin_resources_resolve_only_game_files_with_size_limit(tmp_path):
+    from ruster.assets.worker import builtin_resource
+    resources=tmp_path/'RustClient_Data'/'Resources'
+    resources.mkdir(parents=True)
+    resource=resources/'unity default resources';resource.write_bytes(b'fixture')
+    assert builtin_resource(tmp_path,'Library/Unity Default Resources')==resource
+    assert builtin_resource(tmp_path,r'Library\unity default resources')==resource
+    assert builtin_resource(tmp_path,'../unrelated') is None
+    assert builtin_resource(tmp_path,'unity_builtin_extra') is None
+    with resource.open('wb') as output:output.truncate(32*1024*1024+1)
+    with pytest.raises(ValueError,match='32 MiB'):builtin_resource(tmp_path,'Library/unity default resources')
+
+
 def bundle(path, at_end=False, count=512,node=b'CAB-test.resS'):
     block = b'abcd' * 16384
     packed = lz4.block.compress(block, store_size=False)

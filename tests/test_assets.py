@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace as S
 from PIL import Image
 from UnityPy.classes.generated import ComponentPair
+from UnityPy.enums import TextureFormat, BuildTarget
 from ruster.assets.worker import export_prefab
 
 
@@ -31,7 +32,9 @@ class MeshHandler:
 
 
 def graph():
-    texture=Reader('Texture2D',S(image=Image.new('RGBA',(2,2),(255,100,20,255))))
+    texture=Reader('Texture2D',S(m_Name='fixture',m_Width=2,m_Height=2,m_MipCount=1,
+        m_TextureFormat=TextureFormat.RGBA32,image_data=Image.new('RGBA',(2,2),(255,100,20,255)).tobytes(),
+        object_reader=S(version=(2022,3,1,0),platform=BuildTarget.StandaloneWindows64)))
     texenv=S(m_Texture=Pointer(texture),m_Scale=S(x=2,y=3),m_Offset=S(x=.2,y=.3))
     mat=Reader('Material',S(m_Name='Example',m_SavedProperties=S(m_Floats=[('_Glossiness',.25),('_Metallic',.4)],
         m_Colors=[],m_TexEnvs=[('_MainTex',texenv)])))

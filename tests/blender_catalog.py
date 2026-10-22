@@ -1,5 +1,5 @@
 """Catalog refresh must not schedule bulk models; queued requests stay visible."""
-import os,sys,tempfile,traceback
+import os,sys,tempfile,traceback,json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 if '--' in sys.argv:sys.path.insert(0,sys.argv[sys.argv.index('--')+1])
@@ -25,6 +25,13 @@ def run():
             app.poll_job()
             assert set(app._visual_queue)=={root.name for root in roots},'Queued batch completion lost a model update'
         finally:app.start_job=native_start
+        scene.cache_dir().mkdir(parents=True,exist_ok=True)
+        (scene.cache_dir()/'asset-report.json').write_text(json.dumps([{'uid':42,'error':'Missing source mesh'}]))
+        app._job_action='extract';app._job_ids={42}
+        app.poll_job()
+        assert roots[0]['ruster_model_status']=='Model unavailable'
+        assert roots[0]['ruster_model_error']=='Missing source mesh'
+        assert not roots[0].get('ruster_visual')
         app._pending_asset_ids.clear()
         assert app.request_assets(range(101)) is False
         ruster.unregister()

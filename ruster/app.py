@@ -123,6 +123,10 @@ def request_assets(ids):
         bpy.context.scene.ruster.asset_status='Load at most 100 different prefab models per request'
         return False
     _pending_asset_ids.update(ids)
+    for obj in scene.prefab_roots():
+        if int(obj['ruster_uid']) in ids:
+            obj['ruster_model_status']='Loading model and materials…'
+            if 'ruster_model_error' in obj:del obj['ruster_model_error']
     if _job is not None and _job.poll() is None:return True
     pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
     try:
@@ -131,6 +135,10 @@ def request_assets(ids):
     except Exception as error:
         _pending_asset_ids.update(pending)
         bpy.context.scene.ruster.asset_status=f'Could not start asset loading: {error}. Check Rust Installation.'
+        for obj in scene.prefab_roots():
+            if int(obj['ruster_uid']) in pending:
+                obj['ruster_model_error']=str(error)
+                obj['ruster_model_status']='Model loading failed'
         return False
 
 
@@ -155,7 +163,7 @@ def poll_job():
             state.asset_status = progress.get('error', 'Asset operation failed')
         elif phase == 'READY':
             if _job_action=='index':state.asset_status=f"{progress.get('ids',0):,} prefab names ready · models load on demand"
-            else:state.asset_status = f"Models ready · {progress.get('failures', 0)} reported issues"
+            else:state.asset_status = f"{progress.get('extracted', 0)} models loaded · {progress.get('failures', 0)} reported issues"
         else:
             state.asset_status = f"{phase.title()} {progress.get('current', 0)}/{progress.get('total', '?')} · {progress.get('item', '')}"
     except (OSError, ValueError):
@@ -175,6 +183,17 @@ def poll_job():
         state.asset_status = 'Asset import failed — see the asset report / worker.log'
     action, _job_action = _job_action, None
     completed_ids,_job_ids=_job_ids,set()
+    if action=='extract':
+        try:
+            issues=json.loads((scene.cache_dir()/'asset-report.json').read_text())
+            errors={int(item['uid']):item['error'] for item in issues}
+        except (OSError,ValueError,KeyError,TypeError):errors={}
+        for obj in scene.prefab_roots():
+            uid=int(obj['ruster_uid'])
+            if uid not in completed_ids:continue
+            obj['ruster_model_status']='Model loading cancelled' if _job_cancelled else 'Model unavailable'
+            if uid in errors:obj['ruster_model_error']=errors[uid]
+            elif code:obj['ruster_model_error']=state.asset_status
     if action=='extract' and not _job_cancelled:
         waiting=set(_visual_queue)
         _visual_queue.extend(obj.name for obj in scene.prefab_roots()
@@ -201,6 +220,8 @@ def load_visuals():
             try:
                 scene.attach_visual(obj,force=True)
             except Exception as error:
+                obj['ruster_model_status']='Model loading failed'
+                obj['ruster_model_error']=str(error)
                 bpy.context.scene.ruster.asset_status = f'Could not load {name}: {error}'
     redraw()
     return .01

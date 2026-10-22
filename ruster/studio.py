@@ -118,6 +118,10 @@ def new_prefab():
     state.project_path = state.source_map = ''
     state.terrain_state = None
     scene.new_collection('Prefabs')
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type=='VIEW_3D':
+                area.spaces.active.shading.type='MATERIAL'
     from . import ui
     if not bpy.app.background:bpy.app.timers.register(ui.start_workspace, first_interval=.1)
 

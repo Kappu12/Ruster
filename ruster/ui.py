@@ -183,10 +183,18 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
             if obj.get('ruster_has_io'):
                 action(layout,'ruster.io_settings')
             from .protection import model_error
-            if model_error(obj):
+            if not obj.get('ruster_visual'):
+                wrapped(layout,context,obj.get('ruster_model_status','Model not loaded'),icon='info')
+                if obj.get('ruster_model_error'):
+                    wrapped(layout,context,obj['ruster_model_error'],icon='error')
+                action(layout,'ruster.assets',text='Load / Retry Model')
+            elif model_error(obj):
                 wrapped(layout,context,'Restore this prefab model before exporting.',icon='error')
                 action(layout,'ruster.restore_models')
             else:layout.label(text='Original model is read-only',icon=I['locked'])
+            if obj.get('ruster_visual') and obj.get('ruster_model_error'):
+                wrapped(layout,context,obj['ruster_model_error'],icon='error')
+                action(layout,'ruster.assets',text='Retry Model / Materials')
         fields=properties(layout.column())
         fields.prop(obj,'location')
         fields.prop(obj,'rotation_mode',text='Rotation Mode')
@@ -382,18 +390,6 @@ def view_header(self,context):
     layout.prop(space.shading,'type',text='',expand=True)
 
 
-def placement_toolbar(self,context):
-    column=self.layout.column(align=True)
-    column.scale_y=1.3
-    for tool,icon in [('builtin.select_box','select'),('builtin.cursor','cursor'),
-                      ('builtin.move','move'),('builtin.rotate','rotate'),('builtin.scale','scale')]:
-        tool_button(column,context,tool,'',icon).name=tool
-    if is_map(context):
-        column.separator()
-        for tool,icon in [('ruster.terrain_brush','terrain_brush'),('ruster.prefab_brush','prefab_brush')]:
-            tool_button(column,context,tool,'',icon).name=tool
-
-
 def context_menu(self,context):
     for op in ('transform.translate','transform.rotate','transform.resize'):action(self.layout,op)
     self.layout.separator()
@@ -443,7 +439,7 @@ def close_map_timeline():
     for window in bpy.context.window_manager.windows:
         for area in list(window.screen.areas):
             if area.type=='VIEW_3D':
-                area.spaces.active.show_region_toolbar=False
+                area.spaces.active.show_region_toolbar=True
                 area.spaces.active.show_region_ui=True
                 region=next((r for r in area.regions if r.type=='UI'),None)
                 if region and region.active_panel_category!='Ruster':
@@ -464,7 +460,7 @@ def start_workspace():
                     if area.type=='IMAGE_EDITOR' and not is_map(bpy.context):area.type='VIEW_3D'
                     if area.type=='VIEW_3D':
                         area.spaces.active.show_region_ui=True
-                        area.spaces.active.show_region_toolbar=False
+                        area.spaces.active.show_region_toolbar=True
                         area.spaces.active.show_gizmo=True
                     area.tag_redraw()
     if not bpy.app.background and not bpy.app.timers.is_registered(close_map_timeline):
@@ -517,7 +513,6 @@ def register():
     patch_draw(bpy.types.TOPBAR_MT_editor_menus,menus)
     patch_draw(bpy.types.VIEW3D_HT_header,view_header)
     patch_draw(bpy.types.VIEW3D_MT_add,add_menu)
-    patch_draw(bpy.types.VIEW3D_PT_tools_active,placement_toolbar)
     patch_draw(bpy.types.VIEW3D_MT_object_context_menu,context_menu)
     for cls in (bpy.types.OUTLINER_MT_context_menu,bpy.types.OUTLINER_MT_object,bpy.types.OUTLINER_MT_collection):patch_draw(cls,context_menu)
     for cls in (bpy.types.OUTLINER_MT_id_data,bpy.types.OUTLINER_MT_liboverride,bpy.types.OUTLINER_MT_edit_datablocks):patch_draw(cls,readonly_source_menu)

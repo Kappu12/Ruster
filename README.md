@@ -54,7 +54,9 @@ menus and unrelated sidebar tabs are hidden. Map mode adds terrain and path tool
 Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
 **Shift+A** opens broad Rust prefab categories; choose a category and type to
 search. It reads catalog names without loading models. Models load on demand.
-The optional toolbar contains placement tools and Rust brushes. Space and F3
+Blender's normal toolbar is visible, with Rust brushes added in map mode. New
+prefabs start in Material Preview so loaded textures are visible. Texture previews
+read a source mip up to 2048px without decoding larger levels. Space and F3
 open Rust commands; Space does not start Blender animation playback.
 Menus, dialogs, section headers and tools share Blender's bundled icon pack.
 Terrain and prefab paint have distinct toolbar icons; advanced options live in

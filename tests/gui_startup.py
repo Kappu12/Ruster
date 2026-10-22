@@ -56,18 +56,22 @@ def step():
                 assert state['splash'], 'Native Ruster splash did not draw'
                 window.event_simulate(type='ESC', value='PRESS')
             elif stage == 1:
+                if any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas):
+                    state['workspace_waits']=state.get('workspace_waits',0)+1
+                    assert state['workspace_waits']<30,'Workspace cleanup did not finish'
+                    return .6  # Material Preview can delay the first area-close tick.
                 assert state['start'], 'Persistent start controls did not draw'
                 area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
                 region = next(r for r in area.regions if r.type == 'UI')
                 assert area.spaces.active.show_region_ui and region.active_panel_category == 'Ruster'
                 assert window.scene.ruster.mode=='PREFAB' and not list(window.scene.objects)
-                assert not area.spaces.active.show_region_toolbar
+                assert area.spaces.active.show_region_toolbar
                 assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
                 area.spaces.active.show_region_toolbar=True
                 with bpy.context.temp_override(area=area):bpy.ops.wm.call_menu(name='VIEW3D_MT_add')
             elif stage == 2:
                 assert state.get('add'),'Blender Add menu did not route to Rust prefab categories'
-                assert state.get('toolbar'),'The stripped placement toolbar did not draw'
+                assert state.get('toolbar'),'The native Blender toolbar did not draw'
                 window.event_simulate(type='ESC',value='PRESS')
                 path = Path(temporary.name) / 'test.map'
                 path.write_bytes(sample_world().write())

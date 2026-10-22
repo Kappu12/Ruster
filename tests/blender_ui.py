@@ -48,7 +48,7 @@ def run():
             old_navigation=bpy.types.USERPREF_PT_navigation_bar.draw
             old_scene_poll=bpy.types.SCENE_PT_scene.__dict__.get('poll')
             ruster.register()
-            assert bpy.types.VIEW3D_PT_tools_active.draw!=old_toolbar
+            assert bpy.types.VIEW3D_PT_tools_active.draw==old_toolbar
             keymap=bpy.context.window_manager.keyconfigs.addon.keymaps['Object Mode']
             assert any(k.type=='SPACE' and k.idname=='ruster.commands' for k in keymap.keymap_items)
             assert any(k.type=='A' and k.shift and k.properties.name=='RUSTER_MT_add' for k in keymap.keymap_items if k.idname=='wm.call_menu')

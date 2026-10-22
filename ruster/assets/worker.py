@@ -46,6 +46,19 @@ def component_pointers(gameobject):
         yield entry[1] if isinstance(entry, tuple) else entry.component
 
 
+def builtin_resource(root, name):
+    """Resolve Unity's primitive meshes/textures from this game's Resources only."""
+    clean = name.replace('\\', '/').rsplit('/', 1)[-1].lower()
+    if clean not in {'unity default resources', 'unity_builtin_extra'}:
+        return None
+    path = Path(root) / 'RustClient_Data' / 'Resources' / clean
+    if not path.is_file():
+        return None
+    if path.stat().st_size > 32 * 1024 * 1024:
+        raise ValueError('Unity built-in resources exceed the 32 MiB read limit')
+    return path
+
+
 def run_child(action, install, cache, **options):
     command = [sys.executable, str(Path(__file__).resolve()), action,
                '--install', str(install), '--cache', str(cache), '--parent-pid', str(os.getpid())]
@@ -215,10 +228,13 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
                 token = hashlib.sha256((key(tex_reader)+':'+cache_signature).encode()).hexdigest()[:24]
                 texture = texture_dir / f'{token}.png'
                 if not texture.exists():
-                    tex_reader.read().image.save(texture)
+                    from ruster.assets.textures import preview_image
+                    with preview_image(tex_reader.read()) as image:
+                        image.save(texture)
                 entry['texture'] = str(texture.relative_to(base))
             except Exception as error:
-                warnings.append(f'{data.m_Name}: texture unavailable: {error}')
+                traceback.print_exc()
+                warnings.append(f'{data.m_Name}: texture unavailable: {type(error).__name__}: {error}')
         return ident
 
     def mesh(pointer):
@@ -324,10 +340,14 @@ def extract_batch(UnityPy, install, cache, ids):
 
     class LocalEnvironment(UnityPy.Environment):
         def find_file(self, name, is_dependency=True):
-            clean = name.rsplit('/',1)[-1].lower()
+            clean = name.replace('\\', '/').rsplit('/',1)[-1].lower()
             existing = self.get_cab(clean)
             if existing:
                 return existing
+            resource = builtin_resource(root, name)
+            if resource:
+                self.load_file(str(resource), is_dependency=True)
+                return self.get_cab(clean)
             bundle = cab_bundles.get(clean)
             if not bundle:
                 # Dependency location needs only UnityFS directory headers, not
@@ -361,7 +381,7 @@ def extract_batch(UnityPy, install, cache, ids):
         try:
             path = root / bundle
             stat = path.stat()
-            signature = f'converter-2:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
+            signature = f'converter-4:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
             stamp = target / f'{uid}.stamp'
             output = target / f'{uid}.json.gz'
             if not (output.exists() and stamp.exists() and stamp.read_text() == signature):
