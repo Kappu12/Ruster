@@ -487,6 +487,7 @@ def start_workspace():
                         area.spaces.active.show_region_ui=True
                         area.spaces.active.show_region_toolbar=True
                         area.spaces.active.show_gizmo=True
+                        area.spaces.active.overlay.show_relationship_lines=False
                     area.tag_redraw()
     if not bpy.app.background and not bpy.app.timers.is_registered(close_map_timeline):
         bpy.app.timers.register(close_map_timeline,first_interval=.1)

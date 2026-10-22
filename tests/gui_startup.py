@@ -96,6 +96,7 @@ def step():
                 prefab_workspace(window)
                 assert not window.scene.objects
                 assert area.spaces.active.show_region_toolbar
+                assert not area.spaces.active.overlay.show_relationship_lines
                 assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
                 area.spaces.active.show_region_toolbar=True
                 with bpy.context.temp_override(area=area):bpy.ops.wm.call_menu(name='VIEW3D_MT_add')
