@@ -12,6 +12,23 @@ PAGE_SIZE=12
 _category_key=None
 _category_history=[]
 _category_items=[('ALL','All Categories','',0)]
+_page_cache={}
+
+
+def prefab_page(state):
+    """UI redraws reuse a page until its filters or the catalog actually change."""
+    path=scene.cache_dir()/'catalog.sqlite3'
+    stat=path.stat() if path.exists() else None
+    favorites=tuple(palettes.favorite_ids(settings.load())) if state.favorites_only else None
+    key=(str(path),stat.st_mtime_ns if stat else 0,stat.st_size if stat else 0,
+         state.query,state.query_page,state.category,favorites,state.available_only,state.include_helpers)
+    if key not in _page_cache:
+        result=catalog.page(scene.cache_dir(),state.query,page_size=PAGE_SIZE,
+            page_index=state.query_page,category='' if state.category=='ALL' else state.category,
+            favorites=favorites,available_only=state.available_only,include_helpers=state.include_helpers)
+        _page_cache[key]=result
+        while len(_page_cache)>16:del _page_cache[next(iter(_page_cache))]
+    return _page_cache[key]
 
 
 def prefab_description(uid,action):
@@ -96,5 +113,6 @@ def register():
 def unregister():
     global _category_key
     _category_key=None
+    _page_cache.clear()
     for cls in reversed(_classes):bpy.utils.unregister_class(cls)
     _classes.clear()

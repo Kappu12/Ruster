@@ -86,7 +86,7 @@ def run():
             with closing(catalog.connect(scene.cache_dir())) as db:
                 db.executemany('INSERT OR REPLACE INTO names VALUES(?,?)',[(i,f'assets/test/item_{i}.prefab') for i in range(30)])
                 db.commit()
-            state=bpy.context.scene.ruster;state.available_only=False;state.query_page=100
+            state=bpy.context.scene.ruster;state.available_only=False;state.include_helpers=True;state.query_page=100
             assert bpy.ops.ruster.catalog_page(delta=-1)=={'FINISHED'} and state.query_page==1
             state.available_only=True
             assert state.query_page==0

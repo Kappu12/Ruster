@@ -54,7 +54,8 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     terrain_state: PointerProperty(type=bpy.types.Text)
     category:EnumProperty(name='Category',items=category_items,update=query_changed)
     favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
-    available_only:BoolProperty(name='Available Locally',description='Show prefabs found in your indexed Rust bundles',default=False,update=query_changed)
+    available_only:BoolProperty(name='Available Locally',description='Show prefabs found in your local Rust installation',default=True,update=query_changed)
+    include_helpers:BoolProperty(name='Effects & Helpers',description='Include sound effects, trigger volumes, and internal test prefabs',default=False,update=query_changed)
     query_page: IntProperty(default=0,min=0,options={'SKIP_SAVE'})
     preview_resolution:EnumProperty(name='Terrain Detail',items=[('129','Fast','Lowest viewport memory use'),
         ('257','Balanced','Balanced detail and performance'),('513','Detailed','More terrain samples in the viewport'),
@@ -122,7 +123,8 @@ def request_assets(ids):
     if len(ids|_pending_asset_ids)>100:
         bpy.context.scene.ruster.asset_status='Load at most 100 different prefab models per request'
         return False
-    _pending_asset_ids.update(ids)
+    active=_job_ids if _job is not None and _job.poll() is None and _job_action=='extract' else set()
+    _pending_asset_ids.update(ids-active)
     for obj in scene.prefab_roots():
         if int(obj['ruster_uid']) in ids:
             obj['ruster_model_status']='Loading model and materials…'
@@ -133,7 +135,6 @@ def request_assets(ids):
         start_job('extract',pending)
         return True
     except Exception as error:
-        _pending_asset_ids.update(pending)
         bpy.context.scene.ruster.asset_status=f'Could not start asset loading: {error}. Check Rust Installation.'
         for obj in scene.prefab_roots():
             if int(obj['ruster_uid']) in pending:
@@ -176,7 +177,7 @@ def poll_job():
     if _job_log:
         _job_log.close()
         _job_log = None
-    state.busy = False
+    state.busy = bool(_visual_queue)
     if _job_cancelled:
         state.asset_status='Asset import cancelled. Completed cache entries are available.'
     elif code and progress.get('state') != 'ERROR':
@@ -196,35 +197,44 @@ def poll_job():
             elif code:obj['ruster_model_error']=state.asset_status
     if action=='extract' and not _job_cancelled:
         waiting=set(_visual_queue)
-        _visual_queue.extend(obj.name for obj in scene.prefab_roots()
-                             if int(obj['ruster_uid']) in completed_ids and obj.name not in waiting)
+        _visual_queue.extend(sorted({int(obj['ruster_uid']) for obj in scene.prefab_roots()} & completed_ids-waiting))
+        state.busy=bool(_visual_queue)
         if _visual_queue and not bpy.app.timers.is_registered(load_visuals):
             bpy.app.timers.register(load_visuals,first_interval=.1)
     if not _job_cancelled and _pending_asset_ids:
         pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
         try:
             start_job('extract',pending);return .5
-        except Exception as error:state.asset_status=str(error)
+        except Exception as error:
+            state.asset_status=f'Could not start asset loading: {error}'
+            for obj in scene.prefab_roots():
+                if int(obj['ruster_uid']) in pending:
+                    obj['ruster_model_status']='Model loading failed'
+                    obj['ruster_model_error']=str(error)
     redraw()
     return None
 
 
 def load_visuals():
-    for _ in range(4):
-        if not _visual_queue:
-            redraw()
-            return None
-        name = _visual_queue.pop()
-        obj = bpy.data.objects.get(name)
-        if obj and obj.get('ruster_kind') == 'PREFAB':
+    # Link one unique model per tick. Repeated placements share that model, and
+    # a user rename/delete during extraction cannot lose the completion update.
+    if _visual_queue:
+        uid=_visual_queue.pop(0)
+        for obj in scene.prefab_roots():
+            if int(obj['ruster_uid'])!=uid:continue
             try:
-                scene.attach_visual(obj,force=True)
+                loaded=scene.attach_visual(obj,force=True)
+                if loaded and not obj.get('ruster_marker'):
+                    obj['ruster_model_status']='Model loaded'
+                elif not loaded:
+                    obj['ruster_model_status']='Model unavailable — retry loading'
             except Exception as error:
                 obj['ruster_model_status']='Model loading failed'
                 obj['ruster_model_error']=str(error)
-                bpy.context.scene.ruster.asset_status = f'Could not load {name}: {error}'
+                bpy.context.scene.ruster.asset_status = f'Could not load {obj.name}: {error}'
+    bpy.context.scene.ruster.busy=bool(_visual_queue or _pending_asset_ids or (_job is not None and _job.poll() is None))
     redraw()
-    return .01
+    return .05 if _visual_queue else None
 
 
 class RUSTER_OT_setup(bpy.types.Operator):
@@ -510,9 +520,17 @@ class RUSTER_OT_cancel_assets(bpy.types.Operator):
     bl_label='Cancel Asset Loading'
     def execute(self,context):
         global _job_cancelled
+        cancelled=_pending_asset_ids|_job_ids|set(_visual_queue)
+        _pending_asset_ids.clear();_visual_queue.clear()
+        _job_cancelled=True
+        for obj in scene.prefab_roots():
+            if int(obj['ruster_uid']) in cancelled and not obj.get('ruster_visual'):
+                obj['ruster_model_status']='Model loading cancelled'
         if _job is not None and _job.poll() is None:
-            _pending_asset_ids.clear()
-            _job_cancelled=True;_job.terminate()
+            _job.terminate()
+        else:
+            context.scene.ruster.busy=False
+        context.scene.ruster.asset_status='Asset loading cancelled'
         return {'FINISHED'}
 
 
@@ -521,13 +539,10 @@ class RUSTER_OT_catalog_page(bpy.types.Operator):
     bl_label='Change Prefab Page'
     delta:IntProperty(default=1)
     def execute(self,context):
-        from .core import palettes
-        from .browser import PAGE_SIZE
         state=context.scene.ruster
         try:
-            result=catalog.page(scene.cache_dir(),state.query,page_index=state.query_page,page_size=PAGE_SIZE,
-                category='' if state.category=='ALL' else state.category,
-                favorites=palettes.favorite_ids(settings.load()) if state.favorites_only else None,available_only=state.available_only)
+            from .browser import prefab_page
+            result=prefab_page(state)
             state.query_page=max(0,min(result['pages']-1,result['page']+self.delta))
             return {'FINISHED'}
         except Exception as error:

@@ -113,8 +113,8 @@ def run():
             app.start_job=failed_worker
             failure=server.execute_command({'token':server.token,'type':'request_prefab_assets','params':{'uids':[123456]}})
             assert failure['status']=='error' and 'could not start' in failure['message']
-            assert 123456 in app._pending_asset_ids
-            status=call('get_editor_status');assert status['queued_prefabs']==1
+            assert 123456 not in app._pending_asset_ids
+            status=call('get_editor_status');assert status['queued_prefabs']==0
         finally:
             app.start_job=previous;app._pending_asset_ids.clear()
         app._visual_queue.append(name)

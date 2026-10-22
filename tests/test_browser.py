@@ -60,3 +60,15 @@ def test_case_variant_assets_do_not_duplicate_prefab_pages(tmp_path):
         db.execute('DELETE FROM assets WHERE path=?',('assets/prefabs/rocks/a.prefab',));db.commit()
     assert catalog.search(tmp_path,'rocks/a',available_only=True)[0][0]==1
     assert catalog.find(tmp_path,1)[1]=='variant'
+
+
+def test_helpers_are_opt_in_for_composition_but_explicit_categories_show_them(tmp_path):
+    with closing(catalog.connect(tmp_path)) as db:
+        db.executemany('INSERT INTO names VALUES(?,?)',[
+            (1,'assets/props/crate.prefab'),(2,'assets/props/sound/crate.prefab'),
+            (3,'assets/effects/fire.prefab'),(4,'assets/bundled/testscenario_building.prefab'),
+            (5,'assets/modding/cubes/cube_tiled_dev_01.prefab')]);db.commit()
+    assert {row[0] for row in catalog.search(tmp_path,include_helpers=False)}=={1,5}
+    assert catalog.page(tmp_path,include_helpers=False)['total']==2
+    assert len(catalog.search(tmp_path))==5
+    assert catalog.search(tmp_path,category='@EFFECTS',include_helpers=False)[0][0]==3

@@ -26,9 +26,11 @@ def literal(value):
 
 
 AVAILABLE="EXISTS(SELECT 1 FROM assets a WHERE a.path=n.path COLLATE NOCASE AND a.bundle IS NOT NULL)"
+HELPER_PATTERNS=('%/sound/%','%/sounds/%','%/sfx/%','%/effects/%','%/fx/%',
+                 '%/trigger/%','%/triggers/%','%/volumes/%','%/test/%','%/tests/%','%/testing/%','%/testscenario%')
 
 
-def filters(query='',category='',favorites=None,available_only=False):
+def filters(query='',category='',favorites=None,available_only=False,include_helpers=True):
     tokens=re.split(r'\s+',query.strip()) if query.strip() else ['']
     conditions=["n.path LIKE ? ESCAPE char(92)" for _ in tokens]
     args=['%'+literal(token)+'%' for token in tokens]
@@ -46,6 +48,9 @@ def filters(query='',category='',favorites=None,available_only=False):
         conditions.append('n.uid IN ('+','.join('?' for _ in ids)+')' if ids else '0')
         args.extend(ids)
     if available_only:conditions.append(AVAILABLE)
+    if not include_helpers and category not in ('@EFFECTS','@GAMEPLAY'):
+        conditions.append('NOT ('+' OR '.join('n.path LIKE ?' for _ in HELPER_PATTERNS)+')')
+        args.extend(HELPER_PATTERNS)
     return ' AND '.join(conditions),args
 
 
@@ -58,18 +63,18 @@ def rows(db,where,args,limit,offset):
         ' ORDER BY n.path COLLATE NOCASE,n.uid LIMIT ? OFFSET ?',(*args,limit,max(0,offset))).fetchall()
 
 
-def search(cache, query='', limit=100, offset=0, category='', favorites=None, available_only=False):
+def search(cache, query='', limit=100, offset=0, category='', favorites=None, available_only=False,include_helpers=True):
     if not (Path(cache)/'catalog.sqlite3').exists():return []
-    where,args=filters(query,category,favorites,available_only)
+    where,args=filters(query,category,favorites,available_only,include_helpers)
     with closing(read_connection(cache)) as db:
         return rows(db,where,args,limit,offset)
 
 
-def page(cache,query='',page_index=0,page_size=12,category='',favorites=None,available_only=False):
+def page(cache,query='',page_index=0,page_size=12,category='',favorites=None,available_only=False,include_helpers=True):
     """Return counts and a valid browser page from one consistent read snapshot."""
     if page_size<1:raise ValueError('Page size must be positive')
     if not (Path(cache)/'catalog.sqlite3').exists():return {'rows':[],'total':0,'page':0,'pages':0}
-    where,args=filters(query,category,favorites,available_only)
+    where,args=filters(query,category,favorites,available_only,include_helpers)
     with closing(read_connection(cache)) as db:
         db.execute('BEGIN')
         total=db.execute('SELECT COUNT(*) FROM names n WHERE '+where,args).fetchone()[0]

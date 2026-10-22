@@ -130,13 +130,16 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
         row.prop(state,'favorites_only',text='Favorites',toggle=True,
             icon=I['favorite_on' if state.favorites_only else 'favorite_off'])
         row.prop(state,'available_only',text='Available Locally',toggle=True,icon=I['import'])
+        layout.prop(state,'include_helpers',toggle=True)
+        if state.busy:
+            box=layout.box()
+            wrapped(box,context,state.asset_status,icon='busy')
+            if state.asset_progress_known:box.progress(factor=state.asset_progress,type='BAR',text='Loading Prefabs')
+            action(box,'ruster.cancel_assets',text='Cancel Loading')
         from .core import settings,palettes
         favorites=set(palettes.favorite_ids(settings.load()))
         try:
-            result=catalog.page(scene.cache_dir(),state.query,page_size=browser.PAGE_SIZE,
-                page_index=state.query_page,
-                category='' if state.category=='ALL' else state.category,
-                favorites=favorites if state.favorites_only else None,available_only=state.available_only)
+            result=browser.prefab_page(state)
             matches=result['rows']
         except Exception as error:
             wrapped(layout,context,'Could not read the asset catalog: '+str(error),icon='error')
@@ -147,7 +150,7 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
                 wrapped(layout,context,'Load your Rust assets to browse prefabs.',icon='info')
                 action(layout,'ruster.assets')
             elif state.query or state.category!='ALL' or state.favorites_only or state.available_only:
-                wrapped(layout,context,'No matching prefabs. Try a different search or turn off a filter.',icon='info')
+                wrapped(layout,context,'No matching prefabs. Try different words or enable Effects & Helpers.',icon='info')
             else:
                 wrapped(layout,context,'The catalog is empty. Refresh your Rust assets.',icon='info')
                 action(layout,'ruster.assets',text='Refresh Asset Catalog',icon='refresh').rebuild=True

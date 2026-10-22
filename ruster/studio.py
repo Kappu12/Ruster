@@ -18,7 +18,7 @@ from .core.rustedit_prefab import RustEditPrefab
 
 _classes, _keymaps = [], []
 _search_cache = {}
-_search_items = [('NONE', 'No local Rust prefabs — index your assets first', '')]
+_search_items = [('NONE', 'No matching local prefabs — adjust the browser filters', '')]
 _model_items = []
 
 # Scalar settings verified against the installed SerializedIOEntity contract.
@@ -228,9 +228,11 @@ def export_prefab(path, selected=True):
 
 def search_items(operator, _context):
     path = scene.cache_dir() / 'catalog.sqlite3'
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else 0, operator.category)
+    state=bpy.context.scene.ruster
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else 0, operator.category,state.include_helpers,state.available_only)
     if key not in _search_cache:
-        rows = catalog.search(scene.cache_dir(), limit=100000, category=operator.category)
+        rows = catalog.search(scene.cache_dir(), limit=100000, category=operator.category,
+                              include_helpers=state.include_helpers,available_only=state.available_only)
         from .core.asset_names import display_name
         items = [(str(uid), display_name(path_), path_ + '\nID: ' + str(uid))
                  for uid, path_, _available in rows]
@@ -265,9 +267,11 @@ class RUSTER_MT_add(bpy.types.Menu):
             layout.label(text='Finish editing path nodes before adding prefabs')
             return
         layout.operator_context = 'INVOKE_DEFAULT'
-        layout.operator('ruster.add_prefab', text='Search All Rust Prefabs…', icon='VIEWZOOM')
+        layout.operator('ruster.add_prefab', text='Search Rust Prefabs…', icon='VIEWZOOM').category=''
+        layout.operator('ruster.add_prefab', text='Dev Cubes & Primitives…', icon='MESH_CUBE').category='@DEVELOPMENT'
         layout.separator()
         for key, label, _patterns in GROUPS:
+            if key=='DEVELOPMENT':continue
             layout.operator('ruster.add_prefab', text=label).category = '@' + key
         layout.separator()
         layout.operator('ruster.assets', text='Refresh Prefab Catalog', icon='IMPORT').rebuild=True

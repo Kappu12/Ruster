@@ -59,6 +59,12 @@ and similar; search `dev cube` in Shift+A or the sidebar. Both searches match
 words in any order. Display names use spaces instead of dots and underscores.
 Sound-only prefabs are labeled and use small spherical
 markers because the game contains no visible mesh for them.
+The browser starts with locally available prefabs and hides internal tests,
+sounds and helper effects. Enable **Effects & Helpers** to include them; choosing
+the Effects or Gameplay category also includes that category's helpers. Browser
+redraws reuse their current page. Loading progress and cancellation stay beside
+the search controls. Model completion follows prefab IDs, so renaming or deleting
+a placement while loading cannot lose or redirect its model.
 Blender's normal toolbar is visible, with Rust brushes added in map mode. New
 prefabs start in Material Preview so loaded textures are visible. Texture previews
 read a source mip up to 2048px without decoding larger levels. Space and F3

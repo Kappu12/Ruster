@@ -107,6 +107,7 @@ def run():
             db.executemany('INSERT INTO names VALUES(?,?)',[
                 (42,'assets/bundled/prefabs/autospawn/monument/large/harbor.prefab'),
                 (43,'assets/bundled/prefabs/autospawn/resource/trees/oak.prefab')])
+            db.execute('INSERT INTO assets VALUES(?,?,?,?)',('assets/bundled/prefabs/autospawn/monument/large/harbor.prefab','bundle','file',1))
             db.commit()
         class Search:category='@MONUMENTS'
         assert [item[0] for item in studio.search_items(Search(),None)]==['42']
