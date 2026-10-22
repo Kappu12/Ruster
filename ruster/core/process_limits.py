@@ -5,7 +5,10 @@ import threading
 
 MIB = 1024 * 1024
 ASSET_MEMORY = 768 * MIB
-EDITOR_MEMORY = 4096 * MIB
+# EEVEE's shader compiler and graphics driver allocate private host memory too.
+# Material Preview on NVIDIA can exceed 4 GiB even for a small packed scene;
+# denying those native allocations caused an access violation inside the driver.
+EDITOR_MEMORY = 8192 * MIB
 _handles = []  # Job handles must stay open for the lifetime of the process.
 
 

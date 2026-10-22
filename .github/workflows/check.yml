@@ -41,6 +41,11 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           timeout 90s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --enable-event-simulate --python-exit-code 1 --python tests/gui_startup.py
+      - name: Test Material Preview shading and redraws
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          timeout 120s xvfb-run -a -s '-screen 0 1600x1000x24' /tmp/ruster-engine/blender-5.2.3-linux-x64/blender -t 2 --gpu-backend opengl --factory-startup --disable-autoexec --python-exit-code 1 --python tests/gui_material_preview.py
       - name: Test mouse-driven terrain and prefab tools
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'

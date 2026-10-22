@@ -34,7 +34,8 @@ named asset scene and required dependencies. Catalog refresh and map opening do
 not start bulk conversion. **Load Selected Models** accepts up to 100 different
 model IDs per request. A requested prefab runs in its own short-lived child process. On Windows each
 asset child has a 768 MiB allocation limit and its supervisor tree has a 1 GiB
-limit. The editor process tree has a 4 GiB allocation limit. Limits apply to
+limit. The editor process tree has an 8 GiB allocation limit, including headroom
+for Material Preview's shader compiler and graphics driver. Limits apply to
 private committed process memory, not GPU allocations or shared system pages.
 Oversized/unsupported assets stay as placeholders with an error report. Worker
 watchdogs and Windows jobs stop child work if the owning editor exits or crashes.
