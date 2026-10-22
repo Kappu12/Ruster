@@ -123,7 +123,8 @@ def set_nodes(obj,nodes,bridge):
 def dispatch(server,kind,p,bridge):
     if kind=='get_editor_status':
         state=bpy.context.scene.ruster
-        return {'mode':state.mode,'busy':state.busy,'asset_status':state.asset_status,'asset_progress':state.asset_progress,
+        return {'mode':state.mode,'busy':state.busy or bool(app._visual_queue),'worker_busy':state.busy,'pending_visuals':len(app._visual_queue),
+            'queued_prefabs':len(app._pending_asset_ids),'asset_status':state.asset_status,'asset_progress':state.asset_progress,
             'catalog_ready':(scene.cache_dir()/'catalog.sqlite3').is_file(),'coordinates':{'units':'metres','up_axis':'Z','rotation':'XYZ Euler degrees','map_xy_bounds':[-state.map_size/2,state.map_size/2]},
             'capabilities':['catalog discovery','original asset metadata','batch prefab composition','grouping','placement transforms','terrain sampling and painting','Rust paths','viewport images','assemblies','save/export','undo/redo'],
             'limitations':['Prefab meshes and materials are immutable. Build models by composing whole Rust prefabs.','Catalog availability means a local bundle exists, not guaranteed successful model extraction.','Validation does not simulate Rust server gameplay or collisions.']}
@@ -176,7 +177,8 @@ def dispatch(server,kind,p,bridge):
             bounded_int(uid,0,0xffffffff,'Prefab ID')
             found=catalog.find(scene.cache_dir(),uid)
             if not found or not found[1]:raise ValueError(f'Prefab {uid} is not available locally')
-        app.request_assets(ids);return {'requested':ids,'next_step':'Poll get_editor_status until busy is false, then get_prefab_details.'}
+        if not app.request_assets(ids):raise ValueError(bpy.context.scene.ruster.asset_status)
+        return {'requested':ids,'next_step':'Poll get_editor_status until busy is false, then get_prefab_details.'}
     if kind=='import_assembly':
         path=bridge.file_target(p['path'],'.rusterprefab',True)
         if not path.is_file() or path.stat().st_size>32*1024*1024:raise ValueError('Choose an existing assembly of at most 32 MiB')

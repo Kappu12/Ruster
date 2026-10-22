@@ -35,3 +35,28 @@ def test_catalog_combines_category_search_favorites_and_paging(tmp_path):
 def test_malformed_favorite_settings_do_not_break_the_browser():
     assert palettes.favorite_ids({'favorite_prefabs':{'bad':3}})==[]
     assert palettes.favorite_ids({'favorite_prefabs':[True,{},'bad',-1,'4294967296','42',42]})==[42]
+
+
+def test_catalog_pages_count_filter_and_recover_from_stale_offsets(tmp_path):
+    populated(tmp_path)
+    with closing(catalog.connect(tmp_path)) as db:
+        db.execute('DELETE FROM assets WHERE path=?',('assets/prefabs/rocks/a.prefab',));db.commit()
+    page=catalog.page(tmp_path,page_index=100,page_size=2)
+    assert page['page']==1 and page['pages']==2 and page['total']==4 and len(page['rows'])==2
+    page=catalog.page(tmp_path,category='assets/prefabs/rocks',page_index=100,page_size=1,available_only=True)
+    assert page['total']==1 and page['page']==0 and page['rows'][0][0]==3
+    assert catalog.page(tmp_path,favorites=[],page_index=100)['pages']==0
+    assert catalog.page(tmp_path,query='not-a-prefab')['rows']==[]
+    assert len(catalog.search(tmp_path,available_only=True))==3
+
+
+def test_case_variant_assets_do_not_duplicate_prefab_pages(tmp_path):
+    populated(tmp_path)
+    with closing(catalog.connect(tmp_path)) as db:
+        db.execute('INSERT INTO assets VALUES(?,?,?,?)',('ASSETS/PREFABS/ROCKS/A.PREFAB','variant','file',99));db.commit()
+    assert [r[0] for r in catalog.search(tmp_path,category='assets/prefabs/rocks')]==[1,3]
+    assert catalog.find(tmp_path,1)[1]=='bundle'
+    with closing(catalog.connect(tmp_path)) as db:
+        db.execute('DELETE FROM assets WHERE path=?',('assets/prefabs/rocks/a.prefab',));db.commit()
+    assert catalog.search(tmp_path,'rocks/a',available_only=True)[0][0]==1
+    assert catalog.find(tmp_path,1)[1]=='variant'

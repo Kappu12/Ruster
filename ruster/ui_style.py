@@ -38,7 +38,7 @@ ACTIONS={
     'ruster.save':('Save Project','save'),
     'ruster.export_map':('Export Rust Map…','export'),
     'ruster.setup':('Rust Installation…','settings'),
-    'ruster.preferences':('Ruster Settings…','settings'),
+    'ruster.preferences':('Preferences…','settings'),
     'ruster.mcp_config':('Copy MCP Client Configuration','duplicate'),
     'ruster.mcp_retry':('Retry MCP Connection','refresh'),
     'wm.quit_blender':('Quit Ruster','quit'),

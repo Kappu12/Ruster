@@ -145,8 +145,8 @@ def root_object(fields, collection):
     obj['ruster_visual'] = False
     position, rotation, scale = prefab_transform(fields)
     obj.location = to_blender(position)
-    obj.rotation_mode = 'QUATERNION'
-    obj.rotation_quaternion = unity_euler(rotation)
+    obj.rotation_mode = 'XYZ'
+    obj.rotation_euler = unity_euler(rotation).to_euler('XYZ')
     obj.scale = to_blender(scale)
     obj.empty_display_type = 'CUBE'
     obj.empty_display_size = 2

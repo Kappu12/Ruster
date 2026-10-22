@@ -15,7 +15,8 @@ work toward RustEdit parity.
 On first launch, Ruster checks standard Steam locations, Windows Steam registry
 entries and Steam's secondary library folders for Rust. It validates the game
 executable and `Bundles` folder, remembers the location and starts indexing.
-Your saved valid location takes priority. If discovery fails, choose the folder,
+Your saved valid location takes priority. If discovery fails, Ruster opens
+**Preferences → Rust Assets**. Choose the folder and click **Apply Installation**,
 for example:
 
 ```text
@@ -24,7 +25,7 @@ C:\Program Files (x86)\Steam\steamapps\common\Rust
 
 Choose the game folder containing `Bundles`, rather than the Steam directory.
 Ruster remembers this location and indexes the installed Unity AssetBundles in a
-separate process. Change it later with **Ruster → Rust Installation**.
+separate process. Change it later with **Edit → Preferences → Rust Assets**.
 
 The start screen offers:
 
@@ -37,7 +38,9 @@ styling. Use Blender's navigation, `G`, `R`, `S`, snapping and selection tools.
 Menus, dialogs, section headers and tools share Blender's bundled icon pack.
 Terrain and prefab paint have distinct toolbar icons; advanced options live in
 native collapsible sections. Ruster follows the selected dark/light theme and UI
-scale, and New Project preserves those preferences.
+scale, and New Project preserves those preferences. Rust installation and MCP
+settings live in the same Preferences window under **Rust Assets** and **Rust MCP**
+in the left-hand navigation; there is no separate Ruster settings dialog.
 The prefab browser places objects at the 3D cursor. Its duplicate/delete actions
 also handle prefab groups and shared model instances.
 
@@ -82,8 +85,12 @@ The map-mode command and Outliner menus expose supported placement actions.
 Export rejects editable/unpacked model parts, detached previews and mismatched
 models. **Restore Original Models** repairs the selected placements.
 
-The Prefab Browser now has categories, persistent favorite stars and a favorites
-filter. Click the brush icon beside a prefab to choose it for **Prefab Paint**.
+The Prefab Browser has categories, persistent favorite stars, an available-local
+filter, exact result counts and page totals. Hover a prefab to inspect its full
+asset path and Rust ID; use the copy icon to copy that ID. Empty searches and
+catalog read errors have distinct messages. New placements use Blender’s normal
+XYZ rotation angles; the Placement panel also exposes Blender’s rotation mode
+selector for older quaternion projects. Click the brush icon beside a prefab to choose it for **Prefab Paint**.
 Drag in the viewport to paint a spaced line of placements. The paint panel also
 supports random favorite/selected-type palettes, rotation, scale, surface
 alignment, slope limits and avoiding terrain holes. Spacing measures placement
@@ -102,7 +109,7 @@ as well. Native file drops support `.map` and `.ruster`.
 
 ## MCP / AI editor connection
 
-Open **Ruster → Ruster Settings** and turn on **Enable MCP**. It is off by default.
+Open **Edit → Preferences → Rust MCP** and turn on **Enable MCP**. It is off by default.
 Click **Copy MCP Client Configuration** and add the JSON to your MCP client's
 configuration. Keep Ruster open. The packaged app includes the stdio adapter and
 its Python dependencies; there is no separate community addon or `uv` install.
@@ -123,10 +130,12 @@ The integration adapts the MIT-licensed community
 | Reuse and finish | `import_assembly`, `export_assembly`, `validate_map`, `save_project`, `export_map`, `undo`, `redo` |
 
 The AI can enumerate **every indexed prefab**: browse categories or call
-`search_prefabs` with an empty query, following `next_offset` until it is null.
+`search_prefabs` with an empty query, following `next_offset` until it is null. Use `available_only=True` to exclude
+entries missing from the local bundles.
 Asset details include cached local dimensions/bounds and mesh/material/triangle
 counts. Uncached models return instructions to preload them and poll extraction
-status. IDs always come from the local catalog; they must never be invented.
+status (including queued viewport visuals). Failed worker starts return an MCP
+error and preserve pending IDs for retry. IDs always come from the local catalog; they must never be invented.
 Catalog coverage depends on the installed game's index and supported extraction.
 
 Modeling means composing **whole original Rust prefabs**, including scaled and

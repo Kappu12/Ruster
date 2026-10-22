@@ -24,6 +24,15 @@ def start():
             path.write_bytes(sample_world().write())
             scene.import_map(path)
             ui.map_workspace()
+            if mode=='browser':
+                from contextlib import closing
+                from ruster.assets import catalog
+                with closing(catalog.connect(scene.cache_dir())) as db:
+                    for uid in range(25):
+                        asset=f'assets/prefabs/construction/prefab_{uid:02d}.prefab'
+                        db.execute('INSERT OR REPLACE INTO names VALUES(?,?)',(uid,asset))
+                        if uid%3:db.execute('INSERT OR REPLACE INTO assets VALUES(?,?,?,?)',(asset,'bundle','file',uid))
+                    db.commit()
     return None
 
 
@@ -34,7 +43,7 @@ def prepare():
         with bpy.context.temp_override(area=area,region=region):
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=1)
             if mode=='setup':bpy.ops.ruster.setup('INVOKE_DEFAULT')
-            elif mode=='settings':bpy.ops.ruster.preferences('INVOKE_DEFAULT')
+            elif mode=='settings':bpy.ops.ruster.preferences('INVOKE_DEFAULT',section='RUSTER_MCP')
             else:
                 next(r for r in area.regions if r.type=='UI').active_panel_category='Ruster'
                 area.tag_redraw()

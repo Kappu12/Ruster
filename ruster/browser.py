@@ -14,6 +14,14 @@ _category_history=[]
 _category_items=[('ALL','All Categories','',0)]
 
 
+def prefab_description(uid,action):
+    try:
+        found=catalog.find(scene.cache_dir(),int(uid))
+        if found:return f'{action}\n{found[0]}\nRust prefab ID: {uid}'+('' if found[1] else '\nNot found in local Rust bundles')
+    except (ValueError,OSError,sqlite3.Error):pass
+    return action
+
+
 def category_items(_state,_context):
     global _category_key,_category_items
     path=scene.cache_dir()/'catalog.sqlite3'
@@ -51,16 +59,37 @@ class RUSTER_OT_paint_asset(bpy.types.Operator):
     bl_label='Paint this Prefab'
     bl_description='Choose this prefab for terrain placement painting'
     uid:StringProperty()
+    @classmethod
+    def description(cls,context,properties):return prefab_description(properties.uid,'Paint this prefab on terrain')
     def execute(self,context):
-        if not catalog.find(scene.cache_dir(),int(self.uid)):return {'CANCELLED'}
+        try:
+            found=catalog.find(scene.cache_dir(),int(self.uid))
+            if not found or not found[1]:raise ValueError('Choose a prefab available in your local Rust bundles')
+        except (ValueError,OSError,sqlite3.Error) as error:
+            self.report({'ERROR'},str(error));return {'CANCELLED'}
         brush=context.scene.ruster_paint
         brush.uid=self.uid;brush.palette='SINGLE'
         bpy.ops.wm.tool_set_by_id(name='ruster.prefab_brush')
         return {'FINISHED'}
 
 
+class RUSTER_OT_copy_prefab(bpy.types.Operator):
+    bl_idname='ruster.copy_prefab'
+    bl_label='Copy Prefab ID'
+    uid:StringProperty()
+    @classmethod
+    def description(cls,context,properties):return prefab_description(properties.uid,'Copy this Rust prefab ID')
+    def execute(self,context):
+        try:
+            if not catalog.find(scene.cache_dir(),int(self.uid)):raise ValueError('Prefab is no longer in the local catalog')
+            context.window_manager.clipboard=self.uid
+            self.report({'INFO'},'Prefab ID copied');return {'FINISHED'}
+        except (ValueError,OSError,sqlite3.Error) as error:
+            self.report({'ERROR'},str(error));return {'CANCELLED'}
+
+
 def register():
-    for cls in (RUSTER_OT_favorite,RUSTER_OT_paint_asset):bpy.utils.register_class(cls);_classes.append(cls)
+    for cls in (RUSTER_OT_favorite,RUSTER_OT_paint_asset,RUSTER_OT_copy_prefab):bpy.utils.register_class(cls);_classes.append(cls)
 
 
 def unregister():

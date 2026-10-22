@@ -35,7 +35,6 @@ class RUSTER_MT_file(bpy.types.Menu):
         if is_map(context):action(layout,'ruster.export_map')
         layout.separator()
         action(layout,'ruster.setup')
-        action(layout,'ruster.preferences')
         layout.separator()
         action(layout,'wm.quit_blender')
 
@@ -50,6 +49,8 @@ class RUSTER_MT_edit(bpy.types.Menu):
         layout.separator()
         action(layout,'ruster.group');action(layout,'ruster.ungroup')
         action(layout,'ruster.surface_snap')
+        layout.separator()
+        action(layout,'ruster.preferences')
 
 
 class RUSTER_MT_map(bpy.types.Menu):
@@ -98,32 +99,44 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
         layout=self.layout;state=context.scene.ruster
         layout.prop(state,'query',text='',icon=I['search'])
         layout.prop(state,'category',text='')
-        layout.prop(state,'favorites_only',text='Favorites',toggle=True,
+        row=layout.row(align=True)
+        row.prop(state,'favorites_only',text='Favorites',toggle=True,
             icon=I['favorite_on' if state.favorites_only else 'favorite_off'])
+        row.prop(state,'available_only',text='Available Locally',toggle=True,icon=I['import'])
         from .core import settings,palettes
         favorites=set(palettes.favorite_ids(settings.load()))
         try:
-            matches=catalog.search(scene.cache_dir(),state.query,limit=browser.PAGE_SIZE+1,
-                offset=state.query_page*browser.PAGE_SIZE,
+            result=catalog.page(scene.cache_dir(),state.query,page_size=browser.PAGE_SIZE,
+                page_index=state.query_page,
                 category='' if state.category=='ALL' else state.category,
-                favorites=favorites if state.favorites_only else None)
-        except Exception:
-            matches=[]
+                favorites=favorites if state.favorites_only else None,available_only=state.available_only)
+            matches=result['rows']
+        except Exception as error:
+            wrapped(layout,context,'Could not read the asset catalog: '+str(error),icon='error')
+            action(layout,'ruster.asset_report');return
+        layout.label(text=f"{result['total']:,} matching prefabs",icon=I['prefab'])
         if not matches:
-            wrapped(layout,context,'No matching local prefabs.',icon='info')
-            action(layout,'ruster.assets',text='Refresh Asset Catalog',icon='refresh').rebuild=True
-        for uid,path,available in matches[:browser.PAGE_SIZE]:
+            if not (scene.cache_dir()/'catalog.sqlite3').is_file():
+                wrapped(layout,context,'Load your Rust assets to browse prefabs.',icon='info')
+                action(layout,'ruster.assets')
+            elif state.query or state.category!='ALL' or state.favorites_only or state.available_only:
+                wrapped(layout,context,'No matching prefabs. Try a different search or turn off a filter.',icon='info')
+            else:
+                wrapped(layout,context,'The catalog is empty. Refresh your Rust assets.',icon='info')
+                action(layout,'ruster.assets',text='Refresh Asset Catalog',icon='refresh').rebuild=True
+        for uid,path,available in matches:
             row=layout.row(align=True)
             row.operator('ruster.favorite',text='',icon=I['favorite_on' if uid in favorites else 'favorite_off'],emboss=False).uid=str(uid)
             body=row.row(align=True);body.enabled=bool(available)
             body.operator('ruster.place',text=path.rsplit('/',1)[-1].removesuffix('.prefab'),icon=I['prefab']).uid=str(uid)
             body.operator('ruster.paint_asset',text='',icon=I['prefab_brush']).uid=str(uid)
-        if matches or state.query_page:
+            row.operator('ruster.copy_prefab',text='',icon=I['duplicate']).uid=str(uid)
+        if matches:
             row=layout.row(align=True)
-            previous=row.row(align=True);previous.enabled=state.query_page>0
+            previous=row.row(align=True);previous.enabled=result['page']>0
             previous.operator('ruster.catalog_page',text='',icon=I['previous']).delta=-1
-            row.label(text=f'Page {state.query_page+1}')
-            next_=row.row(align=True);next_.enabled=len(matches)>browser.PAGE_SIZE
+            row.label(text=f"Page {result['page']+1} of {result['pages']}")
+            next_=row.row(align=True);next_.enabled=result['page']+1<result['pages']
             next_.operator('ruster.catalog_page',text='',icon=I['next']).delta=1
         wrapped(layout,context,'Click a prefab to place it at the 3D cursor. Use its paint icon to paint in the viewport.')
 
@@ -145,7 +158,9 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
             else:layout.label(text='Original model is read-only',icon=I['locked'])
         fields=properties(layout.column())
         fields.prop(obj,'location')
-        fields.prop(obj,'rotation_quaternion' if obj.rotation_mode=='QUATERNION' else 'rotation_euler',text='Rotation')
+        fields.prop(obj,'rotation_mode',text='Rotation Mode')
+        rotation='rotation_quaternion' if obj.rotation_mode=='QUATERNION' else ('rotation_axis_angle' if obj.rotation_mode=='AXIS_ANGLE' else 'rotation_euler')
+        fields.prop(obj,rotation,text='Rotation')
         fields.prop(obj,'scale')
         row=layout.row(align=True)
         action(row,'ruster.duplicate',text='Duplicate');action(row,'ruster.delete',text='Delete')

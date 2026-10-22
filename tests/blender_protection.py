@@ -117,7 +117,7 @@ def run():
         count=len(scene.prefab_roots())
         assert bpy.ops.ruster.place(uid='333333')=={'FINISHED'}
         assert len(scene.prefab_roots())==count+1 and not bpy.context.object.get('ruster_visual')
-        assert 'Placements saved' in bpy.context.scene.ruster.asset_status
+        assert 'Could not start asset loading' in bpy.context.scene.ruster.asset_status
         # A normal Blender project retains ordinary editable custom meshes.
         assert bpy.ops.ruster.new('EXEC_DEFAULT')=={'FINISHED'}
         cube=bpy.data.objects['Cube'];placement.select([cube])

@@ -56,10 +56,11 @@ def object_info(server,name):
     return result
 
 
-def prefab_search(query='',category='',limit=20,offset=0):
+def prefab_search(query='',category='',limit=20,offset=0,available_only=False):
     if not isinstance(query,str) or not isinstance(category,str):raise ValueError('Search and category must be strings')
+    if type(available_only)!=bool:raise ValueError('Available-only filter must be boolean')
     if type(limit)!=int or type(offset)!=int or not 1<=limit<=100 or offset<0:raise ValueError('Use a limit of 1–100 and a nonnegative offset')
-    rows=catalog.search(scene.cache_dir(),query,limit=limit+1,offset=offset,category=category)
+    rows=catalog.search(scene.cache_dir(),query,limit=limit+1,offset=offset,category=category,available_only=available_only)
     return {'prefabs':[{'id':uid,'path':path,'available':bool(available)} for uid,path,available in rows[:limit]],
         'offset':offset,'limit':limit,'has_more':len(rows)>limit,'next_offset':offset+limit if len(rows)>limit else None,
         'catalog_ready':(scene.cache_dir()/'catalog.sqlite3').is_file()}
@@ -281,29 +282,23 @@ class RUSTER_OT_mcp_retry(bpy.types.Operator):
     def execute(self,context):update_enabled(context.window_manager.ruster_mcp,context);return {'FINISHED'}
 
 
-class RUSTER_OT_preferences(bpy.types.Operator):
-    bl_idname='ruster.preferences'
-    bl_label='Ruster Settings'
-    def invoke(self,context,event):return context.window_manager.invoke_popup(self,width=520)
-    def execute(self,context):return {'FINISHED'}
-    def draw(self,context):
-        layout=self.layout
-        layout.label(text='Ruster Settings',icon=I['settings'])
-        action(layout,'ruster.setup')
-        layout.separator()
-        box=layout.box();state=context.window_manager.ruster_mcp
-        box.label(text='MCP · AI Editor Connection',icon=I['settings'])
-        properties(box).prop(state,'enabled')
-        row=box.row();row.enabled=not running();row.prop(state,'port')
-        wrapped(box,context,state.status,icon='validate' if running() else ('info' if not state.enabled else 'error'),width=500)
-        if state.enabled and not running():action(box,'ruster.mcp_retry')
-        action(box,'ruster.mcp_config')
-        wrapped(box,context,'Connect an MCP client using the copied configuration. Keep Ruster open while connected.',width=500)
-        wrapped(box,context,'Uses the community Blender MCP bridge with Rust placement and terrain tools. Prefab geometry stays read-only.',icon='locked',width=500)
+def draw_settings(layout,context):
+    state=context.window_manager.ruster_mcp
+    width=min(500,max(180,context.region.width/max(context.preferences.system.ui_scale,.5)-180))
+    layout.label(text='MCP · AI Editor Connection',icon=I['settings'])
+    properties(layout).prop(state,'enabled')
+    row=layout.row();row.enabled=not running();row.prop(state,'port')
+    wrapped(layout,context,state.status,icon='validate' if running() else ('info' if not state.enabled else 'error'),width=width)
+    if state.enabled and not running():action(layout,'ruster.mcp_retry')
+    action(layout,'ruster.mcp_config')
+    layout.separator()
+    wrapped(layout,context,'Connect an MCP client using the copied configuration. Keep Ruster open while connected.',width=width)
+    wrapped(layout,context,'Uses the community Blender MCP bridge with Rust placement and terrain tools. Prefab geometry stays read-only.',icon='locked',width=width)
+    wrapped(layout,context,'Connection settings are saved automatically on this computer.',width=width)
 
 
 def register():
-    for cls in (RUSTER_PG_mcp,RUSTER_OT_mcp_config,RUSTER_OT_mcp_retry,RUSTER_OT_preferences):bpy.utils.register_class(cls);_classes.append(cls)
+    for cls in (RUSTER_PG_mcp,RUSTER_OT_mcp_config,RUSTER_OT_mcp_retry):bpy.utils.register_class(cls);_classes.append(cls)
     bpy.types.WindowManager.ruster_mcp=PointerProperty(type=RUSTER_PG_mcp)
     sync_state()
     if not bpy.app.background:bpy.app.timers.register(startup,first_interval=1.,persistent=True)

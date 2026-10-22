@@ -23,8 +23,8 @@ Dark and light themes must both work, and New Project must preserve preferences.
 ## Entry and modes
 
 First launch tries the saved valid Rust folder, then standard Steam paths,
-Windows registry, secondary libraries and Rust's app manifest. Ask for a folder
-only if discovery finds no valid installation. Never recursively scan drives or
+Windows registry, secondary libraries and Rust's app manifest. Open Preferences
+at Rust Assets only if discovery finds no valid installation. Never recursively scan drives or
 modify Steam files. Store the result per user, outside project files. Indexing
 is visible and runs outside the UI process.
 
@@ -69,8 +69,11 @@ geometry or unrelated layers, and never export a mask at reduced preview detail.
 
 ## MCP connection
 
-MCP settings use the same native Blender controls and icon vocabulary as the
-rest of the app. The bridge is off by default, bound only to loopback, and uses
+All application settings share Blender’s native Preferences editor. Preserve its
+standard sections and add Rust Assets / Rust MCP in the same left-hand navigation.
+Rust installation uses a native directory field; MCP uses native toggles and fields.
+Do not introduce a separate Ruster settings popup. Native section shortcuts and
+Blender’s original panels must keep working, and unregister restores them. The bridge is off by default, bound only to loopback, and uses
 per-user authentication. Its enablement, port and token belong to local settings,
 never project data. Offer a copied client configuration pointing at the bundled
 Python/stdio adapter. Scene observation and typed Rust edits run on Blender's

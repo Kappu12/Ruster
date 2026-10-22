@@ -52,6 +52,7 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     terrain_state: PointerProperty(type=bpy.types.Text)
     category:EnumProperty(name='Category',items=category_items,update=query_changed)
     favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
+    available_only:BoolProperty(name='Available Locally',description='Show prefabs found in your indexed Rust bundles',default=False,update=query_changed)
     query_page: IntProperty(default=0,min=0,options={'SKIP_SAVE'})
     preview_resolution:EnumProperty(name='Terrain Detail',items=[('129','Fast','Lowest viewport memory use'),
         ('257','Balanced','Balanced detail and performance'),('513','Detailed','More terrain samples in the viewport'),
@@ -95,9 +96,13 @@ def start_job(action, ids=None):
         ids_path.write_text(json.dumps(ids))
         args += ['--ids-file', str(ids_path)]
     (cache / 'progress.json').write_text(json.dumps({'state': 'STARTING'}))
-    _job_log = (cache / 'worker.log').open('w')
+    job_log = (cache / 'worker.log').open('w')
     kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
-    _job = subprocess.Popen(args, stdout=_job_log, stderr=subprocess.STDOUT, **kwargs)
+    try:job = subprocess.Popen(args, stdout=job_log, stderr=subprocess.STDOUT, **kwargs)
+    except Exception:
+        job_log.close();raise
+    if _job_log:_job_log.close()
+    _job_log,_job=job_log,job
     _job_action = action
     _job_cancelled = False
     bpy.context.scene.ruster.busy = True
@@ -111,11 +116,15 @@ def request_assets(ids):
     ids=set(ids)
     if not ids:return
     _pending_asset_ids.update(ids)
-    if _job is not None and _job.poll() is None:return
+    if _job is not None and _job.poll() is None:return True
     pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
-    try:start_job('extract',pending)
+    try:
+        start_job('extract',pending)
+        return True
     except Exception as error:
-        bpy.context.scene.ruster.asset_status=f'Placements saved; asset loading needs attention: {error}'
+        _pending_asset_ids.update(pending)
+        bpy.context.scene.ruster.asset_status=f'Could not start asset loading: {error}. Check Rust Installation.'
+        return False
 
 
 def redraw():
@@ -198,43 +207,31 @@ class RUSTER_OT_setup(bpy.types.Operator):
     directory: StringProperty(name='Rust installation', subtype='DIR_PATH')
 
     def invoke(self, context, event):
-        config=settings.load()
-        self.directory=config.get('rust_install','')
-        try:settings.validate_install(self.directory)
+        state=context.window_manager.ruster_preferences
+        state.directory=settings.load().get('rust_install','')
+        try:settings.validate_install(state.directory)
         except (OSError,ValueError,RuntimeError):
             from .core.steam import detect_install
-            if detected:=detect_install():self.directory=str(detected)
-        return context.window_manager.invoke_props_dialog(self, width=520)
-
-    def draw(self, context):
-        col = self.layout.column()
-        col.label(text='Welcome to Ruster', icon=I['world'])
-        wrapped(col,context,'Choose the Rust game folder. Ruster checks Steam libraries automatically.')
-        wrapped(col,context,'Assets stay on your computer. Your game files are read-only.',icon='locked')
-        col.separator()
-        properties(col).prop(self, 'directory')
+            if detected:=detect_install():state.directory=str(detected)
+        return bpy.ops.ruster.preferences('INVOKE_DEFAULT',section='RUSTER_ASSETS')
 
     def execute(self, context):
         global _pending_project
         try:
-            root = settings.validate_install(bpy.path.abspath(self.directory))
+            root = settings.validate_install(bpy.path.abspath(self.directory or context.window_manager.ruster_preferences.directory))
             config = settings.load()
             config['rust_install'] = str(root)
             settings.save(config)
+            context.window_manager.ruster_preferences.directory=str(root)
             start_job('index')
             if _pending_project:
                 pending, _pending_project = _pending_project, None
                 open_path(pending)
-            else:
-                bpy.ops.ruster.welcome('INVOKE_DEFAULT')
+            self.report({'INFO'},'Rust installation saved; loading the asset catalog')
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
-
-    def cancel(self, context):
-        bpy.ops.ruster.welcome('INVOKE_DEFAULT')
-
 
 class RUSTER_OT_welcome(bpy.types.Operator):
     bl_idname = 'ruster.welcome'
@@ -252,7 +249,6 @@ class RUSTER_OT_welcome(bpy.types.Operator):
         action(col,'ruster.new')
         action(col,'ruster.new_map')
         col.separator()
-        action(col,'ruster.setup')
         action(col,'ruster.preferences')
         col.label(text='Rust .map   ·   Ruster .ruster')
         recent=settings.load().get('recent_projects',[])
@@ -492,8 +488,17 @@ class RUSTER_OT_catalog_page(bpy.types.Operator):
     bl_label='Change Prefab Page'
     delta:IntProperty(default=1)
     def execute(self,context):
-        context.scene.ruster.query_page=max(0,context.scene.ruster.query_page+self.delta)
-        return {'FINISHED'}
+        from .core import palettes
+        from .browser import PAGE_SIZE
+        state=context.scene.ruster
+        try:
+            result=catalog.page(scene.cache_dir(),state.query,page_index=state.query_page,page_size=PAGE_SIZE,
+                category='' if state.category=='ALL' else state.category,
+                favorites=palettes.favorite_ids(settings.load()) if state.favorites_only else None,available_only=state.available_only)
+            state.query_page=max(0,min(result['pages']-1,result['page']+self.delta))
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'},'Could not read the prefab catalog: '+str(error));return {'CANCELLED'}
 
 
 class RUSTER_FH_project(bpy.types.FileHandler):
@@ -510,6 +515,11 @@ class RUSTER_OT_place(bpy.types.Operator):
     bl_label = 'Place Prefab'
     bl_options = {'REGISTER', 'UNDO'}
     uid: StringProperty()
+
+    @classmethod
+    def description(cls,context,properties):
+        from .browser import prefab_description
+        return prefab_description(properties.uid,'Place at the 3D cursor')
 
     def execute(self, context):
         try:
@@ -643,6 +653,8 @@ def register():
     from . import mcp_bridge
     mcp_bridge.register()
     ui.register()
+    from . import preferences
+    preferences.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
@@ -659,7 +671,8 @@ def register():
 
 
 def unregister():
-    from . import ui
+    from . import ui,preferences
+    preferences.unregister()
     if _job is not None and _job.poll() is None:
         _job.terminate()
     for callback in (poll_job, load_visuals, startup,recovery_tick):
@@ -671,6 +684,7 @@ def unregister():
         km.keymap_items.remove(item)
     _keymaps.clear()
     _pending_asset_ids.clear()
+    _visual_queue.clear()
     from . import mcp_bridge
     mcp_bridge.unregister()
     ui.unregister()

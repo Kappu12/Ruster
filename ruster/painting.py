@@ -97,7 +97,7 @@ class RUSTER_OT_prefab_stroke(bpy.types.Operator):
                 angle=self.rng.uniform(0,2*math.pi) if brush.random_yaw else 0.
                 rotation=Quaternion((0,0,1),angle)
                 if brush.align:rotation=Vector((0,0,1)).rotation_difference(Vector(normal))@rotation
-                obj.rotation_quaternion=rotation
+                obj.rotation_euler=rotation.to_euler(obj.rotation_mode)
                 factor=self.rng.uniform(brush.min_scale,brush.max_scale)
                 obj.scale=(factor,factor,factor)
                 model=self.models.get(uid)

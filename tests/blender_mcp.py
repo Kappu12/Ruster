@@ -55,7 +55,7 @@ def run():
         assert failed['status']=='error' and bpy.data.objects[name].matrix_world==before
         terrain=next(o for o in bpy.context.scene.objects if o.get('ruster_kind')=='TERRAIN')
         assert server.execute_command({'token':server.token,'type':'transform_object','params':{'name':terrain.name,'scale':[1,2,1]}})['status']=='error'
-        assert call('get_object_info',name=name)['world_scale']==[2,3,4]
+        assert all(abs(a-b)<1e-5 for a,b in zip(call('get_object_info',name=name)['world_scale'],[2,3,4]))
         count=len(scene.prefab_roots())
         failed=server.execute_command({'token':server.token,'type':'place_prefabs','params':{'placements':[{'uid':123456,'position':[0,0,20]},{'uid':99,'position':[0,0,20]}]}})
         assert failed['status']=='error' and len(scene.prefab_roots())==count,'Partial composition leaked'
@@ -106,6 +106,20 @@ def run():
             offset=page['next_offset']
         assert len(seen)==205 and len(set(seen))==205,'Catalog pagination omitted or repeated assets'
         assert len(call('search_prefabs',query='part_20')['prefabs'])==10
+        assert len(call('search_prefabs',available_only=True)['prefabs'])==1
+        previous=app.start_job
+        def failed_worker(*_args,**_kwargs):raise ValueError('Test worker could not start')
+        try:
+            app.start_job=failed_worker
+            failure=server.execute_command({'token':server.token,'type':'request_prefab_assets','params':{'uids':[123456]}})
+            assert failure['status']=='error' and 'could not start' in failure['message']
+            assert 123456 in app._pending_asset_ids
+            status=call('get_editor_status');assert status['queued_prefabs']==1
+        finally:
+            app.start_job=previous;app._pending_asset_ids.clear()
+        app._visual_queue.append(name)
+        try:assert call('get_editor_status')['busy'] and call('get_editor_status')['pending_visuals']>0
+        finally:app._visual_queue.clear()
         ruster.unregister()
     print('RUSTER_BLENDER_MCP_TYPED_COMMANDS_OK',flush=True)
 

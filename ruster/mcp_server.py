@@ -9,7 +9,7 @@ from .vendor.blender_mcp_client import BlenderConnection
 
 _connection=None
 _lock=threading.Lock()
-mcp=FastMCP('Ruster',instructions='Build Rust maps and custom prefab compositions with original local game assets. First read ruster://guide/building and get_editor_status. Discover the complete catalog using list_prefab_categories and paginated search_prefabs (empty query browses everything; follow next_offset). Inspect dimensions with get_prefab_details; preload missing models with request_prefab_assets and poll status. Use sample_surface before placement, place_prefabs for atomic batches, group_objects for assemblies, and focus_view/get_viewport_image for visual feedback. Editor world metres: Z up; XYZ rotations in degrees. Geometry and materials are immutable; composition is the modeling workflow. Validate before export. Open a map and enable MCP in Ruster Settings. Inspect the scene before retrying a timed-out mutation.')
+mcp=FastMCP('Ruster',instructions='Build Rust maps and custom prefab compositions with original local game assets. First read ruster://guide/building and get_editor_status. Discover the complete catalog using list_prefab_categories and paginated search_prefabs (empty query browses everything; follow next_offset). Inspect dimensions with get_prefab_details; preload missing models with request_prefab_assets and poll status. Use sample_surface before placement, place_prefabs for atomic batches, group_objects for assemblies, and focus_view/get_viewport_image for visual feedback. Editor world metres: Z up; XYZ rotations in degrees. Geometry and materials are immutable; composition is the modeling workflow. Validate before export. Open a map and enable MCP in Preferences → Rust MCP. Inspect the scene before retrying a timed-out mutation.')
 READ=ToolAnnotations(readOnlyHint=True,destructiveHint=False,openWorldHint=False)
 EDIT=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False)
 DESTRUCTIVE=ToolAnnotations(readOnlyHint=False,destructiveHint=True,openWorldHint=False)
@@ -19,9 +19,9 @@ def command(rpc_kind,**params):
     global _connection
     with _lock:
         config=settings.load()
-        if not mcp_config.enabled(config):raise ValueError('Enable MCP in Ruster Settings first')
+        if not mcp_config.enabled(config):raise ValueError('Enable MCP in Preferences → Rust MCP first')
         token=config.get('mcp_token','')
-        if not isinstance(token,str) or len(token)<32:raise ValueError('Start MCP in Ruster Settings first')
+        if not isinstance(token,str) or len(token)<32:raise ValueError('Start MCP in Preferences → Rust MCP first')
         port=mcp_config.port(config)
         if _connection and (_connection.port!=port or _connection.token!=token):_connection.disconnect();_connection=None
         if _connection is None:_connection=BlenderConnection('127.0.0.1',port,token)
@@ -47,9 +47,9 @@ def list_map_objects(limit:int=100,offset:int=0,query:str='',kind:str='',prefab_
 
 
 @mcp.tool(annotations=READ)
-def search_prefabs(query:str='',category:str='',limit:int=20,offset:int=0)->dict:
+def search_prefabs(query:str='',category:str='',limit:int=20,offset:int=0,available_only:bool=False)->dict:
     """Browse/search every indexed Rust prefab by path substring and optional category prefix. Empty query lists all. Returns IDs, paths, local availability, next_offset. Follow pages until next_offset=null; limit 1–100. Never invent prefab IDs."""
-    return command('search_prefabs',query=query,category=category,limit=limit,offset=offset)
+    return command('search_prefabs',query=query,category=category,limit=limit,offset=offset,available_only=available_only)
 
 
 @mcp.tool(annotations=EDIT)

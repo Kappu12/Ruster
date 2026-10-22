@@ -13,14 +13,14 @@ import bpy
 
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import ruster
-from ruster import app,ui,editing,placement,protection,painting,layers,mcp_bridge
+from ruster import app,ui,editing,placement,protection,painting,layers,preferences
 from ruster.assets import catalog
 from tests.fixtures import sample_world
 
 temporary=tempfile.TemporaryDirectory(prefix='ruster-ui-draw-')
 os.environ['RUSTER_USER_DIR']=str(Path(temporary.name)/'user')
 ruster.register()
-state={'stage':0,'draws':set(),'dialogs':set()}
+state={'stage':0,'draws':set(),'dialogs':set(),'preferences_draws':set()}
 
 
 def property_guard(original):
@@ -65,10 +65,9 @@ class RUSTER_PT_ui_contract(bpy.types.Panel):
             traceback.print_exc();os._exit(1)
 
 
-dialogs=[app.RUSTER_OT_setup,app.RUSTER_OT_welcome,editing.RUSTER_OT_new_map,
+dialogs=[app.RUSTER_OT_welcome,editing.RUSTER_OT_new_map,
          editing.RUSTER_OT_generate,placement.RUSTER_OT_surface_snap,
          placement.RUSTER_OT_scatter,placement.RUSTER_OT_replace]
-dialogs.append(mcp_bridge.RUSTER_OT_preferences)
 
 
 def mask_dialog(layer):
@@ -97,8 +96,14 @@ def checked_draw(original,name):
     return draw
 
 for cls in dialogs:cls.draw=checked_draw(cls.draw,cls.bl_idname)
-# Isolate each dialog; setup normally opens the welcome popup when cancelled.
-app.RUSTER_OT_setup.cancel=lambda self,context:None
+for cls in (preferences.RUSTER_PT_preferences_assets,preferences.RUSTER_PT_preferences_mcp):
+    original=cls.draw_centered
+    def checked_preferences(original,section):
+        def draw(self,context,layout):
+            try:original(self,context,layout);state['preferences_draws'].add(section)
+            except Exception:traceback.print_exc();os._exit(1)
+        return draw
+    cls.draw_centered=checked_preferences(original,cls.section)
 bpy.utils.register_class(RUSTER_PT_ui_contract)
 
 
@@ -131,16 +136,20 @@ def perform():
                 assert state['focus_attempts']<25,'Map did not focus its Rust controls'
                 return .2
             region.active_panel_category='Item'
+            assert bpy.ops.ruster.copy_prefab(uid='1')=={'FINISHED'}
+            assert bpy.context.window_manager.clipboard=='1'
         else:assert stage in state['draws'],f'UI did not draw in stage {stage}'
         brush=bpy.context.scene.ruster_brush
         brush.layer=('terrain','water','splat','biome','topology','alpha')[stage-1]
         brush.tool=('STAMP','CLONE','SLOPE','FLATTEN','TERRACE','NOISE')[stage-1]
         obj=state['path'] if stage==6 else state['prefab']
+        if stage<6:obj.rotation_mode=('XYZ','QUATERNION','AXIS_ANGLE')[stage%3]
         bpy.context.view_layer.objects.active=obj
         bpy.context.scene.ruster.busy=stage==3
         bpy.context.scene.ruster.asset_progress_known=True
         bpy.context.scene.ruster.asset_progress=.6
         bpy.context.scene.ruster.query_page=1 if stage==4 else 0
+        bpy.context.scene.ruster.available_only=stage==5
         bpy.context.scene.ruster_paint.palette=('SINGLE','FAVORITES','SELECTED')[stage%3]
     elif stage==7:
         assert 7 in state['draws']
@@ -162,8 +171,19 @@ def perform():
             window.event_simulate(type='ESC',value='PRESS')
     else:
         assert len(state['dialogs'])==len(dialogs)
-        print('RUSTER_GUI_UI_PANELS_DIALOGS_OK',flush=True)
-        bpy.ops.wm.quit_blender();return None
+        index=stage-(9+len(dialogs)*2)
+        sections=('RUSTER_ASSETS','RUSTER_MCP','INTERFACE','THEMES')
+        if index<len(sections):
+            if index==1:assert 'RUSTER_ASSETS' in state['preferences_draws']
+            if index==2:assert 'RUSTER_MCP' in state['preferences_draws']
+            bpy.ops.ruster.preferences('EXEC_DEFAULT',section=sections[index])
+            assert len([a for w in bpy.context.window_manager.windows for a in w.screen.areas if a.type=='PREFERENCES'])==1
+            if index>=2:
+                assert bpy.context.preferences.active_section==sections[index]
+                assert not preferences.is_rust(bpy.context)
+        else:
+            print('RUSTER_GUI_UI_PANELS_DIALOGS_SHARED_PREFERENCES_OK',flush=True)
+            bpy.ops.wm.quit_blender();return None
     state['stage']=stage+1
     state['area'].tag_redraw()
     return .6

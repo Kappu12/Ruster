@@ -11,7 +11,7 @@ still need validation against an installed game and a live test server.
 |---|---|
 | Application | Separate Windows/Linux app package; isolated Blender configuration; native Blender styling and bundled icon pack; shared action labels, collapsible sections, distinct terrain/prefab toolbar icons; preserve dark/light theme on New Project |
 | Startup | Automatic validated Rust discovery from standard Steam paths, Windows registry, secondary libraries and manifests; manual fallback; open `.map` / `.ruster`, normal Blender projects, new Rust maps, recent files |
-| MCP | Optional built-in community Blender MCP adaptation; native settings toggle, bundled stdio client adapter, 32 typed tools; complete paginated catalog discovery, cached model dimensions, atomic composition batches, groups, reusable assemblies, terrain samples, typed paths, viewport PNG feedback, two resource guides and two workflow prompts, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
+| MCP | Optional built-in community Blender MCP adaptation; shared Blender Preferences section and native toggle, bundled stdio client adapter, 32 typed tools; complete paginated catalog discovery, cached model dimensions, atomic composition batches, groups, reusable assemblies, terrain samples, typed paths, viewport PNG feedback, two resource guides and two workflow prompts, local-only authenticated connection; no arbitrary Python or prefab mesh commands |
 | Projects | Self-contained `.ruster`, atomic saves, source map retention, packed model previews, integrity checks |
 | Terrain | Full-resolution edits; independent adjustable viewport detail; height and slope masks |
 | Height tools | Raise, lower, flatten, smooth, erode, sharpen, terrace, noise, pinch, twist, slope plane |
@@ -26,9 +26,9 @@ still need validation against an installed game and a live test server.
 | Topology | Add/remove individual topology bits, retain unrelated and unknown bits |
 | Alpha | Cut and restore terrain holes, visible preview holes and heightfield picking through holes |
 | Water | Water-height painting and surface preview; river bed/water grading |
-| Prefab placement | Native selection, transforms, snapping, duplicate/delete, shared geometry instances |
+| Prefab placement | Native selection, XYZ angle controls with rotation mode picker, transforms, snapping, duplicate/delete, shared geometry instances |
 | Prefab protection | Read-only linked model/mesh/material IDs, placement-only handles, original-model restore, export guards for editable/unpacked models |
-| Prefab browser | Category filters, literal search, paging, persistent favorites and favorite filtering |
+| Prefab browser | Indexed case-insensitive lookup; category, available-local and favorite filters; literal search; result/page counts; full-path/ID tooltips; copy-ID action; stale-page recovery |
 | Prefab paint | Continuous placement, single/favorite/selected-type palettes, random scale/rotation, alignment, origin spacing, slope and alpha-hole filters; stroke undo/cancel |
 | Prefab assemblies | Group/ungroup, group transforms, `.rusterprefab` import/export |
 | Placement tools | Terrain snap, surface alignment, seeded scatter, spacing/slope filters, select same type, replacement |
