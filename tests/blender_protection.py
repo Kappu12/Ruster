@@ -140,6 +140,12 @@ def run():
         assert scene.attach_visual(extra)
         extra_library=extra.instance_collection.library
         assert not extra_library.packed_file
+        # Restoration must preserve a relative spelling, not replace it with a
+        # resolved absolute path (Windows short-name aliases differ similarly).
+        bpy.ops.wm.save_as_mainfile(filepath=str(root/'path-spelling.blend'),
+            copy=False,check_existing=False,relative_remap=False)
+        extra_library.filepath=bpy.path.relpath(extra_library.filepath)
+        assert extra_library.filepath.startswith('//')
         original_paths={lib:lib.filepath for lib in bpy.data.libraries}
         packed_data=bytes(library.packed_file.data)
         original_file=Path(absolute).read_bytes();Path(absolute).unlink()

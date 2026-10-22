@@ -118,7 +118,8 @@ def pack_models():
     # Packed libraries must keep working when their original cache is offline.
     pending=[lib for lib in bpy.data.libraries if not lib.packed_file]
     if not pending:return
-    originals={lib:str(Path(bpy.path.abspath(lib.filepath,library=lib.parent)).resolve()) for lib in bpy.data.libraries}
+    originals={lib:lib.filepath for lib in bpy.data.libraries}
+    resolved={lib:str(Path(bpy.path.abspath(path,library=lib.parent)).resolve()) for lib,path in originals.items()}
     previous_cwd=Path.cwd()
     try:
         if not bpy.data.filepath:
@@ -127,7 +128,7 @@ def pack_models():
             os.chdir(user_root())
         base=Path(bpy.path.abspath('//')).resolve()
         with tempfile.TemporaryDirectory(prefix='ruster-pack-',dir=base) as temporary:
-            for index,(lib,path) in enumerate(originals.items()):
+            for index,(lib,path) in enumerate(resolved.items()):
                 relative=bpy.path.relpath(path)
                 if not relative.startswith('//'):
                     staged=Path(temporary)/f'model-{index}.blend'
@@ -136,8 +137,8 @@ def pack_models():
                 lib.filepath=relative
             bpy.ops.file.pack_libraries()
     finally:
-        # Packed data do not require these files; retaining the real paths also
-        # preserves correct resolution if the user explicitly unpacks later.
+        # Preserve exact original spelling/relative paths, including Windows
+        # short-name aliases. Resolved paths are only for temporary disk reads.
         for lib,path in originals.items():lib.filepath=path
         os.chdir(previous_cwd)
 
