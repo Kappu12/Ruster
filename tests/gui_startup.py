@@ -20,7 +20,12 @@ game = Path(temporary.name) / 'Rust'
 (game / 'Bundles').mkdir(parents=True)
 (game / 'RustClient.exe').write_bytes(b'MZ-test-fixture')
 settings.save({'rust_install': str(game)})
-runpy.run_path(str(distribution / 'bootstrap.py'))
+# The harness's distribution argument is not a project to open in the app.
+original_argv=sys.argv[:]
+try:
+    if '--' in sys.argv:sys.argv=sys.argv[:sys.argv.index('--')]
+    runpy.run_path(str(distribution / 'bootstrap.py'))
+finally:sys.argv=original_argv
 from ruster import app, ui, studio
 from tests.fixtures import sample_world
 
