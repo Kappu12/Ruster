@@ -260,11 +260,11 @@ def load_visuals():
     return .05 if _visual_queue else None
 
 
-def restore_cached_visuals():
+def restore_cached_visuals(objects=None):
     """Recover saved placeholders one unique cached model per tick, without extraction."""
     waiting=set(_visual_queue)|_pending_asset_ids|_job_ids
     cache=scene.cache_dir()/'prefabs'
-    ids={int(obj['ruster_uid']) for obj in scene.prefab_roots()
+    ids={int(obj['ruster_uid']) for obj in (scene.prefab_roots() if objects is None else objects)
          if not obj.get('ruster_visual') and not obj.get('ruster_marker')}
     ready=sorted(uid for uid in ids-waiting if (cache/f'{uid}.json.gz').is_file())
     if not ready:return
@@ -275,7 +275,14 @@ def restore_cached_visuals():
 
 
 def request_missing_visuals(objects):
+    objects=list(objects)
     ids={int(obj['ruster_uid']) for obj in objects if not obj.get('ruster_visual') and not obj.get('ruster_marker')}
+    if len(ids)>100:
+        bpy.context.scene.ruster.asset_status=(f'{len(objects):,} prefab placements imported. '
+            'Select placements to load up to 100 different models at a time.')
+        return False
+    restore_cached_visuals(objects)
+    ids.difference_update(_visual_queue)
     if ids:request_assets(ids)
 
 
@@ -330,19 +337,36 @@ class RUSTER_OT_welcome(bpy.types.Operator):
     bl_label = 'Ruster'
 
     def invoke(self, context, event):
-        # The native operator supplies Blender's splash artwork and centered frame.
-        return bpy.ops.wm.splash('INVOKE_DEFAULT')
+        # Native splash blocks deliberately KEEP_OPEN after operator buttons.
+        # A standard panel closes first, then lets New/Open show confirmation.
+        return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='RUSTER_PT_welcome', keep_open=False)
 
     def draw(self, context):
         from . import __version__
         layout = self.layout
         layout.operator_context = 'INVOKE_DEFAULT'
-        layout.label(text=f'Ruster {__version__}', icon=I['world'])
+        from . import branding
+        if self.__class__.__name__ == 'RUSTER_PT_welcome':
+            header = layout.split(factor=.31)
+            badge = header.column()
+            if icon := branding.icon_id(context,welcome=True):
+                badge.template_icon(icon_value=icon, scale=8)
+            title = header.column()
+            title.separator(factor=2)
+            title.label(text=f'Version {__version__}')
+            title.label(text='Prefab Editor')
+            title.label(text='Build with your local Rust assets')
+            layout.separator(factor=.7)
+        else:
+            branding.label(layout,text=f'Ruster {__version__}',context=context)
         split = layout.split(factor=.52)
         col = split.column()
         col.label(text='Create or Open')
-        for op in ('ruster.new_map','ruster.generate_map','ruster.open','ruster.new'):
+        col.scale_y = 1.15
+        for op in ('ruster.new','ruster.open'):
             action(col,op)
+            col.separator(factor=.35)
+        col.operator('ruster.import_map',text='Import .map…',icon=I['import'])
         recent_col = split.column()
         recent_col.label(text='Recent Projects')
         recent=settings.load().get('recent_projects',[])
@@ -355,11 +379,13 @@ class RUSTER_OT_welcome(bpy.types.Operator):
                 action(recent_col,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)
         else:
             recent_col.label(text='No recent projects')
-            wrapped(recent_col,context,'Open a Rust map or create one to begin.')
-        layout.separator()
+            wrapped(recent_col,context,'Start an empty prefab composition or import existing placements.')
+        layout.separator(factor=1.5)
         row = layout.row()
+        row.scale_y = 1.15
         action(row,'ruster.preferences')
         row.label(text=f'Blender {bpy.app.version_string}')
+        layout.separator(factor=1.5)
 
     def execute(self, context):
         return {'FINISHED'}
@@ -371,12 +397,15 @@ class RUSTER_OT_new(bpy.types.Operator):
     bl_description = 'Start an empty Rust prefab composition'
 
     def invoke(self, context, event):
+        if context.scene.ruster.mode == 'PREFAB' and not context.scene.objects:
+            return {'FINISHED'}
         return context.window_manager.invoke_confirm(self, event, title='Create a new project?',
             message='Save your current project first. Unsaved changes will be discarded.')
 
     def execute(self, context):
         from .studio import new_prefab
-        new_prefab()
+        if context.scene.ruster.mode != 'PREFAB' or context.scene.objects:
+            new_prefab()
         return {'FINISHED'}
 
 
@@ -391,28 +420,41 @@ def open_path(path):
         import_prefab(path)
         bpy.context.scene.ruster.title = path.stem
     elif path.suffix.lower() == '.map':
-        scene.import_map(path)
-        from . import ui
-        ui.map_workspace()
+        from .map_prefabs import import_map
+        import_map(path, replace=True)
     elif path.suffix.lower() == '.ruster':
         directory = session_dir()
         manifest = project.unpack(path, directory)
+        if manifest['mode'] == 'MAP':
+            # A legacy project's source must be valid before replacing the
+            # current scene. Never rebuild its terrain or path editing tools.
+            from .map_prefabs import read_map
+            read_map(directory / 'source.map')
         # No embedded Python, drivers, or file UI is trusted or executed.
         bpy.ops.wm.open_mainfile(filepath=str(directory / 'scene.blend'), load_ui=False, use_scripts=False)
         state = bpy.context.scene.ruster
         state.project_path = str(path)
-        state.mode = manifest['mode']
+        state.mode = 'PREFAB'
         state.title = manifest.get('title', path.stem)
-        state.source_map = str(directory / 'source.map') if manifest['mode'] == 'MAP' else ''
+        state.source_map = ''
+        terrain_state = state.terrain_state
+        state.terrain_state = None
         state.busy = _job is not None and _job.poll() is None
-        if state.mode == 'MAP':
-            scene.restore_map_tools()
-            from . import ui
-            ui.map_workspace()
-        else:
-            state.mode = 'PREFAB'
-            from . import ui
-            if not bpy.app.background:bpy.app.timers.register(ui.start_workspace, first_interval=.1)
+        if manifest['mode'] == 'MAP':
+            for obj in list(bpy.context.scene.objects):
+                if obj.get('ruster_kind') not in {'PREFAB','GROUP','VISUAL'}:
+                    data = obj.data
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    if data and data.users == 0:
+                        if isinstance(data, bpy.types.Mesh):bpy.data.meshes.remove(data)
+                        elif isinstance(data, bpy.types.Curve):bpy.data.curves.remove(data)
+            if terrain_state and terrain_state.users <= int(terrain_state.use_fake_user):
+                bpy.data.texts.remove(terrain_state)
+            for collection in list(bpy.data.collections):
+                if not collection.objects and not collection.children and collection.name in {'Terrain','Paths','Build'}:
+                    bpy.data.collections.remove(collection)
+        from . import ui
+        if not bpy.app.background:bpy.app.timers.register(ui.start_workspace, first_interval=.1)
     else:
         raise ValueError('Choose a Rust .map, RustEdit .prefab or Ruster .ruster file')
     # File import and post-load source relocation must be an undo baseline.
@@ -513,20 +555,40 @@ class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
             return {'CANCELLED'}
 
 
+class RUSTER_OT_import_map(bpy.types.Operator, ImportHelper):
+    bl_idname = 'ruster.import_map'
+    bl_label = 'Import .map'
+    bl_description = 'Append existing prefab placements from a Rust map'
+    bl_options = {'REGISTER','UNDO'}
+    filter_glob: StringProperty(default='*.map', options={'HIDDEN'})
+
+    def execute(self, context):
+        try:
+            from .map_prefabs import import_map
+            created = import_map(self.filepath)
+            self.report({'INFO'}, f'Imported {len(created):,} prefab placements')
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+
+
 class RUSTER_OT_export(bpy.types.Operator, ExportHelper):
     bl_idname = 'ruster.export_map'
-    bl_label = 'Export Rust Map'
+    bl_label = 'Export .map'
+    bl_description = 'Export prefab IDs and world transforms without terrain or paths'
     filename_ext = '.map'
     filter_glob: StringProperty(default='*.map', options={'HIDDEN'})
 
     @classmethod
     def poll(cls, context):
-        return context.scene.ruster.mode == 'MAP'
+        return context.scene.ruster.mode == 'PREFAB'
 
     def execute(self, context):
         try:
-            scene.export_map(self.filepath)
-            self.report({'INFO'}, 'Exported map terrain, paths and prefab placements')
+            from .map_prefabs import export_map
+            export_map(self.filepath)
+            self.report({'INFO'}, 'Exported prefab placements')
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -719,15 +781,14 @@ def startup():
         with bpy.context.temp_override(window=windows[0]):
             return startup()
     from . import ui
-    if not _pending_project and bpy.context.scene.ruster.mode == 'PREFAB':
-        from .studio import new_prefab
-        new_prefab()
+    from .studio import new_prefab
+    new_prefab()
     ui.start_workspace()
     config = settings.load()
     from .core.steam import resolve_install
     detected=resolve_install(config.get('rust_install',''))
     if not detected:
-        bpy.context.scene.ruster.asset_status='Choose your Rust installation in Preferences > Rust Assets'
+        bpy.context.scene.ruster.asset_status='Choose your Rust installation in Preferences > Assets'
     else:
         if config.get('rust_install')!=str(detected):
             config['rust_install']=str(detected);settings.save(config)
@@ -753,7 +814,7 @@ def register():
     if hasattr(bpy.types.Scene, 'ruster'):
         return
     classes = [RUSTER_PG_project, RUSTER_OT_setup, RUSTER_OT_welcome, RUSTER_OT_new,
-               RUSTER_OT_open, RUSTER_OT_save, RUSTER_OT_export, RUSTER_OT_validate,
+               RUSTER_OT_open, RUSTER_OT_save, RUSTER_OT_import_map, RUSTER_OT_export,
                RUSTER_OT_assets, RUSTER_OT_place, RUSTER_OT_duplicate, RUSTER_OT_delete,
                RUSTER_OT_report,RUSTER_OT_cancel_assets,RUSTER_OT_catalog_page,RUSTER_FH_project]
     for cls in classes:
@@ -764,16 +825,9 @@ def register():
     editing.register()
     from . import placement
     placement.register()
-    from . import protection,browser,painting
+    from . import protection,browser
     protection.register()
     browser.register()
-    painting.register()
-    from . import layers
-    layers.register()
-    from . import maps
-    maps.register()
-    from . import generation
-    generation.register()
     from . import mcp_bridge
     mcp_bridge.register()
     ui.register()
@@ -801,8 +855,6 @@ def unregister():
     from . import ui,preferences,studio
     studio.unregister()
     preferences.unregister()
-    from . import generation
-    generation.unregister()
     if _job is not None:
         if _job.poll() is None:_job.terminate()
         try:_job.wait(timeout=2)
@@ -825,12 +877,7 @@ def unregister():
     from . import mcp_bridge
     mcp_bridge.unregister()
     ui.unregister()
-    from . import layers
-    from . import maps
-    maps.unregister()
-    layers.unregister()
-    from . import protection,browser,painting
-    painting.unregister()
+    from . import protection,browser
     browser.unregister()
     protection.unregister()
     from . import placement

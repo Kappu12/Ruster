@@ -5,6 +5,8 @@ from mcp import ClientSession,StdioServerParameters
 from mcp.client.stdio import stdio_client
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from ruster.core import settings,mcp_config
+from ruster import __version__
+from ruster.assets import CONVERTER_VERSION
 from ruster.vendor.blender_mcp_client import BlenderConnection
 
 
@@ -19,13 +21,30 @@ async def run():
                 result=await session.call_tool(rpc_tool_name,args)
                 assert not result.isError,result
                 return result.structuredContent or json.loads(result.content[0].text)
-            assert (await call('get_scene_info'))['mode']=='MAP'
+            exposed={tool.name for tool in (await session.list_tools()).tools}
+            assert len(exposed)==43 and not {'paint_terrain','sample_surface','generate_map','create_path','execute_code'} & exposed
+            assert (await call('get_scene_info'))['mode']=='PREFAB'
             assert (await call('search_prefabs',query=''))['prefabs'][0]['id']==123456
-            assert (await call('get_editor_status'))['catalog_ready']
+            status=await call('get_editor_status')
+            assert status['catalog_ready'] and status['version']==__version__ and status['converter_version']==CONVERTER_VERSION
+            assert isinstance(status['restart_required'],bool) and status['visible_prefabs']==0 and status['unloaded_prefabs']==0
             assert (await call('list_prefab_categories'))['total_prefabs']==1
             assert (await call('get_prefab_details',uid=123456))['cached']
             obj=await call('place_prefab',uid=123456,position=[1,2,25])
             name=obj['name'];assert obj['geometry_read_only']
+            await call('select_objects',names=[name])
+            assert (await call('get_selection'))['total']==1
+            assert len((await call('get_objects_info',names=[name]))['objects'])==1
+            assert len((await call('get_prefabs_details',uids=[123456]))['prefabs'])==1
+            copies=await call('array_objects',names=[name],count=2,offset=[4,0,0])
+            assert copies['new_prefab_count']==2
+            await call('align_objects',names=copies['objects'],axis='Z',mode='MIN',target=0)
+            await call('delete_objects',names=copies['objects'])
+            assert (await call('get_selection'))['total']==1
+            assert (await call('list_objects'))['total']==1
+            assert 'GLB' in {item['id'] for item in (await call('get_export_formats'))['formats']}
+            await call('export_models',names=[name],path=str(directory/'stdio.glb'),format='GLB')
+            await call('export_prefab',names=[name],path=str(directory/'stdio.prefab'))
             await call('transform_object',name=name,position=[10,20,30],rotation_degrees=[0,0,90],scale=[2,2,2])
             assert (await call('get_object_info',name=name))['position']==[10,20,30]
             await call('undo')
@@ -46,14 +65,10 @@ async def run():
             assert imported['prefab_count']==2
             await call('delete_object',name=imported['group']['name'])
             await call('delete_object',name=group)
-            surface=await call('sample_surface',positions=[[0,0]])
-            assert abs(surface['samples'][0]['position'][2]-20)<.1
-            road=await call('create_path',kind='Road',nodes=[[0,0,20],[5,0,20]],settings={'width':10})
-            assert (await call('get_path_info',name=road['object']))['width']==10
-            await call('delete_object',name=road['object'])
+            await call('snap_objects_to_plane',names=[name],target=0)
+            assert abs((await call('get_object_info',name=name))['world_bounds']['min'][2])<.001
             duplicate=(await call('duplicate_object',name=name))['objects'][0]['name']
             await call('delete_object',name=duplicate)
-            await call('paint_terrain',layer='alpha',tool='PAINT',x=0,y=0,radius=20,strength=1,invert=True)
             assert (await call('validate_map'))['valid']
             await call('save_project',path=str(directory/'ai.ruster'))
             await call('export_map',path=str(directory/'ai.map'))

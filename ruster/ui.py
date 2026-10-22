@@ -11,7 +11,8 @@ _refreshed_panels=[]
 
 
 def is_map(context):
-    return bool(context.scene and hasattr(context.scene,'ruster') and context.scene.ruster.mode=='MAP')
+    # World editor source remains dormant while the product edits prefabs.
+    return False
 
 
 class MapPanel:
@@ -36,7 +37,8 @@ class RUSTER_PT_start(bpy.types.Panel):
     def draw(self,context):
         from . import __version__
         layout=self.layout
-        layout.label(text=f'Ruster {__version__}',icon=I['world'])
+        from . import branding
+        branding.label(layout,text=f'Ruster {__version__}',context=context)
         wrapped(layout,context,context.scene.ruster.title,icon='prefab')
         layout.label(text=f'{len(scene.prefab_roots()):,} prefab placements')
         layout.menu('RUSTER_MT_add',text='Add Rust Prefab · Shift+A',icon=I['prefab'])
@@ -50,11 +52,12 @@ class RUSTER_MT_file(bpy.types.Menu):
     bl_label='Ruster'
     def draw(self,context):
         layout=self.layout
-        for op in ('ruster.welcome','ruster.new','ruster.new_map','ruster.generate_map','ruster.open'):action(layout,op)
+        for op in ('ruster.welcome','ruster.new','ruster.open'):action(layout,op)
         layout.separator()
         action(layout,'ruster.save')
         action(layout,'ruster.save',text='Save Project As…',icon='save_as').save_as=True
-        if is_map(context):action(layout,'ruster.export_map')
+        action(layout,'ruster.import_map')
+        action(layout,'ruster.export_map')
         layout.separator()
         for op in ('ruster.prefab_import','ruster.prefab_export','ruster.model_export'):action(layout,op)
         layout.separator()
@@ -178,7 +181,7 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
             row.label(text=f"Page {result['page']+1} of {result['pages']}")
             next_=row.row(align=True);next_.enabled=result['page']+1<result['pages']
             next_.operator('ruster.catalog_page',text='',icon=I['next']).delta=1
-        wrapped(layout,context,'Click a prefab to place it at the 3D cursor. Use its paint icon to paint in the viewport.')
+        wrapped(layout,context,'Click a prefab to place it at the 3D cursor. Move, rotate and scale the whole placement in the viewport.')
 
 
 class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
@@ -418,7 +421,7 @@ def readonly_source_menu(self,context):
     action(self.layout,'ruster.restore_models')
 
 
-def properties_header(self,context):self.layout.label(text='Rust Map',icon=I['world'])
+def properties_header(self,context):self.layout.label(text='Prefab Editor',icon=I['prefab'])
 
 
 def outliner_header(self,context):
@@ -436,11 +439,9 @@ def topbar(self,context):
         layout.label(text=context.scene.ruster.title,icon=I['world'])
     else:
         bpy.types.TOPBAR_MT_editor_menus.draw_collapsible(context,layout)
-        layout.separator();layout.label(text='Rust Map' if is_map(context) else 'Prefab Studio',icon=I['world'])
-        if is_map(context):
-            row=layout.row(align=True)
-            row.operator('ruster.map_view',text='3D Map',depress=context.workspace.get('ruster_workspace')!='MAPS').view='3D'
-            row.operator('ruster.map_view',text='Maps',depress=context.workspace.get('ruster_workspace')=='MAPS').view='MAPS'
+        layout.separator()
+        from . import branding
+        branding.label(layout,text='Prefab Editor',context=context)
 
 
 def close_map_timeline():
@@ -489,6 +490,17 @@ def splash(self,context):
     RUSTER_OT_welcome.draw(self,context)
 
 
+class RUSTER_PT_welcome(bpy.types.Panel):
+    bl_label = 'Ruster'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'HIDE_HEADER'}
+    bl_ui_units_x = 30
+
+    def draw(self, context):
+        splash(self, context)
+
+
 def refresh_panels(classes):
     """Refresh RNA callbacks, unregistering children before their parents.
 
@@ -520,9 +532,8 @@ def map_workspace():
 
 
 def register():
-    classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_map,RUSTER_MT_assets,
-             RUSTER_PT_start,RUSTER_PT_map,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets,
-             RUSTER_PT_properties,RUSTER_PT_terrain,RUSTER_PT_paths,RUSTER_PT_paint]
+    classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_assets,RUSTER_PT_welcome,
+             RUSTER_PT_start,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
     for cls in (bpy.types.WM_MT_splash,bpy.types.WM_MT_splash_quick_setup):
         _draws.append((cls,cls.draw));cls.draw=splash

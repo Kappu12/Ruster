@@ -72,3 +72,10 @@ contain game assets and must not be treated as redistributable open-source art.
 
 - https://facepunch.com/legal/tos
 - https://facepunch.com/legal/modding
+
+## Ruster branding
+
+The user-requested Rust-derived mark and Rust-font raster wordmark are not GPL
+game content. Their credits and source references are retained in
+`ruster/branding/NOTICE.txt`. The font software is not redistributed. Branding
+is separate from the application code license.

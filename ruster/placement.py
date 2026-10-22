@@ -277,8 +277,8 @@ def delete_selected():
 
 
 def register():
-    for cls in (RUSTER_OT_group,RUSTER_OT_ungroup,RUSTER_OT_surface_snap,RUSTER_OT_assembly_export,
-                RUSTER_OT_assembly_import,RUSTER_OT_scatter,RUSTER_OT_select_same,RUSTER_OT_replace):
+    for cls in (RUSTER_OT_group,RUSTER_OT_ungroup,RUSTER_OT_assembly_export,
+                RUSTER_OT_assembly_import,RUSTER_OT_select_same,RUSTER_OT_replace):
         bpy.utils.register_class(cls);_classes.append(cls)
 
 

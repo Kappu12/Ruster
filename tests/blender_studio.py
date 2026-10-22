@@ -146,7 +146,7 @@ def run():
         result=server.dispatch('rename_object',{'name':first.name,'new_name':'IO test placement'})
         assert bpy.data.objects.get('IO test placement')
         try:server.dispatch('paint_terrain',{'layer':'terrain'})
-        except ValueError as error:assert 'Rust map' in str(error)
+        except ValueError as error:assert 'Unsupported' in str(error)
         else:raise AssertionError('Terrain operation was allowed without a map')
         ruster.unregister()
     print('RUSTER_BLENDER_STUDIO_EXPORTS_OK',flush=True)

@@ -1,9 +1,11 @@
 """Ruster: a Rust-focused Blender application."""
 
-__version__ = "0.8.5"
+__version__ = "0.9.0"
 
 
 def register():
+    from . import branding
+    branding.register()
     from . import app
     app.register()
 
@@ -11,3 +13,5 @@ def register():
 def unregister():
     from . import app
     app.unregister()
+    from . import branding
+    branding.unregister()

@@ -647,20 +647,12 @@ def after_undo(_dummy):
 
 def register():
     global _tool_registered
-    for cls in (RUSTER_PG_brush,RUSTER_PG_path,RUSTER_OT_terrain_stroke,RUSTER_OT_terrain_sample,
-        RUSTER_OT_terrain_apply,RUSTER_OT_clone_source,RUSTER_OT_terrain_overlay,RUSTER_OT_new_map,
-        RUSTER_OT_path_add,RUSTER_OT_path_snap,RUSTER_OT_path_grade,RUSTER_OT_height_export,RUSTER_OT_height_import):
-        bpy.utils.register_class(cls);_classes.append(cls)
-    for cls in (RUSTER_OT_bridge,RUSTER_OT_generate,RUSTER_OT_terrain_detail):
+    # Keep only saved-data types. World tools are retained above for future use.
+    for cls in (RUSTER_PG_brush,RUSTER_PG_path):
         bpy.utils.register_class(cls);_classes.append(cls)
     from bpy.props import PointerProperty
     bpy.types.Scene.ruster_brush=PointerProperty(type=RUSTER_PG_brush)
     bpy.types.Object.ruster_path=PointerProperty(type=RUSTER_PG_path)
-    if not bpy.app.background:
-        bpy.utils.register_tool(RUSTER_WST_terrain,after={'builtin.cursor'},separator=True,group=True)
-        _tool_registered=True
-    bpy.app.handlers.undo_post.append(after_undo)
-    bpy.app.handlers.redo_post.append(after_undo)
 
 
 def unregister():

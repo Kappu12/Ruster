@@ -24,15 +24,16 @@ def perform():
         bpy.context.window.event_simulate(type='ESC',value='PRESS')
         bpy.context.window.event_simulate(type='MOUSEMOVE',value='NOTHING',x=600,y=500)
         # First-run discovery skips the folder dialog and starts indexing.
-        game=directory/'Steam/steamapps/common/Rust';(game/'Bundles').mkdir(parents=True);(game/'RustClient.exe').touch()
+        game=directory/'Steam/steamapps/common/Rust';(game/'Bundles').mkdir(parents=True);(game/'RustClient.exe').write_bytes(b'MZ test fixture')
+        (game/'Bundles/AssetSceneManifest.json').write_text('{}')
         old_detect,old_job=steam.detect_install,app.start_job;jobs=[]
         source=directory/'base.map';source.write_bytes(empty_world(100,20).write())
         try:
-            steam.detect_install=lambda:game
+            steam.detect_install=lambda *_args,**_kwargs:game
             app.start_job=lambda action,*_args:jobs.append(action)
             app._pending_project=str(source);app.startup()
             assert settings.load()['rust_install']==str(game) and jobs[0]=='index'
-            assert bpy.context.scene.ruster.mode=='MAP'
+            assert bpy.context.scene.ruster.mode=='PREFAB'
         finally:steam.detect_install,app.start_job=old_detect,old_job
         cache=scene.cache_dir()/'prefabs';cache.mkdir(parents=True,exist_ok=True)
         asset=triangle_asset(123456);path=asset['path']

@@ -27,22 +27,20 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
             async with ClientSession(*streams) as session:
                 await session.initialize()
                 listing=await session.list_tools();tools={tool.name:tool for tool in listing.tools}
-                assert {'search_prefabs','place_prefab','transform_object','paint_terrain','get_scene_info','export_map'}<=tools.keys()
+                assert {'search_prefabs','place_prefab','transform_object','get_scene_info','export_map'}<=tools.keys()
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
-                assert tools['get_generation_status'].annotations.readOnlyHint
-                assert {'generate_map','cancel_generation'}<=tools.keys()
-                assert set(tools['generate_map'].inputSchema['properties'])=={'seed','size'}
+                assert not {'execute_code','paint_terrain','sample_surface','snap_objects_to_terrain','create_path','update_path','get_path_info','generate_map','get_generation_status','cancel_generation'} & tools.keys()
                 assert tools['delete_object'].annotations.destructiveHint
-                assert {'get_prefab_details','list_prefab_categories','place_prefabs','transform_objects','group_objects','get_viewport_image','create_path','export_assembly'}<=tools.keys()
+                assert {'get_prefab_details','list_prefab_categories','place_prefabs','transform_objects','group_objects','get_viewport_image','export_assembly','get_objects_info','get_prefabs_details','list_objects','get_selection','select_objects','duplicate_objects','delete_objects','array_objects','align_objects','snap_objects_to_plane','get_export_formats','export_prefab','import_prefab','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=tools.keys()
                 schema=tools['place_prefabs'].inputSchema
                 assert 'PrefabPlacement' in schema['$defs'] and 'position' in schema['$defs']['PrefabPlacement']['required']
                 resources=(await session.list_resources()).resources
-                assert {str(r.uri) for r in resources}=={'ruster://guide/building','ruster://guide/terrain'}
+                assert {str(r.uri) for r in resources}=={'ruster://guide/building'}
                 guide=await session.read_resource('ruster://guide/building')
                 assert 'Never guess IDs' in guide.contents[0].text
                 prompts=(await session.list_prompts()).prompts
-                assert {p.name for p in prompts}=={'build_rust_composition','audit_rust_map'}
+                assert {p.name for p in prompts}=={'build_rust_composition','audit_rust_composition'}
                 prompt=await session.get_prompt('build_rust_composition',{'description':'A Rust watchtower'})
                 assert 'watchtower' in prompt.messages[0].content.text
                 result=await session.call_tool('get_scene_info',{})

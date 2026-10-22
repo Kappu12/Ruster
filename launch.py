@@ -30,8 +30,8 @@ def find_blender(explicit=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Ruster — Blender-based Rust map editor')
-    parser.add_argument('project', nargs='?', help='A .map or .ruster file')
+    parser = argparse.ArgumentParser(description='Ruster — Rust prefab studio')
+    parser.add_argument('project', nargs='?', help='A .prefab, prefab-only .map import, or .ruster project')
     parser.add_argument('--blender', help='Path to Blender 5.2 LTS')
     parser.add_argument('--background', action='store_true', help='Launch without a window (development)')
     args = parser.parse_args()
@@ -43,6 +43,8 @@ def main():
         env['RUSTER_LAUNCHER_PID'] = str(os.getpid())
         env['BLENDER_USER_CONFIG'] = str(user_root() / 'blender-config')
         env['BLENDER_USER_SCRIPTS'] = str(user_root() / 'blender-scripts')
+        if (ROOT/'ruster/branding/splash.png').is_file():
+            env['BLENDER_CUSTOM_SPLASH']=str(ROOT/'ruster/branding/splash.png')
         if (ROOT/'python_modules').exists():
             env['RUSTER_PYTHON_MODULES'] = str(ROOT/'python_modules')
         command = [executable, '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',

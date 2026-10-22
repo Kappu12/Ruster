@@ -107,7 +107,7 @@ class RUSTER_OT_copy_prefab(bpy.types.Operator):
 
 
 def register():
-    for cls in (RUSTER_OT_favorite,RUSTER_OT_paint_asset,RUSTER_OT_copy_prefab):bpy.utils.register_class(cls);_classes.append(cls)
+    for cls in (RUSTER_OT_favorite,RUSTER_OT_copy_prefab):bpy.utils.register_class(cls);_classes.append(cls)
 
 
 def unregister():

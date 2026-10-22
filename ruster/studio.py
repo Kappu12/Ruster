@@ -131,8 +131,9 @@ def prefab_records(roots, origin):
     records = []
     bpy.context.view_layer.update()
     from .protection import model_error
+    checked_models = {}
     for root in roots:
-        problem = model_error(root)
+        problem = model_error(root, checked_models)
         if problem:raise ValueError(root.name + ': ' + problem)
         old = wire.parse(base64.b64decode(root['ruster_record'], validate=True))
         position, rotation, scale = prefab_transform(old)

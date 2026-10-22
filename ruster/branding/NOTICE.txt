@@ -1,0 +1,16 @@
+Rust is a trademark of Facepunch Studios. Its radial exclamation-mark identity
+is adapted for the user-requested Ruster community-tool branding. Ruster is an
+independent prefab editor and is not an official Facepunch application.
+Source reference: https://facepunch.com/games/rust (official logo download).
+
+Ruster lettering is a rasterized rendering of the Rust font by
+Ben Kohan / KohanTheBarbarian:
+https://fontstruct.com/fontstructions/show/951672
+https://www.dafont.com/rust.font
+The font archive's FontStruct Non-Commercial EULA 1.0 governs the font and its
+rendered works. The font software is a local build input and is not bundled.
+These branding assets are separate from the GPL application source license.
+
+The clean icon source is icon-white.svg / icon-black.svg; generated PNG/ICO
+variants and the splash are built by tools/make_branding.py. The splash uses
+the operating system's Segoe UI font for its small subtitle (raster only).

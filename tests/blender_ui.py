@@ -79,7 +79,9 @@ def run():
             assert [(item.identifier,item.value) for item in editing.RUSTER_PG_brush.bl_rna.properties['layer'].enum_items]==[
                 ('terrain',0),('water',1),('splat',2),('biome',3),('topology',4),('alpha',5)]
             app.open_path(source)
-            assert ui.is_map(bpy.context)
+            assert not ui.is_map(bpy.context)
+            assert bpy.context.scene.ruster.mode=='PREFAB'
+            assert not any(obj.get('ruster_kind') in {'TERRAIN','WATER','PATH'} for obj in bpy.context.scene.objects)
             assert all(o.rotation_mode=='XYZ' for o in scene.prefab_roots())
             from contextlib import closing
             from ruster.assets import catalog

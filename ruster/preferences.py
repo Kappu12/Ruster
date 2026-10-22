@@ -15,7 +15,7 @@ _owner=object()
 NATIVE_ITEMS=tuple((i.identifier,i.name,i.description,i.icon,i.value) for i in bpy.types.Preferences.bl_rna.properties['active_section'].enum_items
     if i.identifier in {'INTERFACE','THEMES','VIEWPORT','NAVIGATION','INPUT','KEYMAP','SYSTEM','SAVE_LOAD'})
 NATIVE_IDS={item[0] for item in NATIVE_ITEMS}
-SECTIONS=(*NATIVE_ITEMS,None,('RUSTER_ASSETS','Rust Assets','Local Rust installation and assets','NONE',100),('RUSTER_MCP','Rust MCP','AI editor connection','NONE',101))
+SECTIONS=(*NATIVE_ITEMS,None,('RUSTER_ASSETS','Assets','Local Rust installation and assets','NONE',100),('RUSTER_MCP','MCP','AI editor connection','NONE',101))
 
 
 def is_rust(context):
@@ -48,7 +48,6 @@ def after_load(_dummy):
         state.section=bpy.context.preferences.active_section
         root=steam.resolve_install(settings.load().get('rust_install',''))
         state.directory=str(root) if root else ''
-        state.dedicated=settings.load().get('rust_dedicated','')
         from .assets.metadata import rustedit_root
         root=rustedit_root(settings.load().get('rustedit_install'))
         state.rustedit=str(root) if root else ''
@@ -63,7 +62,6 @@ def navigation(self,context):
 class RUSTER_PG_preferences(bpy.types.PropertyGroup):
     section:EnumProperty(items=SECTIONS,name='Preferences Section',options={'SKIP_SAVE'},update=changed)
     directory:StringProperty(name='Rust Installation',description='Game folder containing the Rust executable and Bundles folder',subtype='DIR_PATH',options={'SKIP_SAVE'})
-    dedicated:StringProperty(name='RustDedicated',description='Optional local server executable used only for procedural map generation',subtype='FILE_PATH',options={'SKIP_SAVE'})
     rustedit:StringProperty(name='RustEdit Folder',description='Read the locally installed prefab string pool; no models are loaded',subtype='DIR_PATH',options={'SKIP_SAVE'})
 
 
@@ -98,7 +96,7 @@ class RUSTER_OT_generator_install(bpy.types.Operator):
 class RUSTER_OT_preferences(bpy.types.Operator):
     bl_idname='ruster.preferences'
     bl_label='Preferences'
-    bl_description="Open Blender Preferences, including Rust Assets and Rust MCP"
+    bl_description="Open Blender Preferences, including Assets and MCP"
     section:StringProperty(options={'SKIP_SAVE'})
     def invoke(self,context,event):return self.execute(context)
     def execute(self,context):
@@ -138,7 +136,7 @@ class RustPreferences:
 
 
 class RUSTER_PT_preferences_assets(RustPreferences,CenterAlignMixIn,bpy.types.Panel):
-    bl_label='Rust Assets'
+    bl_label='Assets'
     section='RUSTER_ASSETS'
     def draw_centered(self,context,layout):
         width=min(500,max(180,context.region.width/max(context.preferences.system.ui_scale,.5)-180))
@@ -166,17 +164,10 @@ class RUSTER_PT_preferences_assets(RustPreferences,CenterAlignMixIn,bpy.types.Pa
         layout.separator()
         wrapped(layout,context,'Asset cache: '+str(scene.cache_dir()),width=width)
         wrapped(layout,context,'Rust installation changes are saved when you click Apply Installation.',width=width)
-        layout.separator()
-        layout.label(text='Optional RustDedicated Generator',icon=I['generate'])
-        fields=properties(layout.column());fields.prop(state,'dedicated')
-        row=fields.row(align=True);row.operator_context='EXEC_DEFAULT'
-        row.operator('ruster.generator_install',text='Apply Generator')
-        row.operator('ruster.generator_install',text='Find in Steam',icon=I['search']).detect=True
-        wrapped(layout,context,'This optional backend uses RustDedicated. RustEdit runs its procedural generator inside Unity; that engine is not yet integrated here. No server starts for browsing or prefab editing.',width=width)
 
 
 class RUSTER_PT_preferences_mcp(RustPreferences,CenterAlignMixIn,bpy.types.Panel):
-    bl_label='Rust MCP'
+    bl_label='MCP'
     section='RUSTER_MCP'
     def draw_centered(self,context,layout):mcp_bridge.draw_settings(layout,context)
 
@@ -184,14 +175,13 @@ class RUSTER_PT_preferences_mcp(RustPreferences,CenterAlignMixIn,bpy.types.Panel
 def register():
     global _original_navigation
     from .ui import refresh_panels
-    for cls in (RUSTER_PG_preferences,RUSTER_OT_catalog_source,RUSTER_OT_preferences,RUSTER_OT_detect_install,RUSTER_OT_generator_install,RUSTER_PT_preferences_assets,RUSTER_PT_preferences_mcp):
+    for cls in (RUSTER_PG_preferences,RUSTER_OT_catalog_source,RUSTER_OT_preferences,RUSTER_OT_detect_install,RUSTER_PT_preferences_assets,RUSTER_PT_preferences_mcp):
         bpy.utils.register_class(cls);_classes.append(cls)
     bpy.types.WindowManager.ruster_preferences=PointerProperty(type=RUSTER_PG_preferences)
     state=bpy.context.window_manager.ruster_preferences
     state.section=bpy.context.preferences.active_section
     detected_game=steam.resolve_install(settings.load().get('rust_install',''))
     state.directory=str(detected_game) if detected_game else ''
-    state.dedicated=settings.load().get('rust_dedicated','')
     from .assets.metadata import rustedit_root
     detected_editor=rustedit_root(settings.load().get('rustedit_install'))
     state.rustedit=str(detected_editor) if detected_editor else ''

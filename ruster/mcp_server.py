@@ -9,7 +9,7 @@ from .vendor.blender_mcp_client import BlenderConnection
 
 _connection=None
 _lock=threading.Lock()
-mcp=FastMCP('Ruster',instructions='Build Rust maps and custom prefab compositions with original local game assets. First read ruster://guide/building and get_editor_status. Discover the complete catalog using list_prefab_categories and paginated search_prefabs (empty query browses everything; follow next_offset). Inspect dimensions with get_prefab_details; preload missing models with request_prefab_assets and poll status. Use sample_surface before placement, place_prefabs for atomic batches, group_objects for assemblies, and focus_view/get_viewport_image for visual feedback. Editor world metres: Z up; XYZ rotations in degrees. Geometry and materials are immutable; composition is the modeling workflow. Validate before export. Open a map and enable MCP in Preferences → Rust MCP. Inspect the scene before retrying a timed-out mutation.')
+mcp=FastMCP('Ruster',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/building and get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, arrays, bounds alignment and plane snapping. Export native prefab, model formats or prefab-only map files. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations.')
 READ=ToolAnnotations(readOnlyHint=True,destructiveHint=False,openWorldHint=False)
 EDIT=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False)
 DESTRUCTIVE=ToolAnnotations(readOnlyHint=False,destructiveHint=True,openWorldHint=False)
@@ -19,9 +19,9 @@ def command(rpc_kind,**params):
     global _connection
     with _lock:
         config=settings.load()
-        if not mcp_config.enabled(config):raise ValueError('Enable MCP in Preferences → Rust MCP first')
+        if not mcp_config.enabled(config):raise ValueError('Enable MCP in Preferences → MCP first')
         token=config.get('mcp_token','')
-        if not isinstance(token,str) or len(token)<32:raise ValueError('Start MCP in Preferences → Rust MCP first')
+        if not isinstance(token,str) or len(token)<32:raise ValueError('Start MCP in Preferences → MCP first')
         port=mcp_config.port(config)
         if _connection and (_connection.port!=port or _connection.token!=token):_connection.disconnect();_connection=None
         if _connection is None:_connection=BlenderConnection('127.0.0.1',port,token)
@@ -30,7 +30,7 @@ def command(rpc_kind,**params):
 
 @mcp.tool(annotations=READ)
 def get_scene_info()->dict:
-    """Inspect active project mode, map size, prefab count and scene objects."""
+    """Inspect active prefab composition mode, prefab count and scene objects."""
     return command('get_scene_info')
 
 
@@ -41,14 +41,14 @@ def get_object_info(name:str)->dict:
 
 
 @mcp.tool(annotations=READ)
-def list_map_objects(limit:int=100,offset:int=0,query:str='',kind:str='',prefab_id:int|None=None)->dict:
-    """Page through placements, groups and paths with world bounds/hierarchy; limit 1–200. Filter by name substring, kind PREFAB/GROUP/PATH, or prefab ID. Follow next_offset."""
-    return command('list_map_objects',limit=limit,offset=offset,query=query,kind=kind,prefab_id=prefab_id)
+def list_map_objects(limit:int=100,offset:int=0,query:str='',kind:str='',prefab_id:int|None=None,include_bounds:bool=False)->dict:
+    """Legacy alias for list_objects. Page placements/groups; bounds are opt-in for large scenes. Filter names, kind PREFAB/GROUP, or ID; limit 1–200."""
+    return command('list_map_objects',limit=limit,offset=offset,query=query,kind=kind,prefab_id=prefab_id,include_bounds=include_bounds)
 
 
 @mcp.tool(annotations=READ)
 def search_prefabs(query:str='',category:str='',limit:int=20,offset:int=0,available_only:bool=False)->dict:
-    """Browse/search every indexed Rust prefab by path substring and optional category prefix. Empty query lists all. Returns IDs, paths, local availability, next_offset. Follow pages until next_offset=null; limit 1–100. Never invent prefab IDs."""
+    """Browse/search every indexed Rust prefab by descriptive tokens in any word order (with aliases) and optional category prefix; hidden assets are included. Empty query lists all. Returns IDs, paths, local availability, next_offset. Follow pages until next_offset=null; limit 1–100. Never invent prefab IDs."""
     return command('search_prefabs',query=query,category=category,limit=limit,offset=offset,available_only=available_only)
 
 
@@ -60,50 +60,26 @@ def place_prefab(uid:int,position:list[float],rotation_degrees:list[float]|None=
 
 @mcp.tool(annotations=EDIT)
 def transform_object(name:str,position:list[float]|None=None,rotation_degrees:list[float]|None=None,scale:list[float]|None=None)->dict:
-    """Set absolute world placement/group/path transforms. Rotations are XYZ degrees. Rejects group shear and zero scale; cannot change prefab meshes."""
+    """Set absolute world placement/group transforms. Rotations are XYZ degrees. Rejects group shear and zero scale; cannot change prefab meshes."""
     return command('transform_object',name=name,position=position,rotation_degrees=rotation_degrees,scale=scale)
 
 
 @mcp.tool(annotations=EDIT)
 def duplicate_object(name:str)->dict:
-    """Duplicate a whole placement, group or path using native Ruster operations."""
+    """Duplicate a whole placement or group using native Ruster operations."""
     return command('duplicate_object',name=name)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
 def delete_object(name:str)->dict:
-    """Delete a whole placement, group or path. Supports undo; never deletes model parts."""
+    """Delete a whole placement or group. Supports undo; never deletes model parts."""
     return command('delete_object',name=name)
-
-
-@mcp.tool(annotations=EDIT)
-def paint_terrain(layer:str,tool:str,x:float,y:float,radius:float,strength:float=.3,height:float=0.,channel:int=0,invert:bool=False)->dict:
-    """Apply a full-resolution brush at editor X/Y. Layers: terrain/water/splat/biome/topology/alpha. Height tools: RAISE/LOWER/FLATTEN/SMOOTH/ERODE/SHARPEN/TERRACE/NOISE; PAINT for other layers. Inverted alpha cuts terrain holes only. Radius/metres; strength 0–1."""
-    return command('paint_terrain',layer=layer,tool=tool,x=x,y=y,radius=radius,strength=strength,height=height,channel=channel,invert=invert)
 
 
 @mcp.tool(annotations=READ)
 def validate_map()->dict:
-    """Report export errors and missing assets without exporting."""
+    """Report composition export errors and unloaded assets without exporting."""
     return command('validate_map')
-
-
-@mcp.tool(annotations=EDIT)
-def generate_map(seed:int,size:int=4000)->dict:
-    """Start asynchronous Rust-native generation using the user's configured RustDedicated. Seed 0..2147483647, size 1000..6000 metres. Consumes CPU/RAM/disk; never replaces the open project. Poll get_generation_status. No arbitrary executable or flags accepted."""
-    return command('generate_map',seed=seed,size=size)
-
-
-@mcp.tool(annotations=READ)
-def get_generation_status()->dict:
-    """Poll IDLE/STARTING/GENERATING/VALIDATING/READY/FAILED/CANCELLED. READY provides a validated .map path and elapsed seconds. The user opens the result separately."""
-    return command('get_generation_status')
-
-
-@mcp.tool(annotations=EDIT)
-def cancel_generation()->dict:
-    """Cancel only Ruster's owned map generation child; does not affect other servers or the current map. Poll until CANCELLED."""
-    return command('cancel_generation')
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -114,7 +90,7 @@ def save_project(path:str,overwrite:bool=False)->dict:
 
 @mcp.tool(annotations=DESTRUCTIVE)
 def export_map(path:str,overwrite:bool=False)->dict:
-    """Validate/export to an absolute .map destination; never overwrites the source. Existing files require explicit overwrite=True."""
+    """Export ONLY prefab placements floating in void to an absolute .map destination. No terrain or paths. Existing files require explicit overwrite=True."""
     return command('export_map',path=path,overwrite=overwrite)
 
 
@@ -128,7 +104,6 @@ def undo()->dict:
 def redo()->dict:
     """Redo the latest undone native editing action."""
     return command('redo')
-
 
 
 class PrefabPlacement(BaseModel):
@@ -145,23 +120,6 @@ class ObjectTransform(BaseModel):
     position:list[float]|None=Field(default=None,min_length=3,max_length=3)
     rotation_degrees:list[float]|None=Field(default=None,min_length=3,max_length=3)
     scale:list[float]|None=Field(default=None,min_length=3,max_length=3)
-
-
-class PathSettings(BaseModel):
-    model_config=ConfigDict(extra='forbid')
-    width:float|None=Field(default=None,ge=.1,le=500)
-    inner_padding:float|None=Field(default=None,ge=0,le=500)
-    outer_padding:float|None=Field(default=None,ge=0,le=500)
-    inner_fade:float|None=Field(default=None,ge=0,le=500)
-    outer_fade:float|None=Field(default=None,ge=0,le=500)
-    random_scale:float|None=Field(default=None,ge=0,le=10)
-    mesh_offset:float|None=Field(default=None,ge=-100,le=100)
-    terrain_offset:float|None=Field(default=None,ge=-100,le=100)
-    splat:int|None=Field(default=None,ge=0,le=4294967295)
-    topology:int|None=Field(default=None,ge=0,le=4294967295)
-    spline:bool|None=None
-    start:bool|None=None
-    end:bool|None=None
 
 
 @mcp.tool(annotations=READ)
@@ -196,7 +154,7 @@ def place_prefabs(placements:list[PrefabPlacement],group_name:str|None=None)->di
 
 @mcp.tool(annotations=EDIT)
 def transform_objects(transforms:list[ObjectTransform])->dict:
-    """Atomically transform 1–200 placements/groups/paths in one undo step. Absolute world transforms. On error restores all transforms. Choose parent group OR descendants, not both."""
+    """Atomically transform 1–200 placements/groups in one undo step. Absolute world transforms. On error restores all transforms. Choose parent group OR descendants, not both."""
     return command('transform_objects',transforms=[p.model_dump(exclude_none=True) for p in transforms])
 
 
@@ -214,43 +172,13 @@ def ungroup_object(name:str)->dict:
 
 @mcp.tool(annotations=EDIT)
 def rename_object(name:str,new_name:str)->dict:
-    """Name a placement/group/path for subsequent AI operations. Returns actual Blender name (uniqueness suffix may be added)."""
+    """Name a placement/group for subsequent AI operations. Returns actual Blender name (uniqueness suffix may be added)."""
     return command('rename_object',name=name,new_name=new_name)
-
-
-@mcp.tool(annotations=READ)
-def sample_surface(positions:list[list[float]])->dict:
-    """Sample terrain heights, normals and slopes at 1–200 world [x,y] positions. Use before placing compositions; height is Z. Samples outside the map are rejected."""
-    return command('sample_surface',positions=positions)
-
-
-@mcp.tool(annotations=EDIT)
-def snap_objects_to_terrain(names:list[str],offset:float=0)->dict:
-    """Set 1–200 placement/group/path world origins to terrain height plus offset metres. Preserves orientation/scale; no automatic mesh-bottom alignment. Atomic and undoable."""
-    return command('snap_objects_to_terrain',names=names,offset=offset)
-
-
-@mcp.tool(annotations=READ)
-def get_path_info(name:str)->dict:
-    """Inspect Road/River/Rail/Powerline world-space nodes and all Rust path settings."""
-    return command('get_path_info',name=name)
-
-
-@mcp.tool(annotations=EDIT)
-def create_path(kind:str,nodes:list[list[float]],settings:PathSettings|None=None)->dict:
-    """Create Road/River/Rail/Powerline from 2–4096 XYZ world nodes in metres. Configure width, padding, fades, masks and flags using typed settings. Undo supported."""
-    return command('create_path',kind=kind,nodes=nodes,settings=settings.model_dump(exclude_none=True) if settings else {})
-
-
-@mcp.tool(annotations=EDIT)
-def update_path(name:str,nodes:list[list[float]]|None=None,settings:PathSettings|None=None)->dict:
-    """Replace a path's world nodes and/or update typed Rust settings, preserving unknown source metadata. Undo supported."""
-    return command('update_path',name=name,nodes=nodes,settings=settings.model_dump(exclude_none=True) if settings else {})
 
 
 @mcp.tool(annotations=EDIT)
 def focus_view(names:list[str],axis:str='CURRENT')->dict:
-    """Select and frame placements/groups/paths in Blender's native viewport for visual inspection. Does not change geometry."""
+    """Select and frame placements/groups in Blender's native viewport for visual inspection. Does not change geometry."""
     return command('focus_view',names=names,axis=axis)
 
 
@@ -273,28 +201,23 @@ def import_assembly(path:str,position:list[float],name:str|None=None)->dict:
     return command('import_assembly',path=path,position=position,name=name)
 
 
-BUILDING_GUIDE="""Ruster AI building workflow
-1. Call get_editor_status. The desktop must have a Rust map open and MCP enabled. Wait for catalog/asset loading to finish.
-2. list_prefab_categories discovers the catalog taxonomy. search_prefabs with empty query browses ALL indexed prefab IDs. Follow next_offset until null; use category and descriptive substrings to narrow results. Never guess IDs. Local availability is not proof an extracted model will render.
-3. get_prefab_details provides cached model bounds and size in metres. request_prefab_assets preloads missing models; poll status then retry details. Do not repeatedly queue requests while busy.
-4. sample_surface measures terrain height/normal/slope. World coordinates use X/Y horizontally and Z up, centered around zero; map bounds are +/- map_size/2. Rotations are XYZ Euler degrees. Scale is a nonzero factor, not metres.
-5. Model with whole original Rust assets: place_prefabs accepts up to 100 typed placements and optional group_name. Use dimensions to plan walls/roofs/props and offsets. Native groups may be moved, rotated, duplicated and uniformly scaled. Geometry/materials cannot be edited, subdivided, boolean-cut or sculpted. Holes are terrain-only. Do not add arbitrary Blender meshes for Rust export.
-6. list_map_objects pages every root with bounds, parent and child names; filters locate named parts/IDs. Use returned actual names in subsequent calls. transform_objects applies an atomic multi-object edit; group_objects makes an assembly. Do not target a group and its child in the same batch. snap_objects_to_terrain moves origins; use local bounds for bottom clearance.
-7. focus_view followed by get_viewport_image supplies real visual feedback. Inspect and iterate; bounds are enclosing boxes, not collision meshes. sample_surface does not certify flatness/collision gameplay.
-8. create_path/update_path edit typed Rust roads, rivers, rails, powerlines. paint_terrain changes map layers only. Read ruster://guide/terrain for brush conventions.
-9. validate_map before export; fix errors, inspect notes. Save absolute .ruster paths; export_map .map and export_assembly .rusterprefab require explicit overwrite=True to replace a destination. Source map overwrites are prohibited. Exported groups flatten to original prefab records.
-10. Each composition/transform batch is one native undo action. undo/redo also affect manual edits. After timeout, inspect the scene before retrying a mutation to avoid duplicates. No automatic retries of edits.
+BUILDING_GUIDE="""Ruster prefab authoring workflow
+1. get_editor_status reports actual version, converter_version, restart_required, visible and unloaded placements. Enable Preferences MCP and open a prefab composition. Wait for extraction/visual loading before requesting more assets.
+2. list_prefab_categories discovers taxonomy. search_prefabs includes hidden/IO helpers and supports descriptive tokens in any word order and aliases. Empty query browses all; follow next_offset. Never guess IDs. Local availability does not guarantee successful model extraction.
+3. get_prefab_details/get_prefabs_details inspect original cached model dimensions and enclosing bounds. request_prefab_assets queues up to 100 real IDs; poll status then retry details. No full-engine scan is needed.
+4. Coordinates are world XYZ metres, Z up. Rotation is XYZ Euler degrees; scale is a finite nonzero factor. Ground is an authoring plane at Z=0. snap_objects_to_plane moves true loaded model bottoms to a plane. align_objects uses MIN/CENTER/MAX bounds on X/Y/Z; omitted target uses the first object's bound.
+5. Compose whole prefabs using atomic place_prefabs (up to 100) and transform_objects (up to 200). Groups preserve world transforms. Select parent groups OR descendants per batch. Prefer uniform group scale to avoid shear. Original meshes/materials remain linked and read-only.
+6. list_objects/get_selection paginate lightweight metadata. include_bounds opts into model world bounds; get_objects_info batches up to 200 objects, get_prefabs_details up to 20 IDs. Child and mutation names are capped at 200; list_objects locates more without returning huge groups.
+7. duplicate_objects makes one translated copy. array_objects makes count NEW copies using per-step world offset and XYZ rotation about the chosen roots' mean origin. Requests roll back on failure and allow at most 2000 new prefab placements/4000 hierarchy objects. delete_objects validates all targets before deletion. Undo/redo also affects manual edits.
+8. focus_view and get_viewport_image provide visual feedback. Bounds enclose render geometry, not collision shapes; they do not certify server gameplay.
+9. export_prefab/import_prefab exchange native RustEdit .prefab while preserving supported imported metadata. get_io_settings/set_io_settings expose only verified EXISTING imported IO scalar fields; wiring creation is unsupported. export_assembly/import_assembly exchange .rusterprefab compositions. get_export_formats lists available GLB/FBX/OBJ and other model exporters; export_models uses bounded disposable copies and preserves source scene and selection.
+10. import_map_prefabs appends ONLY prefab placements from .map, ignoring terrain/paths. export_map writes ONLY current placements floating in void, with no terrain/path layers. validate_map checks compositions, save_project writes .ruster. Destinations are absolute; existing files require overwrite=True. Source models and selection survive exports.
+11. After timeout inspect the scene before replaying a mutation. No arbitrary Python execution, mesh edits, terrain tools, path tools or map generation are exposed.
 """
-
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')
 def building_guide()->str:
     return BUILDING_GUIDE
-
-
-@mcp.resource('ruster://guide/terrain',mime_type='text/plain')
-def terrain_guide()->str:
-    return 'Use sample_surface before placement. paint_terrain uses X/Y world metres, radius metres, strength 0..1. Height tools RAISE/LOWER/FLATTEN/SMOOTH/ERODE/SHARPEN/TERRACE/NOISE act on terrain or water. FLATTEN height is world Z metres. Other layers require PAINT: splat channels 0..7; biome channel layout depends on the source map; topology channel is a bit index; alpha invert=True cuts terrain holes only. Use get_editor_status for map bounds. Preserve original prefab geometry. Validate the final map before exporting.'
 
 
 @mcp.prompt()
@@ -304,10 +227,111 @@ def build_rust_composition(description:str)->str:
 
 
 @mcp.prompt()
-def audit_rust_map()->str:
-    """Inspect an existing Rust map and propose evidence-based repairs."""
-    return 'Read ruster://guide/building. Inspect editor status, paginate list_map_objects, sample relevant terrain, inspect suspicious object bounds, and call validate_map. Return concrete issues and affected object names. Do not modify or overwrite files during this audit.'
+def audit_rust_composition()->str:
+    """Inspect a prefab composition for concrete export and original-asset issues without changes."""
+    return 'Read ruster://guide/building. Inspect status, paginate list_objects, inspect relevant original model details/world bounds and validate_map. Report concrete issues and names. Do not modify or overwrite files.'
 
+
+@mcp.tool(annotations=READ)
+def list_objects(limit:int=100,offset:int=0,query:str='',kind:str='',prefab_id:int|None=None,include_bounds:bool=False)->dict:
+    """Page 1–200 placements/groups; bounds are opt-in. Filter names, kind PREFAB/GROUP or ID. Follow next_offset."""
+    return command('list_objects',limit=limit,offset=offset,query=query,kind=kind,prefab_id=prefab_id,include_bounds=include_bounds)
+
+@mcp.tool(annotations=READ)
+def get_objects_info(names:list[str],include_bounds:bool=True)->dict:
+    """Inspect 1–200 named roots in one request, with optional loaded model world bounds. Child names capped at 200."""
+    return command('get_objects_info',names=names,include_bounds=include_bounds)
+
+@mcp.tool(annotations=READ)
+def get_prefabs_details(uids:list[int])->dict:
+    """Read original cached dimensions and metadata for 1–20 real prefab IDs. Does not extract or scan game bundles."""
+    return command('get_prefabs_details',uids=uids)
+
+@mcp.tool(annotations=READ)
+def get_selection(limit:int=100,offset:int=0)->dict:
+    """Read active object and paginate selected prefab placements/groups; limit 1–200."""
+    return command('get_selection',limit=limit,offset=offset)
+
+@mcp.tool(annotations=EDIT)
+def select_objects(names:list[str])->dict:
+    """Select 1–200 independent whole placements/groups without changing transforms."""
+    return command('select_objects',names=names)
+
+@mcp.tool(annotations=EDIT)
+def duplicate_objects(names:list[str],offset:list[float]|None=None)->dict:
+    """Atomically copy roots/groups with world translation (default [2,0,0]). At most 2000 new placements. Preserves source selection."""
+    return command('duplicate_objects',names=names,offset=offset if offset is not None else [2,0,0])
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def delete_objects(names:list[str])->dict:
+    """Validate then delete 1–200 independent roots/groups in one undo step. Rejects group and descendant targets together."""
+    return command('delete_objects',names=names)
+
+@mcp.tool(annotations=EDIT)
+def array_objects(names:list[str],count:int,offset:list[float],rotation_degrees:list[float]|None=None)->dict:
+    """Make count NEW copies. Each step adds world offset and XYZ rotation around roots' mean origin. Atomic; at most 2000 new placements/4000 hierarchy objects. Preserves source selection."""
+    return command('array_objects',names=names,count=count,offset=offset,rotation_degrees=rotation_degrees if rotation_degrees is not None else [0,0,0])
+
+@mcp.tool(annotations=EDIT)
+def align_objects(names:list[str],axis:str='Z',mode:str='MIN',target:float|None=None)->dict:
+    """Align loaded model world MIN/CENTER/MAX bounds on X/Y/Z. target is world coordinate; omitted uses first root's bound. Atomic with undo."""
+    return command('align_objects',names=names,axis=axis,mode=mode,target=target)
+
+@mcp.tool(annotations=EDIT)
+def snap_objects_to_plane(names:list[str],target:float=0,axis:str='Z')->dict:
+    """Place loaded model/group MIN bounds on world plane (default ground Z=0), accounting for rotations, scales and pivots. Atomic with undo."""
+    return command('snap_objects_to_plane',names=names,target=target,axis=axis,mode='MIN')
+
+@mcp.tool(annotations=READ)
+def get_export_formats()->dict:
+    """List model formats available in this runtime, placement interchange formats and bounded geometry budgets."""
+    return command('get_export_formats')
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def export_prefab(names:list[str],path:str,overwrite:bool=False)->dict:
+    """Export native RustEdit .prefab preserving supported imported metadata. Absolute destination; overwrite=True replaces existing files. Preserves selection/source."""
+    return command('export_prefab',names=names,path=path,overwrite=overwrite)
+
+@mcp.tool(annotations=EDIT)
+def import_prefab(path:str,position:list[float]|None=None)->dict:
+    """Append native RustEdit .prefab at world position (default origin), preserving supported metadata. At most 2000 placements, validated first. Undo supported."""
+    return command('import_prefab',path=path,position=position if position is not None else [0,0,0])
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def export_models(names:list[str],path:str,format:str='GLB',overwrite:bool=False)->dict:
+    """Export loaded original render geometry in a format from get_export_formats. Uses bounded disposable copies and preserves original scene/selection."""
+    return command('export_models',names=names,path=path,format=format,overwrite=overwrite)
+
+@mcp.tool(annotations=EDIT)
+def import_map_prefabs(path:str)->dict:
+    """Append ONLY prefab placements from absolute .map path; ignore terrain/paths. At most 2000 placements/256MiB. Preserves existing composition. Undo supported."""
+    return command('import_map_prefabs',path=path)
+
+class IOSettings(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    access_level:int|None=Field(default=None,ge=0,le=3)
+    door_effect:int|None=Field(default=None,ge=-1,le=3)
+    timer_length:float|None=Field(default=None,ge=0,le=86400)
+    frequency:int|None=Field(default=None,ge=0,le=9999999)
+    unlimited_ammo:bool|None=None
+    peacekeeper:bool|None=None
+    weapon:str|None=Field(default=None,max_length=256)
+    branch_amount:int|None=Field(default=None,ge=0,le=2147483647)
+    counter_target:int|None=Field(default=None,ge=0,le=2147483647)
+    camera_identifier:str|None=Field(default=None,max_length=256)
+    counter_passthrough:bool|None=None
+    floors:int|None=Field(default=None,ge=1,le=100)
+    phone_name:str|None=Field(default=None,max_length=256)
+
+@mcp.tool(annotations=READ)
+def get_io_settings(name:str)->dict:
+    """Read verified existing RustEdit IO scalar fields on an imported placement. Wiring creation is unsupported."""
+    return command('get_io_settings',name=name)
+
+@mcp.tool(annotations=EDIT)
+def set_io_settings(name:str,settings:IOSettings)->dict:
+    """Update supplied verified EXISTING imported IO scalar fields; preserves other fields. One undo step; does not fabricate wiring."""
+    return command('set_io_settings',name=name,settings=settings.model_dump(exclude_none=True))
 
 def main():
     try:mcp.run(transport='stdio')
