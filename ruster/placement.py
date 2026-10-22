@@ -263,6 +263,8 @@ def duplicate_selected():
             copies[obj]=new
         for old,new in copies.items():
             if old.parent in copies:new.parent=copies[old.parent]
+            from .construction import clear_copy_link
+            clear_copy_link(new)
         copies[root].location.x+=2
         created.append(copies[root])
     select(created)
@@ -271,6 +273,9 @@ def duplicate_selected():
 
 def delete_selected():
     roots=selected_roots()
+    from .construction import symmetry_members
+    for obj in symmetry_members(roots):
+        if not any(parent in roots for parent in parent_chain(obj)) and obj not in roots:roots.append(obj)
     for root in roots:
         for child in list(root.children_recursive):bpy.data.objects.remove(child,do_unlink=True)
         bpy.data.objects.remove(root,do_unlink=True)
@@ -280,8 +285,12 @@ def register():
     for cls in (RUSTER_OT_group,RUSTER_OT_ungroup,RUSTER_OT_assembly_export,
                 RUSTER_OT_assembly_import,RUSTER_OT_select_same,RUSTER_OT_replace):
         bpy.utils.register_class(cls);_classes.append(cls)
+    from . import construction
+    construction.register()
 
 
 def unregister():
+    from . import construction
+    construction.unregister()
     for cls in reversed(_classes):bpy.utils.unregister_class(cls)
     _classes.clear()

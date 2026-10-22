@@ -215,7 +215,12 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
             if obj.get('ruster_visual') and obj.get('ruster_model_error'):
                 wrapped(layout,context,obj['ruster_model_error'],icon='error')
                 action(layout,'ruster.assets',text='Retry Model / Materials')
+        if obj.get('ruster_symmetry_source'):
+            wrapped(layout,context,'This copy follows its symmetry original.',icon='info')
+            layout.operator('ruster.symmetry_original',icon=I['select'])
+            layout.operator('ruster.symmetry_release',icon=I['ungroup'])
         fields=properties(layout.column())
+        fields.enabled=not bool(obj.get('ruster_symmetry_source'))
         fields.prop(obj,'location')
         fields.prop(obj,'rotation_mode',text='Rotation Mode')
         rotation='rotation_quaternion' if obj.rotation_mode=='QUATERNION' else ('rotation_axis_angle' if obj.rotation_mode=='AXIS_ANGLE' else 'rotation_euler')
@@ -402,8 +407,9 @@ def view_header(self,context):
                             ('builtin.rotate','','rotate'),('builtin.scale','','scale')]:
         tool_button(row,context,name,label,icon).name=name
     layout.separator()
-    layout.prop(context.scene.tool_settings,'use_snap',text='',icon=I['snapping'])
-    layout.prop(context.scene.tool_settings,'snap_elements',text='')
+    construction=context.scene.ruster_construction
+    layout.prop(construction,'object_snap',text='',icon=I['snapping'])
+    layout.popover(panel='RUSTER_PT_snapping',text='Snapping')
     layout.separator_spacer()
     space=context.space_data
     layout.prop(space.overlay,'show_overlays',text='',icon=I['overlay'])

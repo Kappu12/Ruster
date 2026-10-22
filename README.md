@@ -38,6 +38,21 @@ availability, full-path/ID tooltips and paginated results help locate assets.
 Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placements
 can be grouped, duplicated, replaced and removed. The authoring plane is Z=0.
 
+The **left toolbar** includes **Object Snap** (magnet) and **Radial Symmetry**
+(array) toggles, each with a settings popover below it. Snap Settings offers
+vertex, edge or face snapping to loaded original models and **45° / 90°** steps
+for native `R` rotation. **Align Rotation to Step** rounds an existing selection
+to the chosen world angles. `Ctrl` temporarily toggles native snapping.
+
+Enable Radial Symmetry before adding a prefab to create **2–16 sides** (including
+the original), rotated around the vertical Z axis through the world center
+`(0, 0, 0)` by default. Set another center numerically or with **Center at 3D
+Cursor**. Move, rotate or scale the original and its copies follow; selecting a
+copy offers **Select Symmetry Original**. **Make Symmetry Set Independent** keeps
+the placements and unlinks them for individual editing. Settings apply to new
+sets; existing sets retain their center and side count. Placement is one undo
+step, and saved `.ruster` projects retain the live symmetry sets.
+
 Original mesh and material data remain protected linked libraries. Transform
 whole placements or groups; model exports use temporary realized copies. A
 wireframe box identifies a placement awaiting its model and disappears when the
@@ -168,6 +183,7 @@ python -m pytest -q
 blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_prefab_product.py
 blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_placeholders.py
 blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_prefab_transforms.py
+blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_construction.py
 blender -b --factory-startup --disable-autoexec --python-exit-code 1 --python tests/blender_mcp.py
 python tests/mcp_stdio_smoke.py /absolute/path/to/packaged/Ruster
 ```

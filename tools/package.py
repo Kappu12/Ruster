@@ -123,7 +123,8 @@ def main():
         print('Runtime identity:',brand_windows_runtime(executable,output/'ruster/branding/ruster.ico'),flush=True)
     # Fail packaging if the exact distribution cannot register and round-trip a scene.
     for test in ('blender_prefab_product.py','blender_protection.py','blender_ui.py','blender_mcp.py',
-                 'blender_studio.py','blender_catalog.py','blender_placeholders.py','blender_prefab_transforms.py'):
+                 'blender_studio.py','blender_catalog.py','blender_placeholders.py','blender_prefab_transforms.py',
+                 'blender_construction.py'):
         subprocess.run([str(executable), '-b', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
                         '--python', str(ROOT/'tests'/test), '--', str(output)], check=True)
     python=next(p for p in sorted((output/'runtime').glob('*/python/bin/python*'))

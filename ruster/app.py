@@ -709,6 +709,11 @@ class RUSTER_OT_place(bpy.types.Operator):
             if first:obj['ruster_frame_on_load']=True
             scene.name_prefab(obj,found[0])
             scene.attach_visual(obj)
+            from .construction import add_symmetry
+            try:add_symmetry(obj,context)
+            except Exception:
+                bpy.data.objects.remove(obj,do_unlink=True)
+                raise
             for item in context.selected_objects:
                 item.select_set(False)
             obj.select_set(True)
