@@ -44,8 +44,9 @@ Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placement
 can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
 Navigation. The authoring plane is Z=0.
 
-The viewport header's **Perspective** button toggles perspective/orthographic
-projection (also **Numpad 5**); its pressed state indicates perspective.
+The viewport header's **Perspective** icon toggles perspective/orthographic
+projection (also **Numpad 5**); its pressed state indicates perspective. The
+**Overlays** toggle sits immediately beside it and controls viewport guides.
 
 The **left toolbar** includes **Object Snap** (magnet) and **Radial Symmetry**
 (array) toggles, each with a settings popover below it. Snap Settings offers

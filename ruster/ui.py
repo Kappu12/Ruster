@@ -414,8 +414,9 @@ def view_header(self,context):
     layout.popover(panel='RUSTER_PT_snapping',text='Snapping')
     layout.separator_spacer()
     space=context.space_data
-    action(layout,'view3d.view_persportho',text='Perspective',depress=space.region_3d.view_perspective=='PERSP')
-    layout.prop(space.overlay,'show_overlays',text='',icon=I['overlay'])
+    view_controls=layout.row(align=True)
+    action(view_controls,'view3d.view_persportho',text='',depress=space.region_3d.view_perspective=='PERSP')
+    view_controls.prop(space.overlay,'show_overlays',text='Overlays',icon=I['overlay'],toggle=True)
     layout.prop(space.shading,'type',text='',expand=True)
 
 
