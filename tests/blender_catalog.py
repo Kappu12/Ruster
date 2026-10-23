@@ -126,6 +126,32 @@ def run():
         for category in ('@HIDDEN','@ALL_ASSETS','@DEVELOPMENT'):
             studio.prefab_menu_data(None,category)
         assert len(studio._menu_cache)<=studio.MENU_CACHE_LIMIT
+        # Idle warming and every native submenu share one read transaction.
+        # Repeated search must not re-read or evict the other categories.
+        native_read=catalog.read_connection;reads=[]
+        def counted_read(*args,**kwargs):
+            reads.append(1);return native_read(*args,**kwargs)
+        catalog.read_connection=counted_read
+        from ruster.core import settings
+        config=settings.load()
+        studio._menu_cache.clear()
+        try:
+            assert not studio.advance_menu_cache(0)
+            assert not studio._menu_cache,'Idle preparation published a partial catalog'
+            for _pass in range(3):
+                for key,_label,_patterns in studio.ADD_GROUPS:studio.prefab_menu_data(None,'@'+key)
+            assert len(reads)==1,'Native menu traversal repeated the full catalog scan'
+            settings.save({**config,'favorite_prefabs':['43']})
+            assert studio.prefab_menu_data(None,'@DEVELOPMENT')['items'][0][-1]=='SOLO_ON'
+            assert len(reads)==2,'Favorites did not invalidate the shared index'
+            settings.save(config)
+            with closing(catalog.connect(scene.cache_dir())) as db:
+                db.execute('INSERT INTO names VALUES(?,?)',(9999,'assets/props/cache_refresh.prefab'));db.commit()
+            assert '9999' in {item[0] for item in studio.prefab_menu_data(None,'@PROPS')['items']}
+            with closing(catalog.connect(scene.cache_dir())) as db:
+                db.execute('DELETE FROM names WHERE uid=9999');db.commit()
+        finally:
+            settings.save(config);catalog.read_connection=native_read
         cache=scene.cache_dir()/'prefabs';cache.mkdir()
         (cache/'42.json.gz').write_bytes(gzip.compress(json.dumps({'schema':1,'marker':'SOUND','meshes':{},
             'path':'assets/test/sound/trigger.prefab'}).encode()))

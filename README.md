@@ -38,6 +38,9 @@ Press **Shift+A** for a compact native Add menu with prefab category submenus.
 Start typing immediately, or choose **Search All Prefabs…**, to search the entire
 catalog across all categories. Press Enter once to place a result at the 3D
 cursor. Names and IO aliases match regardless of capitalization or word order.
+The Add menu prepares a shared metadata index in small idle-time batches and
+reuses it across categories/search. Catalog and favorite changes refresh it;
+typing does not repeatedly scan the catalog or load game models.
 The Prefab Browser also offers categories, favorites, local availability,
 full-path/ID tooltips and paginated results.
 Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placements

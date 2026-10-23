@@ -2,6 +2,8 @@
 import base64
 import math
 import struct
+import time
+import sqlite3
 from pathlib import Path
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
@@ -18,7 +20,9 @@ from .core.rustedit_prefab import RustEditPrefab
 
 _classes, _keymaps = [], []
 _menu_cache = {}
-MENU_CACHE_LIMIT = 2
+MENU_CACHE_LIMIT = len(GROUPS)+1
+_menu_signature = None
+_menu_builder = None
 _category_menus = {}
 _model_items = []
 # These categories partition the catalog. The special HIDDEN and ALL_ASSETS
@@ -238,32 +242,57 @@ def export_prefab(path, selected=True):
     atomic_write(Path(path).with_suffix('.prefab'), source.write())
 
 
-def prefab_menu_data(context, category=''):
-    """One small metadata snapshot per native menu, never model/bundle data."""
+def menu_signature():
     from .core import palettes, settings
-    from .core.asset_names import display_name, menu_label, IO_SEARCH_ORDER
     path=scene.cache_dir()/'catalog.sqlite3'
+    stat=path.stat() if path.is_file() else None
     favorites=frozenset(palettes.favorite_ids(settings.load()))
-    # Native Add/search always covers the complete catalog, independently of
-    # the sidebar's availability, category and helper filters.
-    available_only=False
-    key=(str(path),path.stat().st_mtime_ns if path.exists() else 0,category,available_only,favorites)
-    if key not in _menu_cache:
-        rows=catalog.search(scene.cache_dir(),limit=-1,category=category,
-                            include_helpers=True,available_only=available_only)
-        rows.sort(key=lambda row:(row[0] not in favorites,display_name(row[1]).casefold(),row[0]))
-        items=[]
-        for uid,source,available in rows:
-            stem=Path(source).stem.casefold()
-            rank=IO_SEARCH_ORDER.index(stem) if '/ioslothandles/' in source.casefold() and stem in IO_SEARCH_ORDER else None
-            weight=1000-rank*50 if rank is not None else (20 if uid in favorites else 0)
-            icon='SOLO_ON' if uid in favorites else 'MESH_CUBE' if available else 'QUESTION'
-            items.append((str(uid),menu_label(source),source,weight,icon))
-        _menu_cache[key]={'items':items,'total':len(items)}
-    data=_menu_cache.pop(key);_menu_cache[key]=data
-    while len(_menu_cache)>MENU_CACHE_LIMIT:
-        del _menu_cache[next(iter(_menu_cache))]
-    return data
+    return str(path),((stat.st_mtime_ns,stat.st_size,stat.st_ino) if stat else None),favorites
+
+
+def advance_menu_cache(budget=None):
+    """One cache generation, shared by every category; no eviction while searching."""
+    global _menu_signature,_menu_builder
+    signature=menu_signature()
+    if signature!=_menu_signature or (not _menu_cache and _menu_builder is None):
+        if _menu_builder is not None:_menu_builder.close()
+        _menu_cache.clear();_menu_builder=None;_menu_signature=signature
+        if signature[1] is not None:
+            from .assets import menu_catalog
+            _menu_builder=menu_catalog.build(scene.cache_dir(),signature[2])
+    deadline=time.perf_counter()+budget if budget is not None else None
+    try:
+        while _menu_builder is not None:
+            try:next(_menu_builder)
+            except StopIteration as complete:
+                _menu_cache.update(complete.value);_menu_builder=None
+                break
+            if deadline is not None and time.perf_counter()>=deadline:break
+    except Exception:
+        if _menu_builder is not None:_menu_builder.close()
+        _menu_builder=None;_menu_signature=None
+        raise
+    return _menu_builder is None
+
+
+def warm_prefab_menu():
+    # Four-millisecond slices keep name preparation out of the typing path.
+    # The main thread owns the iterator; no bpy calls run in background threads.
+    try:complete=advance_menu_cache(.004)
+    except (OSError,ValueError,sqlite3.Error):return 1.
+    return 1. if complete else .02
+
+
+def prefab_menu_data(context, category=''):
+    """Reuse the complete snapshot for menu traversal and native search."""
+    advance_menu_cache()
+    if not _menu_cache:return {'items':[],'total':0}
+    if category in _menu_cache:return _menu_cache[category]
+    if category.startswith('@'):raise ValueError('Unknown Rust prefab category')
+    # Preserve explicit path-prefix callers without adding duplicate snapshots.
+    prefix=category.rstrip('/').casefold()+'/'
+    items=[item for item in _menu_cache['']['items'] if item[2].casefold().startswith(prefix)]
+    return {'items':items,'total':len(items)}
 
 
 def search_items(operator, context):
@@ -406,6 +435,7 @@ def register():
     classes = [RUSTER_OT_io_settings, RUSTER_OT_add_prefab, RUSTER_MT_add, *_category_menus.values(), RUSTER_OT_prefab_import,
                RUSTER_OT_prefab_export, RUSTER_OT_model_export, RUSTER_OT_blend_export, RUSTER_OT_edit_mode]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
+    if not bpy.app.background:bpy.app.timers.register(warm_prefab_menu,first_interval=.1,persistent=True)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
         view_keymap = config.keymaps.new(name='3D View', space_type='VIEW_3D')
@@ -427,6 +457,10 @@ def register():
 
 
 def unregister():
+    global _menu_builder,_menu_signature
+    if bpy.app.timers.is_registered(warm_prefab_menu):bpy.app.timers.unregister(warm_prefab_menu)
+    if _menu_builder is not None:_menu_builder.close()
+    _menu_builder=None;_menu_signature=None
     _menu_cache.clear()
     for keymap, item in _keymaps:keymap.keymap_items.remove(item)
     _keymaps.clear()
