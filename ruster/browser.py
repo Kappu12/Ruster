@@ -2,7 +2,7 @@
 import zlib
 import sqlite3
 import bpy
-from bpy.props import StringProperty
+from bpy.props import StringProperty,EnumProperty
 from . import scene
 from .assets import catalog
 from .core import settings,palettes
@@ -19,13 +19,22 @@ def prefab_page(state):
     """UI redraws reuse a page until its filters or the catalog actually change."""
     path=scene.cache_dir()/'catalog.sqlite3'
     stat=path.stat() if path.exists() else None
-    favorites=tuple(palettes.favorite_ids(settings.load())) if state.favorites_only else None
+    config=settings.load()
+    favorites=tuple(palettes.favorite_ids(config)) if state.favorites_only else None
+    recent=tuple(palettes.recent_ids(config)) if state.recent_only else None
     key=(str(path),stat.st_mtime_ns if stat else 0,stat.st_size if stat else 0,
-         state.query,state.query_page,state.category,favorites,state.available_only,state.include_helpers)
+         state.query,state.query_page,state.category,favorites,recent,state.available_only,state.include_helpers)
     if key not in _page_cache:
-        result=catalog.page(scene.cache_dir(),state.query,page_size=PAGE_SIZE,
-            page_index=state.query_page,category='' if state.category=='ALL' else state.category,
-            favorites=favorites,available_only=state.available_only,include_helpers=state.include_helpers)
+        allowed=favorites
+        if recent is not None:allowed=tuple(uid for uid in recent if favorites is None or uid in favorites)
+        result=catalog.page(scene.cache_dir(),state.query,page_size=palettes.MAX_RECENT if recent is not None else PAGE_SIZE,
+            page_index=0 if recent is not None else state.query_page,category='' if state.category=='ALL' else state.category,
+            favorites=allowed,available_only=state.available_only,include_helpers=state.include_helpers)
+        if recent is not None:
+            ranked=sorted(result['rows'],key=lambda row:recent.index(row[0]))
+            pages=(len(ranked)+PAGE_SIZE-1)//PAGE_SIZE
+            page=min(state.query_page,max(0,pages-1))
+            result={**result,'rows':ranked[page*PAGE_SIZE:(page+1)*PAGE_SIZE],'page':page,'pages':pages}
         _page_cache[key]=result
         while len(_page_cache)>16:del _page_cache[next(iter(_page_cache))]
     return _page_cache[key]
@@ -68,8 +77,55 @@ class RUSTER_OT_favorite(bpy.types.Operator):
             for window in context.window_manager.windows:
                 for area in window.screen.areas:area.tag_redraw()
             return {'FINISHED'}
-        except ValueError as error:
+        except (ValueError,OSError) as error:
             self.report({'ERROR'},str(error));return {'CANCELLED'}
+
+
+class RUSTER_OT_clear_filters(bpy.types.Operator):
+    bl_idname='ruster.clear_prefab_filters'
+    bl_label='Reset Prefab Filters'
+    bl_description='Clear search, category, favorites and recents; show all locally available assets'
+    def execute(self,context):
+        state=context.scene.ruster
+        state.query='';state.category='ALL';state.favorites_only=False;state.recent_only=False
+        state.available_only=True;state.include_helpers=True;state.query_page=0
+        return {'FINISHED'}
+
+
+class RUSTER_OT_prefab_details(bpy.types.Operator):
+    bl_idname='ruster.prefab_details'
+    bl_label='Inspect Prefab'
+    bl_description='Show the full asset path, ID, availability and cached model status without placing it'
+    uid:StringProperty()
+    def execute(self,context):
+        try:
+            uid=int(self.uid)
+            found=catalog.find(scene.cache_dir(),uid)
+            if not found:raise ValueError('Prefab is no longer in the local catalog')
+        except (ValueError,OSError,sqlite3.Error) as error:
+            self.report({'ERROR'},str(error));return {'CANCELLED'}
+        from .core.asset_names import display_name
+        from .ui_style import ICONS as I,wrapped
+        name=display_name(found[0])
+        cached=(scene.cache_dir()/'prefabs'/f'{uid}.json.gz').is_file()
+        def draw(popup,draw_context):
+            layout=popup.layout
+            wrapped(layout,draw_context,name,icon='prefab',width=400)
+            layout.label(text=f'Prefab ID: {uid}')
+            wrapped(layout,draw_context,found[0],width=400)
+            layout.separator()
+            wrapped(layout,draw_context,'Available in local Rust bundles' if found[1] else
+                'Not found in local Rust bundles. Check your Rust installation or refresh the catalog.',
+                icon='info' if found[1] else 'error',width=400)
+            layout.label(text='Conversion cache available' if cached else 'Model loads on demand',icon=I['import'])
+            row=layout.row(align=True)
+            row.operator('ruster.copy_prefab',text='Copy ID',icon=I['duplicate']).uid=str(uid)
+            copy=row.operator('ruster.copy_prefab',text='Copy Path',icon=I['duplicate'])
+            copy.uid=str(uid);copy.value='PATH'
+            row=layout.row();row.enabled=bool(found[1])
+            row.operator('ruster.place',text='Place at 3D Cursor',icon=I['prefab']).uid=str(uid)
+        context.window_manager.popup_menu(draw,title='Prefab Details')
+        return {'FINISHED'}
 
 
 class RUSTER_OT_paint_asset(bpy.types.Operator):
@@ -95,19 +151,22 @@ class RUSTER_OT_copy_prefab(bpy.types.Operator):
     bl_idname='ruster.copy_prefab'
     bl_label='Copy Prefab ID'
     uid:StringProperty()
+    value:EnumProperty(items=[('ID','Prefab ID',''),('PATH','Asset Path','')],default='ID',options={'SKIP_SAVE'})
     @classmethod
-    def description(cls,context,properties):return prefab_description(properties.uid,'Copy this Rust prefab ID')
+    def description(cls,context,properties):return prefab_description(properties.uid,'Copy this asset path' if properties.value=='PATH' else 'Copy this Rust prefab ID')
     def execute(self,context):
         try:
-            if not catalog.find(scene.cache_dir(),int(self.uid)):raise ValueError('Prefab is no longer in the local catalog')
-            context.window_manager.clipboard=self.uid
-            self.report({'INFO'},'Prefab ID copied');return {'FINISHED'}
+            found=catalog.find(scene.cache_dir(),int(self.uid))
+            if not found:raise ValueError('Prefab is no longer in the local catalog')
+            context.window_manager.clipboard=found[0] if self.value=='PATH' else self.uid
+            self.report({'INFO'},'Asset path copied' if self.value=='PATH' else 'Prefab ID copied');return {'FINISHED'}
         except (ValueError,OSError,sqlite3.Error) as error:
             self.report({'ERROR'},str(error));return {'CANCELLED'}
 
 
 def register():
-    for cls in (RUSTER_OT_favorite,RUSTER_OT_copy_prefab):bpy.utils.register_class(cls);_classes.append(cls)
+    for cls in (RUSTER_OT_favorite,RUSTER_OT_copy_prefab,RUSTER_OT_clear_filters,RUSTER_OT_prefab_details):
+        bpy.utils.register_class(cls);_classes.append(cls)
 
 
 def unregister():

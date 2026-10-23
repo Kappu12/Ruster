@@ -150,13 +150,8 @@ class RUSTER_PT_preferences_assets(RustPreferences,CenterAlignMixIn,bpy.types.Pa
         wrapped(layout,context,'Ruster checks Steam libraries automatically. Game files stay on your computer and are read-only.',icon='locked',width=width)
         layout.separator()
         layout.label(text='Local Assets',icon=I['import'])
-        if project.busy and project.asset_progress_known:layout.progress(factor=project.asset_progress,type='BAR',text='Loading Assets')
-        wrapped(layout,context,project.asset_status,icon='busy' if project.busy else 'info',width=width)
-        if project.busy:action(layout,'ruster.cancel_assets')
-        else:
-            row=layout.row(align=True);action(row,'ruster.assets')
-            action(row,'ruster.assets',text='Refresh Catalog',icon='refresh').rebuild=True
-        action(layout,'ruster.asset_report')
+        from .loading import draw_status
+        draw_status(layout,context,installation=False)
         layout.separator()
         fields=properties(layout.column());fields.prop(state,'rustedit')
         layout.operator('ruster.catalog_source')

@@ -9,16 +9,17 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKGROUND_TESTS = (
-    'blender_prefab_product.py', 'blender_project_close.py', 'blender_protection.py', 'blender_ui.py',
+    'blender_prefab_product.py', 'blender_project_close.py', 'blender_polish.py', 'blender_protection.py', 'blender_ui.py',
     'blender_mcp.py', 'blender_studio.py', 'blender_catalog.py',
     'blender_placeholders.py', 'blender_prefab_transforms.py',
     'blender_materials.py', 'blender_construction.py',
 )
 GRAPHICAL_TESTS = (
-    'gui_startup.py', 'gui_prefab_welcome.py', 'gui_project_close.py', 'gui_prefab_search.py',
+    'gui_startup.py', 'gui_prefab_welcome.py', 'gui_project_close.py', 'gui_prefab_polish.py', 'gui_prefab_search.py',
     'gui_material_preview.py', 'gui_construction.py', 'gui_mcp.py',
 )
 
@@ -42,7 +43,10 @@ def run_suite(executable, suite='background', app_root=None, xvfb=False):
             command += ['--', str(app_root)]
         if xvfb:
             command = ['xvfb-run', '-a', '-s', '-screen 0 1600x1000x24', *command]
-        subprocess.run(command, cwd=ROOT, check=True, timeout=150 if graphical else 120)
+        with tempfile.TemporaryDirectory(prefix='ruster-native-profile-') as profile:
+            config=Path(profile)/'config';config.mkdir()
+            env={**os.environ,'BLENDER_USER_CONFIG':str(config)}
+            subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=150 if graphical else 120)
 
 
 def main():

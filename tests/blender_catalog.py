@@ -179,6 +179,24 @@ def run():
             assert browser.prefab_page(bpy.context.scene.ruster)['total']==1
             assert len(calls)==2,'Changing search text did not refresh the page'
         finally:catalog.page=native_page
+        # Recent browsing respects every filter, retains last-used ordering and
+        # invalidates the redraw cache when another placement updates recents.
+        from ruster.core import palettes
+        state=bpy.context.scene.ruster
+        config=settings.load()
+        settings.save(palettes.remember(palettes.remember(config,43),42))
+        state.query='';state.available_only=False;state.include_helpers=True;state.recent_only=True
+        assert [row[0] for row in browser.prefab_page(state)['rows']]==[42,43,44]
+        settings.save(palettes.remember(settings.load(),43))
+        assert [row[0] for row in browser.prefab_page(state)['rows']]==[43,42,44]
+        state.favorites_only=True
+        settings.save({**settings.load(),'favorite_prefabs':['42']})
+        assert [row[0] for row in browser.prefab_page(state)['rows']]==[42]
+        assert bpy.ops.ruster.copy_prefab(uid='42',value='PATH')=={'FINISHED'}
+        assert bpy.ops.ruster.clear_prefab_filters()=={'FINISHED'}
+        assert not state.recent_only and not state.favorites_only and state.available_only and state.include_helpers
+        assert not state.query and state.category=='ALL' and state.query_page==0
+        settings.save(config)
         from tests.fixtures import triangle_asset
         asset=triangle_asset(43)
         asset['nodes'][0]['parent']=0

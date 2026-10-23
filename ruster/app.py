@@ -54,6 +54,7 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     terrain_state: PointerProperty(type=bpy.types.Text)
     category:EnumProperty(name='Category',items=category_items,update=query_changed)
     favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
+    recent_only:BoolProperty(name='Recently Used',default=False,update=query_changed)
     available_only:BoolProperty(name='Available Locally',description='Show prefabs found in your local Rust installation',default=True,update=query_changed)
     include_helpers:BoolProperty(name='Show Hidden Assets',description='Show all catalog entries, including internal effects, IO handles, sounds, and test prefabs',default=False,update=query_changed)
     query_page: IntProperty(default=0,min=0,options={'SKIP_SAVE'})
@@ -220,6 +221,9 @@ def poll_job():
         waiting=set(_visual_queue)
         _visual_queue.extend(sorted({int(obj['ruster_uid']) for obj in scene.prefab_roots()} & completed_ids-waiting))
         state.busy=bool(_visual_queue)
+        if _visual_queue:
+            state.asset_status='Linking original models into the scene…'
+            state.asset_progress_known=False
         if _visual_queue and not bpy.app.timers.is_registered(load_visuals):
             bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
     if not _job_cancelled and _pending_asset_ids:
@@ -256,6 +260,16 @@ def load_visuals():
                 obj['ruster_model_error']=str(error)
                 bpy.context.scene.ruster.asset_status = f'Could not load {obj.name}: {error}'
     bpy.context.scene.ruster.busy=bool(_visual_queue or _pending_asset_ids or (_job is not None and _job.poll() is None))
+    state=bpy.context.scene.ruster
+    if _visual_queue and _job is None:
+        state.asset_status=f'Linking original models · {len(_visual_queue):,} remaining'
+        state.asset_progress_known=False
+    elif not state.busy:
+        from .loading import model_summary
+        counts=model_summary()
+        state.asset_status=(f"{counts['READY']:,} placements loaded · {counts['ISSUE']:,} with issues · "
+            f"{counts['MISSING']:,} not loaded · {counts['HELPER']:,} helpers")
+        state.asset_progress_known=False
     redraw()
     return .05 if _visual_queue else None
 
@@ -488,11 +502,27 @@ def open_path(path):
     # File import and post-load source relocation must be an undo baseline.
     # Otherwise the first brush undo can restore the old scene or a stale source.
     if bpy.context.preferences.edit.use_global_undo:
-        bpy.ops.ed.undo_push(message='Open Ruster Project')
+        if bpy.ops.ed.undo_push.poll():bpy.ops.ed.undo_push(message='Open Ruster Project')
+        elif not bpy.app.background and not bpy.app.timers.is_registered(open_undo_baseline):
+            # A freshly loaded .blend has not initialized its undo context until
+            # the next UI cycle. Finish opening, then establish the baseline.
+            bpy.app.timers.register(open_undo_baseline,first_interval=.1)
     remember_project(path)
     if path.suffix.lower() == '.ruster':
         from . import quitting
         quitting.mark_saved()
+
+
+def open_undo_baseline():
+    if not bpy.context.preferences.edit.use_global_undo:return None
+    for window in bpy.context.window_manager.windows:
+        area=next((area for area in window.screen.areas if area.type=='VIEW_3D'),None)
+        if not area:continue
+        region=next((region for region in area.regions if region.type=='WINDOW'),None)
+        with bpy.context.temp_override(window=window,area=area,region=region):
+            if bpy.ops.ed.undo_push.poll():
+                bpy.ops.ed.undo_push(message='Open Ruster Project');return None
+    return .1
 
 
 def remember_project(path):
@@ -758,6 +788,9 @@ class RUSTER_OT_place(bpy.types.Operator):
             context.view_layer.objects.active = obj
             if obj.get('ruster_visual'):frame_first_model(obj)
             if not obj.get('ruster_visual') and not obj.get('ruster_marker'):request_assets([uid])
+            from .core import palettes
+            try:settings.save(palettes.remember(settings.load(),uid))
+            except OSError:self.report({'WARNING'},'Prefab placed, but the recent list could not be saved')
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -793,15 +826,76 @@ class RUSTER_OT_report(bpy.types.Operator):
     bl_label = 'Asset Report'
 
     def execute(self, context):
-        path = scene.cache_dir() / 'asset-report.json'
-        text = path.read_text() if path.exists() else 'No extraction report yet.\n' + context.scene.ruster.asset_status
-        block = bpy.data.texts.get('Ruster Asset Report') or bpy.data.texts.new('Ruster Asset Report')
-        block.clear()
-        block.write(text)
-        def draw(popup, _context):
-            wrapped(popup.layout,_context,context.scene.ruster.asset_status,icon='info')
-            wrapped(popup.layout,_context,f'Full report: {scene.cache_dir()}',icon='report')
-        context.window_manager.popup_menu(draw, title='Asset Report')
+        try:
+            path=scene.cache_dir()/'asset-report.json'
+            issues=json.loads(path.read_text()) if path.is_file() else []
+            if not isinstance(issues,list):raise ValueError('Expected a list of asset issues')
+            entries=[]
+            reported=set()
+            names={int(obj['ruster_uid']):obj.name for obj in scene.prefab_roots()}
+            from .core.asset_names import display_name
+            for item in issues:
+                if not isinstance(item,dict):continue
+                uid=item.get('uid')
+                name=names.get(uid) or display_name(str(item.get('path',''))) or 'Prefab '+str(uid)
+                entries.append((name,str(item.get('error','Unknown asset issue'))))
+                reported.add(uid)
+            # An imported/offline project's errors need not belong to the last worker batch.
+            for obj in scene.prefab_roots():
+                uid=int(obj['ruster_uid'])
+                if obj.get('ruster_model_error') and uid not in reported:
+                    entries.append((obj.name,str(obj['ruster_model_error'])));reported.add(uid)
+            block=bpy.data.texts.get('Ruster Asset Report') or bpy.data.texts.new('Ruster Asset Report')
+            block.clear();block.write(context.scene.ruster.asset_status+'\n\n'+
+                '\n\n'.join(name+'\n'+error for name,error in entries))
+            self.entries=json.dumps(entries[:5])
+            self.total=len(entries)
+            return {'FINISHED'}
+        except (OSError,ValueError,TypeError) as error:
+            self.report({'ERROR'},'Could not read the asset report: '+str(error));return {'CANCELLED'}
+
+    entries:StringProperty(options={'HIDDEN','SKIP_SAVE'})
+    total:IntProperty(options={'HIDDEN','SKIP_SAVE'})
+
+    def invoke(self,context,event):
+        result=self.execute(context)
+        if result!={'FINISHED'}:return result
+        return context.window_manager.invoke_props_dialog(self,width=560,confirm_text='Close')
+
+    def draw(self,context):
+        wrapped(self.layout,context,context.scene.ruster.asset_status,icon='info',width=500)
+        self.layout.label(text=f'{self.total:,} reported issues')
+        for name,error in json.loads(self.entries or '[]'):
+            box=self.layout.box()
+            wrapped(box,context,name,icon='prefab',width=500)
+            wrapped(box,context,error[:320]+('…' if len(error)>320 else ''),icon='error',width=500)
+        if self.total>5:wrapped(self.layout,context,'Showing the first 5 issues. Copy the full report for all details.',width=500)
+        self.layout.operator('ruster.copy_asset_report',icon=I['duplicate'])
+        wrapped(self.layout,context,'Logs and source report: '+str(scene.cache_dir()),width=500)
+
+
+class RUSTER_OT_copy_asset_report(bpy.types.Operator):
+    bl_idname='ruster.copy_asset_report'
+    bl_label='Copy Full Asset Report'
+    def execute(self,context):
+        block=bpy.data.texts.get('Ruster Asset Report')
+        if not block:self.report({'ERROR'},'Open the asset report first');return {'CANCELLED'}
+        context.window_manager.clipboard=block.as_string()
+        self.report({'INFO'},'Asset report copied');return {'FINISHED'}
+
+
+class RUSTER_OT_select_model_status(bpy.types.Operator):
+    bl_idname='ruster.select_model_status'
+    bl_label='Select Models by Status'
+    bl_description='Select the placements needing model loading or attention'
+    status:EnumProperty(items=[('MISSING','Not Loaded',''),('ISSUE','With Issues','')])
+    def execute(self,context):
+        from .loading import model_state
+        from .placement import select
+        pending=_pending_asset_ids|_job_ids|set(_visual_queue)
+        objects=[obj for obj in scene.prefab_roots() if model_state(obj,pending)==self.status]
+        select(objects)
+        self.report({'INFO'},f'{len(objects):,} placements selected')
         return {'FINISHED'}
 
 
@@ -865,7 +959,8 @@ def register():
     classes = [RUSTER_PG_project, RUSTER_OT_setup, RUSTER_OT_welcome, RUSTER_OT_new,
                RUSTER_OT_open, RUSTER_OT_save, RUSTER_OT_import_map, RUSTER_OT_export,
                RUSTER_OT_assets, RUSTER_OT_place, RUSTER_OT_duplicate, RUSTER_OT_delete,
-               RUSTER_OT_report,RUSTER_OT_cancel_assets,RUSTER_OT_catalog_page,RUSTER_FH_project]
+               RUSTER_OT_report,RUSTER_OT_copy_asset_report,RUSTER_OT_select_model_status,
+               RUSTER_OT_cancel_assets,RUSTER_OT_catalog_page,RUSTER_FH_project]
     for cls in classes:
         bpy.utils.register_class(cls)
         _classes.append(cls)
@@ -919,7 +1014,7 @@ def unregister():
     if _job_log:
         _job_log.close();_job_log=None
     _job_action=None;_job_cancelled=False
-    for callback in (poll_job, load_visuals, startup,recovery_tick):
+    for callback in (poll_job, load_visuals, startup,recovery_tick,open_undo_baseline):
         if bpy.app.timers.is_registered(callback):
             bpy.app.timers.unregister(callback)
     if after_load in bpy.app.handlers.load_post:

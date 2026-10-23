@@ -135,22 +135,11 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
         row=layout.row(align=True)
         row.prop(state,'favorites_only',text='Favorites',toggle=True,
             icon=I['favorite_on' if state.favorites_only else 'favorite_off'])
+        row.prop(state,'recent_only',text='Recent',toggle=True,icon=I['recover'])
+        row=layout.row(align=True)
         row.prop(state,'available_only',text='Available Locally',toggle=True,icon=I['import'])
-        layout.prop(state,'include_helpers',toggle=True)
-        if state.busy:
-            box=layout.box()
-            wrapped(box,context,state.asset_status,icon='busy')
-            if state.asset_progress_known:box.progress(factor=state.asset_progress,type='BAR',text='Loading Prefabs')
-            action(box,'ruster.cancel_assets',text='Cancel Loading')
-        else:
-            selected=context.active_object
-            if (selected and selected.get('ruster_kind')=='PREFAB' and
-                not selected.get('ruster_marker') and not selected.get('ruster_visual')):
-                box=layout.box()
-                wrapped(box,context,selected.get('ruster_model_status','Model not loaded'),icon='info')
-                if selected.get('ruster_model_error'):
-                    wrapped(box,context,selected['ruster_model_error'][:300],icon='error')
-                action(box,'ruster.assets',text='Load / Retry Selected Model')
+        row.prop(state,'include_helpers',text='Hidden Assets',toggle=True)
+        layout.operator('ruster.clear_prefab_filters',text='Reset Filters',icon=I['refresh'])
         from .core import settings,palettes
         favorites=set(palettes.favorite_ids(settings.load()))
         try:
@@ -164,8 +153,12 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
             if not (scene.cache_dir()/'catalog.sqlite3').is_file():
                 wrapped(layout,context,'Load your Rust assets to browse prefabs.',icon='info')
                 action(layout,'ruster.assets')
-            elif state.query or state.category!='ALL' or state.favorites_only or state.available_only:
-                wrapped(layout,context,'No matching prefabs. Try different words or enable Show Hidden Assets.',icon='info')
+            elif state.recent_only and not palettes.recent_ids(settings.load()):
+                wrapped(layout,context,'No recently used prefabs yet. Placed prefabs appear here automatically.',icon='info')
+            elif state.favorites_only and not favorites:
+                wrapped(layout,context,'No favorites yet. Use the star beside a prefab to save it here.',icon='info')
+            elif state.query or state.category!='ALL' or state.favorites_only or state.recent_only or state.available_only:
+                wrapped(layout,context,'No matching prefabs. Try different words, enable Hidden Assets or reset the filters.',icon='info')
             else:
                 wrapped(layout,context,'The catalog is empty. Refresh your Rust assets.',icon='info')
                 action(layout,'ruster.assets',text='Refresh Asset Catalog',icon='refresh').rebuild=True
@@ -176,7 +169,7 @@ class RUSTER_PT_prefabs(MapPanel,bpy.types.Panel):
             from .core.asset_names import display_name
             body.operator('ruster.place',text=display_name(path),icon=I['prefab']).uid=str(uid)
             if is_map(context):body.operator('ruster.paint_asset',text='',icon=I['prefab_brush']).uid=str(uid)
-            row.operator('ruster.copy_prefab',text='',icon=I['duplicate']).uid=str(uid)
+            row.operator('ruster.prefab_details',text='',icon=I['info']).uid=str(uid)
         if matches:
             row=layout.row(align=True)
             previous=row.row(align=True);previous.enabled=result['page']>0
@@ -244,22 +237,24 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
 
 
 class RUSTER_PT_assets(MapPanel,bpy.types.Panel):
-    bl_label='Local Rust Assets'
+    bl_label='Model Loading'
     bl_options={'DEFAULT_CLOSED'}
     icon='import'
     @classmethod
     def poll(cls,context):return True
     def draw(self,context):
-        layout=self.layout;state=context.scene.ruster
-        if state.busy and state.asset_progress_known:
-            layout.progress(factor=state.asset_progress,type='BAR',text='Loading Assets')
-        wrapped(layout,context,state.asset_status,icon='busy' if state.busy else 'info')
-        layout.separator()
-        if state.busy:action(layout,'ruster.cancel_assets')
-        else:
-            action(layout,'ruster.assets')
-            action(layout,'ruster.assets',text='Refresh Asset Catalog',icon='refresh').rebuild=True
-        action(layout,'ruster.setup');action(layout,'ruster.asset_report')
+        from .loading import draw_status
+        draw_status(self.layout,context)
+
+
+class RUSTER_PT_asset_status(bpy.types.Panel):
+    bl_label='Model Loading'
+    bl_space_type='TOPBAR'
+    bl_region_type='HEADER'
+    bl_ui_units_x=24
+    def draw(self,context):
+        from .loading import draw_status
+        draw_status(self.layout,context)
 
 
 class RUSTER_PT_properties(bpy.types.Panel):
@@ -448,6 +443,10 @@ def topbar(self,context):
     layout=self.layout
     if context.region.alignment=='RIGHT':
         layout.template_reports_banner();layout.template_running_jobs()
+        from .loading import model_summary,header_label
+        counts=model_summary()
+        layout.popover(panel='RUSTER_PT_asset_status',text=header_label(context.scene.ruster,counts),
+            icon=I['busy' if context.scene.ruster.busy else 'error' if counts['ISSUE'] else 'import'])
         from .quitting import save_status
         layout.label(text=context.scene.ruster.title+' · '+save_status(),icon=I['project'])
     else:
@@ -547,7 +546,7 @@ def map_workspace():
 
 def register():
     classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_assets,RUSTER_PT_welcome,
-             RUSTER_PT_start,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets]
+             RUSTER_PT_start,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets,RUSTER_PT_asset_status]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
     for cls in (bpy.types.WM_MT_splash,bpy.types.WM_MT_splash_quick_setup):
         _draws.append((cls,cls.draw));cls.draw=splash

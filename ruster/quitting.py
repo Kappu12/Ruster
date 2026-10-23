@@ -114,7 +114,9 @@ def perform_pending_action():
     windows = list(bpy.context.window_manager.windows)
     if window not in windows:window = windows[0] if windows else None
     if window:
-        with bpy.context.temp_override(window=window):continue_action(action, filepath)
+        area=next((area for area in window.screen.areas if area.type=='VIEW_3D'),None)
+        region=next((region for region in area.regions if region.type=='WINDOW'),None) if area else None
+        with bpy.context.temp_override(window=window,area=area,region=region):continue_action(action, filepath)
     return None
 
 
@@ -142,14 +144,22 @@ class RUSTER_OT_save_changes(bpy.types.Operator):
         if _dialog_open:return {'CANCELLED'}
         _dialog_open = True
         title = 'Save changes before starting a new prefab?' if self.action == 'NEW' else 'Save changes before opening?'
-        return context.window_manager.invoke_props_dialog(self, width=440,
-            title=title, confirm_text='Save')
+        window=context.window
+        original=(event.mouse_x,event.mouse_y)
+        try:
+            window.cursor_warp(window.width//2,window.height//2)
+            return context.window_manager.invoke_props_dialog(self, width=440,
+                title=title, confirm_text='Save')
+        finally:window.cursor_warp(*original)
 
     def draw(self, context):
         state = context.scene.ruster
         filename = Path(state.project_path).name if state.project_path else state.title + '.ruster'
         self.layout.label(text=filename, icon='FILE')
-        discard = self.layout.operator('ruster.discard_changes', text="Don't Save")
+        # A regular operator button leaves native property dialogs open.
+        # This template closes the popup before running its continuation.
+        discard = self.layout.template_popup_confirm('ruster.discard_changes', text="Don't Save",
+            cancel_text='',cancel_default=True)  # Return remains bound to the parent Save button.
         discard.action, discard.filepath = self.action, self.filepath
 
     def execute(self, context):
@@ -213,7 +223,7 @@ class RUSTER_OT_quit(bpy.types.Operator):
         state = context.scene.ruster
         filename = Path(state.project_path).name if state.project_path else state.title + '.ruster'
         self.layout.label(text=filename, icon='FILE')
-        self.layout.operator('ruster.discard_and_quit', text="Don't Save")
+        self.layout.template_popup_confirm('ruster.discard_and_quit', text="Don't Save", cancel_text='',cancel_default=True)
 
     def execute(self, context):
         global _dialog_open

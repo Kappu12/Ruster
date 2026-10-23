@@ -37,6 +37,17 @@ def test_malformed_favorite_settings_do_not_break_the_browser():
     assert palettes.favorite_ids({'favorite_prefabs':[True,{},'bad',-1,'4294967296','42',42]})==[42]
 
 
+def test_recent_prefabs_are_bounded_unique_and_keep_other_settings():
+    config={'favorite_prefabs':['8'],'rust_install':'game'}
+    for uid in range(60):config=palettes.remember(config,uid)
+    assert palettes.recent_ids(config)==list(range(59,11,-1))
+    config=palettes.remember(config,30)
+    assert palettes.recent_ids(config)[0]==30
+    assert len(palettes.recent_ids(config))==48
+    assert config['favorite_prefabs']==['8'] and config['rust_install']=='game'
+    assert palettes.recent_ids({'recent_prefabs':[False,{},'bad',1,'1','2',-1]})==[1,2]
+
+
 def test_catalog_pages_count_filter_and_recover_from_stale_offsets(tmp_path):
     populated(tmp_path)
     with closing(catalog.connect(tmp_path)) as db:
