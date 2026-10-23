@@ -180,6 +180,8 @@ def refresh_windows():
         if process.value!=os.getpid():return True
         kind=ctypes.create_unicode_buffer(128);user.GetClassNameW(hwnd,kind,len(kind))
         if kind.value!='GHOST_WindowClass':return True
+        from . import native_close
+        native_close.hook_window(hwnd)
         _brand_window_properties(hwnd)
         if hwnd not in _windows:
             _windows[hwnd]=(user.SendMessageW(hwnd,0x80,0,_handles[0]),user.SendMessageW(hwnd,0x80,1,_handles[1]))

@@ -490,6 +490,9 @@ def open_path(path):
     if bpy.context.preferences.edit.use_global_undo:
         bpy.ops.ed.undo_push(message='Open Ruster Project')
     remember_project(path)
+    if path.suffix.lower() == '.ruster':
+        from . import quitting
+        quitting.mark_saved()
 
 
 def remember_project(path):
@@ -513,7 +516,10 @@ def save_project(path,update_path=True):
             bpy.ops.file.pack_all()
             bpy.ops.wm.save_as_mainfile(filepath=str(blend),copy=True,check_existing=False,compress=True)
             project.save(path,blend,state.mode,state.source_map or None,state.title)
-        if update_path:remember_project(path)
+        if update_path:
+            remember_project(path)
+            from . import quitting
+            quitting.mark_saved()
     except Exception:
         state.project_path,state.title=old_path,old_title
         raise
@@ -563,6 +569,7 @@ class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
     filename_ext = '.ruster'
     filter_glob: StringProperty(default='*.ruster', options={'HIDDEN'})
     save_as: BoolProperty(default=False, options={'HIDDEN'})
+    quit_after_save: BoolProperty(default=False, options={'HIDDEN','SKIP_SAVE'})
 
     def invoke(self, context, event):
         if context.scene.ruster.project_path and not self.save_as:
@@ -577,6 +584,9 @@ class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
                 self.filepath += '.ruster'
             save_project(self.filepath)
             self.report({'INFO'}, f'Saved {Path(self.filepath).name}')
+            if self.quit_after_save:
+                from . import quitting
+                quitting.schedule_quit()
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -868,6 +878,8 @@ def register():
     preferences.register()
     from . import studio
     studio.register()
+    from . import quitting
+    quitting.register()
     bpy.app.handlers.load_post.append(after_load)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
@@ -877,6 +889,8 @@ def register():
             if key == 'S':
                 item.properties.save_as = shift
             _keymaps.append((km,item))
+        item = km.keymap_items.new('ruster.quit', 'Q', 'PRESS', ctrl=True)
+        _keymaps.append((km,item))
     bpy.context.preferences.view.show_splash = False
     bpy.context.preferences.filepaths.use_scripts_auto_execute = False
     if not bpy.app.background and not bpy.app.timers.is_registered(recovery_tick):
@@ -886,6 +900,8 @@ def register():
 def unregister():
     global _job,_job_log,_job_action,_job_cancelled
     from . import ui,preferences,studio
+    from . import quitting
+    quitting.unregister()
     studio.unregister()
     preferences.unregister()
     if _job is not None:

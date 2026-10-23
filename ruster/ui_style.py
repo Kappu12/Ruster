@@ -47,7 +47,7 @@ ACTIONS={
     'ruster.preferences':('Preferences…','settings'),
     'ruster.mcp_config':('Copy MCP Client Configuration','duplicate'),
     'ruster.mcp_retry':('Retry MCP Connection','refresh'),
-    'wm.quit_blender':('Quit Ruster','quit'),
+    'ruster.quit':('Quit Ruster','quit'),
     'ed.undo':('Undo','undo'),'ed.redo':('Redo','redo'),
     'ruster.duplicate':('Duplicate Prefabs','duplicate'),
     'ruster.delete':('Delete Prefabs','delete'),

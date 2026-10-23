@@ -64,7 +64,7 @@ class RUSTER_MT_file(bpy.types.Menu):
         layout.separator()
         action(layout,'ruster.setup')
         layout.separator()
-        action(layout,'wm.quit_blender')
+        action(layout,'ruster.quit')
 
 
 class RUSTER_MT_edit(bpy.types.Menu):

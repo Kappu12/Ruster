@@ -12,13 +12,13 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKGROUND_TESTS = (
-    'blender_prefab_product.py', 'blender_protection.py', 'blender_ui.py',
+    'blender_prefab_product.py', 'blender_project_close.py', 'blender_protection.py', 'blender_ui.py',
     'blender_mcp.py', 'blender_studio.py', 'blender_catalog.py',
     'blender_placeholders.py', 'blender_prefab_transforms.py',
     'blender_materials.py', 'blender_construction.py',
 )
 GRAPHICAL_TESTS = (
-    'gui_startup.py', 'gui_prefab_welcome.py', 'gui_prefab_search.py',
+    'gui_startup.py', 'gui_prefab_welcome.py', 'gui_project_close.py', 'gui_prefab_search.py',
     'gui_material_preview.py', 'gui_construction.py', 'gui_mcp.py',
 )
 

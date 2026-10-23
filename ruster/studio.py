@@ -120,6 +120,8 @@ class RUSTER_OT_io_settings(bpy.types.Operator):
 
 
 def new_prefab():
+    from . import quitting
+    quitting.reset()
     scene.clear_scene()
     state = bpy.context.scene.ruster
     state.mode, state.title = 'PREFAB', 'Untitled Prefab'

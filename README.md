@@ -106,6 +106,10 @@ This does not establish server behavior or support creating new wiring.
 
 Recovery saves atomically every two minutes while idle. Use **Recover Autosaved
 Session** in New / Open after a crash. Recovery preserves the regular save target.
+Quit Ruster (`Ctrl+Q`, or the Windows close button / `Alt+F4`) checks the saved
+`.ruster` document. Unchanged projects close directly; unsaved changes offer
+Save, Don't Save and Cancel using the project filename. Save opens the `.ruster`
+picker for untitled projects. Cancelling or a failed save keeps the editor open.
 Opening legacy map projects recovers their prefab composition; the active product
 does not expose terrain, path editing or seed generation. That source remains
 inactive for compatibility work.

@@ -20,7 +20,7 @@ Rust-engine parity.
 | Materials | Source base colors/textures and UV transforms, supported metallic/smoothness masks, emission, alpha blending/cutouts; Solid color/texture feedback and native shader-node previews. Shadow-only surfaces excluded. |
 | Hidden IO assets | All eight real hose/wire slot variants verified, including cyan pending hose. The source is a Cube renderer scaled by placements, not generated replacement geometry. Geometry-free sounds, terrain stamps, volumes and runtime IO lines remain explicit helpers. |
 | LOD and meshes | First nonempty authored LOD; compact binary mesh buffers and streamed metadata; one requested model at a time; bounded preview textures. |
-| Projects | `.ruster` atomic saves and packed linked model previews; reopening without the original conversion cache; two-minute idle recovery. |
+| Projects | `.ruster` atomic saves and packed linked model previews; reopening without the original conversion cache; two-minute idle recovery; project-aware Quit/Ctrl+Q and Windows titlebar close, with Save/Don't Save/Cancel for unsaved changes. |
 | Native `.prefab` | RustEdit version-1 format and installed 1.2.19 checksum; unknown-field retention; byte-exact unchanged imports; metadata-preserving group export. |
 | Existing IO | Verified imported access, door, timer, frequency, turret, branch, counter, camera, elevator and phone scalar settings; supported endpoint movement with identity/order guards. New wiring is unsupported. |
 | `.map` interchange | Reads versions 9/10 and imports only prefab placements. Export writes current prefab IDs/TRS in a minimal version-10 file without terrain or paths. Import appends; opening starts a composition. |
