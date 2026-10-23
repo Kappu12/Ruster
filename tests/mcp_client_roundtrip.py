@@ -27,10 +27,18 @@ async def run():
                 assert not result.isError,result
                 return result.structuredContent or json.loads(result.content[0].text)
             exposed={tool.name for tool in (await session.list_tools()).tools}
-            assert len(exposed)==43,sorted(exposed)
+            assert len(exposed)==52,sorted(exposed)
             assert not {'paint_terrain','sample_surface','snap_objects_to_terrain','generate_map','get_generation_status','cancel_generation','create_path','update_path','get_path_info','execute_code'} & exposed
             assert {'get_objects_info','get_prefabs_details','get_selection','array_objects','align_objects','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=exposed
             assert (await call('get_scene_info'))['mode']=='PREFAB'
+            assert (await call('get_blender_context'))['geometry_read_only']
+            state=await call('get_viewport_state')
+            updated=await call('set_viewport_state',settings={'projection':'ORTHO','distance':20.,'show_overlays':False})
+            assert updated['projection']=='ORTHO' and updated['distance']==20.
+            await call('set_viewport_state',settings=state)
+            await call('set_cursor',position=[2,3,4],rotation_degrees=[0,0,45])
+            assert (await call('get_blender_context'))['cursor']['position']==[2,3,4]
+            await call('set_cursor',position=[0,0,0])
             assert (await call('search_prefabs',query=''))['prefabs'][0]['id']==123456
             status=await call('get_editor_status')
             assert status['catalog_ready'] and status['version']==__version__ and status['converter_version']==CONVERTER_VERSION
@@ -39,6 +47,12 @@ async def run():
             assert (await call('get_prefab_details',uid=123456))['cached']
             obj=await call('place_prefab',uid=123456,position=[1,2,25])
             name=obj['name'];assert obj['geometry_read_only']
+            ring=await call('radial_array_objects',names=[name],count=3,center=[0,0,25],angle_degrees=90)
+            await call('distribute_objects',names=ring['objects'],spacing=3,axis='X',mode='BOUNDS_GAP')
+            assert (await call('measure_objects',first=ring['objects'][0],second=ring['objects'][1]))['bounds_distance']>=2.99
+            await call('transform_objects_relative',names=ring['objects'],offset=[0,0,2])
+            await call('snap_objects_to_grid',names=ring['objects'],step=1)
+            await call('delete_objects',names=ring['objects'])
             await call('select_objects',names=[name])
             assert (await call('get_selection'))['total']==1
             assert len((await call('get_objects_info',names=[name]))['objects'])==1

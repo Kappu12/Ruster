@@ -30,6 +30,12 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert {'search_prefabs','place_prefab','transform_object','get_scene_info','export_map'}<=tools.keys()
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
+                assert len(tools)==52
+                assert {'get_blender_context','get_viewport_state','set_viewport_state','set_cursor','measure_objects','transform_objects_relative','radial_array_objects','distribute_objects','snap_objects_to_grid'}<=tools.keys()
+                assert tools['measure_objects'].annotations.readOnlyHint
+                assert not tools['radial_array_objects'].annotations.destructiveHint
+                viewport=tools['set_viewport_state'].inputSchema['$defs']['ViewportSettings']
+                assert viewport['additionalProperties'] is False and 'projection' in viewport['properties']
                 assert not {'execute_code','paint_terrain','sample_surface','snap_objects_to_terrain','create_path','update_path','get_path_info','generate_map','get_generation_status','cancel_generation'} & tools.keys()
                 assert tools['delete_object'].annotations.destructiveHint
                 assert {'get_prefab_details','list_prefab_categories','place_prefabs','transform_objects','group_objects','get_viewport_image','export_assembly','get_objects_info','get_prefabs_details','list_objects','get_selection','select_objects','duplicate_objects','delete_objects','array_objects','align_objects','snap_objects_to_plane','get_export_formats','export_prefab','import_prefab','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=tools.keys()
@@ -41,7 +47,10 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert 'origin' in tools['export_assembly'].inputSchema['properties']
                 assert '2000-placement' in tools['import_assembly'].description
                 resources=(await session.list_resources()).resources
-                assert {str(r.uri) for r in resources}=={'ruster://guide/building'}
+                assert {str(r.uri) for r in resources}=={'ruster://guide/building','ruster://guide/design'}
+                design=await session.read_resource('ruster://guide/design')
+                assert design.contents[0].text==(Path(__file__).resolve().parents[1]/'docs'/'design.md').read_text(encoding='utf-8')
+                assert 'Do not create a new triangle mesh' in design.contents[0].text
                 guide=await session.read_resource('ruster://guide/building')
                 assert 'Never guess IDs' in guide.contents[0].text
                 prompts=(await session.list_prompts()).prompts

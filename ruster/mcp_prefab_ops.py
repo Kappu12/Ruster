@@ -58,7 +58,7 @@ def prefabs_in(objects):
     return [o for tree in trees(objects) for o in tree if o.get('ruster_kind')=='PREFAB']
 
 
-def clone_arrays(objects,count,offset,rotation,bridge):
+def clone_arrays(objects,count,offset,rotation,bridge,anchor=None):
     from .construction import clear_copy_link
     source_trees=trees(objects)
     n=sum(o.get('ruster_kind')=='PREFAB' for tree in source_trees for o in tree)
@@ -68,7 +68,7 @@ def clone_arrays(objects,count,offset,rotation,bridge):
     originals={obj:obj.matrix_world.copy() for tree in source_trees for obj in tree}
     if any(scene.matrix_has_shear(matrix) or any(not math.isfinite(v) for row in matrix for v in row) for matrix in originals.values()):
         raise ValueError('Source hierarchy contains shear, zero scale or an invalid transform')
-    anchor=sum((originals[o].translation for o in objects),Vector())/len(objects)
+    anchor=Vector(anchor) if anchor is not None else sum((originals[o].translation for o in objects),Vector())/len(objects)
     created=[];roots=[];texts=[]
     try:
         for index in range(1,count+1):

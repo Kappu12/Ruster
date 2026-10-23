@@ -1,6 +1,7 @@
 """Stdio MCP adapter for the bundled, authenticated community Blender bridge."""
 import base64
 import threading
+from pathlib import Path
 from typing import Literal
 from pydantic import BaseModel,Field,ConfigDict
 from mcp.server.fastmcp import FastMCP,Image
@@ -10,7 +11,7 @@ from .vendor.blender_mcp_client import BlenderConnection
 
 _connection=None
 _lock=threading.Lock()
-mcp=FastMCP('Ruster',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/building and get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, arrays, bounds alignment and plane snapping. Export native prefab, model formats or prefab-only map files. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations.')
+mcp=FastMCP('Ruster',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/design and ruster://guide/building, then get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, radial arrays, spacing, grid and bounds snapping. Inspect Blender context, control viewport and cursor, and measure compositions. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only: never create custom mesh primitives, including triangles. Existing triangular Rust prefabs and triangular arrangements are allowed. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations.')
 READ=ToolAnnotations(readOnlyHint=True,destructiveHint=False,openWorldHint=False)
 EDIT=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False)
 DESTRUCTIVE=ToolAnnotations(readOnlyHint=False,destructiveHint=True,openWorldHint=False)
@@ -213,7 +214,10 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 8. focus_view frames native axes, OBLIQUE, or explicit XYZ rotation_degrees without transforming models. get_viewport_image defaults to a clean image; include_overlays=True includes guides. Viewport/render settings are restored after capture. Bounds enclose render geometry, not collision shapes; they do not certify server gameplay.
 9. export_prefab/import_prefab exchange native RustEdit .prefab while preserving supported imported metadata. get_io_settings/set_io_settings expose only verified EXISTING imported IO scalar fields; wiring creation is unsupported. export_assembly uses explicit world origin when supplied, otherwise the single selected group's pivot or the mean placement position. import_assembly supports 2000 placements and preserves its requested position as group pivot. get_export_formats lists available GLB/FBX/OBJ and other model exporters; export_models uses bounded disposable copies and preserves source scene and selection.
 10. import_map_prefabs appends ONLY prefab placements from .map, ignoring terrain/paths. export_map writes ONLY current placements floating in void, with no terrain/path layers. validate_map checks compositions, save_project writes .ruster. Destinations are absolute; existing files require overwrite=True. Source models and selection survive exports.
-11. After timeout inspect the scene before replaying a mutation. No arbitrary Python execution, mesh edits, terrain tools, path tools or map generation are exposed.
+11. get_blender_context inspects Blender version, mode, cursor and native snapping. get_viewport_state/set_viewport_state control view target, distance, rotation, projection, shading, overlays, X-ray, lens and clipping without moving prefabs. set_cursor sets world location and XYZ orientation (omitted rotation resets to zero). Viewport and cursor settings are UI state, not an undo step.
+12. transform_objects_relative applies world-axis scale, then XYZ rotation around a shared pivot, then world translation. Omitted pivot is the mean selected root origin; shear is rejected rather than approximated. radial_array_objects makes count NEW independent copies about an explicit world center/axis using a per-copy angle step; for a ring of 8 including the source use count=7, angle_degrees=45. Existing array limits, rollback and metadata preservation apply.
+13. distribute_objects uses the supplied names order; the first root stays fixed. ORIGIN makes signed origin steps; BOUNDS_GAP leaves the requested signed gap between successive loaded world bounds. snap_objects_to_grid rounds root origins to a world grid, half steps away from zero relative to origin. measure_objects reports origin distance and optionally axis-aligned render bounds separation, never certified collision clearance. Turn off live Radial Symmetry before batch layout of linked symmetry members.
+14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, mesh edits, material replacement, arbitrary Python, terrain tools, path tools or map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
 """
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')
@@ -221,16 +225,22 @@ def building_guide()->str:
     return BUILDING_GUIDE
 
 
+@mcp.resource('ruster://guide/design',mime_type='text/markdown')
+def design_guide()->str:
+    """The project's building constraints and Rust compatibility sources."""
+    return (Path(__file__).resolve().parent.parent/'docs'/'design.md').read_text(encoding='utf-8')
+
+
 @mcp.prompt()
 def build_rust_composition(description:str)->str:
     """Plan and build a custom Rust model from the local prefab library."""
-    return BUILDING_GUIDE+'\nUser composition request: '+description+'\nDiscover suitable real assets, report any missing models, plan dimensions, build and visually inspect the composition, then validate. Do not claim server-tested compatibility.'
+    return 'Read ruster://guide/design first.\n'+BUILDING_GUIDE+'\nUser composition request: '+description+'\nDiscover suitable real assets, report any missing models, plan dimensions, build and visually inspect the composition, then validate. Do not create custom mesh geometry. Do not claim server-tested compatibility.'
 
 
 @mcp.prompt()
 def audit_rust_composition()->str:
     """Inspect a prefab composition for concrete export and original-asset issues without changes."""
-    return 'Read ruster://guide/building. Inspect status, paginate list_objects, inspect relevant original model details/world bounds and validate_map. Report concrete issues and names. Do not modify or overwrite files.'
+    return 'Read ruster://guide/design and ruster://guide/building. Inspect status, paginate list_objects, inspect relevant original model details/world bounds and validate_map. Report concrete issues and names. Do not modify or overwrite files.'
 
 
 @mcp.tool(annotations=READ)
@@ -333,6 +343,75 @@ def get_io_settings(name:str)->dict:
 def set_io_settings(name:str,settings:IOSettings)->dict:
     """Update supplied verified EXISTING imported IO scalar fields; preserves other fields. One undo step; does not fabricate wiring."""
     return command('set_io_settings',name=name,settings=settings.model_dump(exclude_none=True))
+
+class ViewportSettings(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    target:list[float]|None=Field(default=None,min_length=3,max_length=3)
+    rotation_degrees:list[float]|None=Field(default=None,min_length=3,max_length=3)
+    distance:float|None=Field(default=None,gt=0,le=1e7)
+    projection:Literal['PERSP','ORTHO']|None=None
+    shading:Literal['WIREFRAME','SOLID','MATERIAL','RENDERED']|None=None
+    color_type:Literal['MATERIAL','OBJECT','RANDOM','SINGLE','TEXTURE']|None=None
+    show_overlays:bool|None=None
+    show_xray:bool|None=None
+    lens:float|None=Field(default=None,gt=0,le=1e7)
+    clip_start:float|None=Field(default=None,gt=0,le=1e7)
+    clip_end:float|None=Field(default=None,gt=0,le=1e7)
+
+
+@mcp.tool(annotations=READ)
+def get_blender_context()->dict:
+    """Inspect Blender version, scene/workspace, mode, selection count, active object, 3D cursor and native snap state. No mesh mutation access."""
+    return command('get_blender_context')
+
+
+@mcp.tool(annotations=READ)
+def get_viewport_state()->dict:
+    """Read the first 3D viewport's target, distance, XYZ degree orientation, projection, shading, overlays, X-ray, lens and clipping."""
+    return command('get_viewport_state')
+
+
+@mcp.tool(annotations=EDIT)
+def set_viewport_state(settings:ViewportSettings)->dict:
+    """Set supplied viewport fields without changing models/selection. Target is world XYZ; rotation is XYZ degrees. Validates all fields first. UI state has no undo step. Requires a 3D viewport."""
+    return command('set_viewport_state',**settings.model_dump(exclude_none=True))
+
+
+@mcp.tool(annotations=EDIT)
+def set_cursor(position:list[float],rotation_degrees:list[float]|None=None)->dict:
+    """Set Blender's 3D cursor world XYZ metres and XYZ degree orientation (default zero). Does not move prefabs. UI state has no undo step."""
+    return command('set_cursor',position=position,rotation_degrees=rotation_degrees if rotation_degrees is not None else [0,0,0])
+
+
+@mcp.tool(annotations=READ)
+def measure_objects(first:str,second:str,include_bounds:bool=True)->dict:
+    """Measure two distinct placement/group origins in metres. Optional loaded world render bounds give per-axis gaps and AABB distance; overlap reports zero, not collision certification."""
+    return command('measure_objects',first=first,second=second,include_bounds=include_bounds)
+
+
+@mcp.tool(annotations=EDIT)
+def transform_objects_relative(names:list[str],offset:list[float]|None=None,rotation_degrees:list[float]|None=None,scale:list[float]|None=None,pivot:list[float]|None=None)->dict:
+    """Atomically scale on world axes, then rotate XYZ degrees around a shared world pivot, then translate in world metres. Default pivot: mean root origin. Up to 200 independent roots; rejects shear/zero scale. Disable live symmetry for linked members. Undo supported."""
+    return command('transform_objects_relative',names=names,offset=offset if offset is not None else [0,0,0],rotation_degrees=rotation_degrees if rotation_degrees is not None else [0,0,0],scale=scale if scale is not None else [1,1,1],pivot=pivot)
+
+
+@mcp.tool(annotations=EDIT)
+def radial_array_objects(names:list[str],count:int,center:list[float],angle_degrees:float,axis:Literal['X','Y','Z']='Z')->dict:
+    """Make count NEW independent copies around an explicit world center and axis, each rotated another angle_degrees. Ring of 8 including source: count=7, angle_degrees=45. Atomic, undoable; 2000-new-placement/4000-hierarchy limit. Preserves source selection and originals."""
+    return command('radial_array_objects',names=names,count=count,center=center,angle_degrees=angle_degrees,axis=axis)
+
+
+@mcp.tool(annotations=EDIT)
+def distribute_objects(names:list[str],spacing:float,axis:Literal['X','Y','Z']='X',mode:Literal['ORIGIN','BOUNDS_GAP']='ORIGIN')->dict:
+    """Space 2–200 independent roots in supplied name order, keeping the first fixed. Signed metres: ORIGIN steps between origins; BOUNDS_GAP gaps from previous max to next min loaded render bounds. Atomic with undo; disable live symmetry for linked members."""
+    return command('distribute_objects',names=names,spacing=spacing,axis=axis,mode=mode)
+
+
+@mcp.tool(annotations=EDIT)
+def snap_objects_to_grid(names:list[str],step:float,origin:list[float]|None=None,axes:str='XYZ')->dict:
+    """Atomically round 1–200 whole root origins to a world grid of step metres (positive). Origin defaults to [0,0,0]; axes contains unique X/Y/Z letters. Half steps round away from grid origin. Rotation/scale unchanged. Undo supported."""
+    return command('snap_objects_to_grid',names=names,step=step,origin=origin if origin is not None else [0,0,0],axes=axes)
+
 
 def main():
     try:mcp.run(transport='stdio')

@@ -374,6 +374,8 @@ def run():
         finally:app.request_missing_visuals=old_request
         assert imported['prefab_count']==2 and 'Synthetic queue failure' in bpy.context.scene.ruster.asset_status
         call('delete_objects',names=[imported['group']['name']])
+        from tests.mcp_layout_checks import run as layout_checks
+        layout_checks(server,call,123456)
         ruster.unregister()
     print('RUSTER_BLENDER_MCP_TYPED_COMMANDS_OK',flush=True)
 

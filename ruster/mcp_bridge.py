@@ -11,7 +11,7 @@ from .vendor.blender_mcp_bridge import BlenderMCPServer
 from .core import settings,mcp_config,wire
 from . import app,scene,editing,painting,placement
 from .assets import catalog
-from . import mcp_building,mcp_prefab_ops
+from . import mcp_building,mcp_prefab_ops,mcp_blender
 from .ui_style import ICONS as I,action,properties,wrapped
 
 _server=None
@@ -158,6 +158,7 @@ class RusterMCPServer(BlenderMCPServer):
 
     def dispatch(self,kind,params):
         if kind=='ping':return {'pong':True,'application':'Ruster'}
+        if kind in mcp_blender.READ|mcp_blender.EDIT:return mcp_blender.dispatch(self,kind,params,sys.modules[__name__])
         if kind in {'duplicate_object','delete_object'}:
             result=mcp_prefab_ops.dispatch(self,'duplicate_objects' if kind=='duplicate_object' else 'delete_objects',{'names':[params['name']]},sys.modules[__name__])
             return {'objects':[object_info(self,name,False) for name in result['objects']]} if kind=='duplicate_object' else {'deleted':params['name']}

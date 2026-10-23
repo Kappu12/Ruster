@@ -124,16 +124,18 @@ in your MCP client. Keep Ruster open. MCP is disabled by default; the packaged
 stdio adapter includes its dependencies. A source checkout installs them with
 `tools/setup_assets.py`.
 
-There are **43 typed tools**, one resource guide, and two reusable prompts:
+There are **52 typed tools**, two resource guides, and two reusable prompts:
 
 | Workflow | Representative tools |
 | --- | --- |
 | Discover and size | `get_editor_status`, `list_prefab_categories`, `search_prefabs`, `get_prefab_details`, `get_prefabs_details`, `request_prefab_assets` |
 | Inspect and select | `list_objects`, `get_objects_info`, `get_selection`, `select_objects`, `focus_view`, `get_viewport_image` |
 | Compose | `place_prefabs`, `transform_objects`, `group_objects`, `duplicate_objects`, `array_objects`, `align_objects`, `snap_objects_to_plane`, `delete_objects` |
+| Native Blender and layout | `get_blender_context`, `get_viewport_state`, `set_viewport_state`, `set_cursor`, `measure_objects`, `transform_objects_relative`, `radial_array_objects`, `distribute_objects`, `snap_objects_to_grid` |
 | Interchange and finish | `import_prefab`, `export_prefab`, `import_map_prefabs`, `export_map`, `get_io_settings`, `set_io_settings`, `get_export_formats`, `export_models`, `save_project`, `validate_map`, `undo`, `redo` |
 
-Read `ruster://guide/building` first; its source is
+Read `ruster://guide/design` ([docs/design.md](docs/design.md)) and
+`ruster://guide/building` first; the workflow source is
 [BUILDING_GUIDE in the adapter](ruster/mcp_server.py). The prompts
 `build_rust_composition` and `audit_rust_composition` guide creation and inspection.
 Use actual catalog IDs and follow `next_offset` to discover every result. Request
@@ -152,6 +154,23 @@ without moving the composition. Viewport images hide overlays by default and
 restore the user's display settings after capture. Assembly exports preserve a
 single group's pivot; `origin` can explicitly set the world XYZ export anchor.
 Importing an assembly preserves its requested position as the group pivot.
+
+Native viewport controls expose target, distance, rotation, projection, shading,
+overlays, X-ray, lens and clipping without moving models. Relative transforms
+scale on world axes, rotate around a shared pivot, then translate; shear is
+rejected. Radial arrays use an explicit center and axis: seven new copies at a
+45 degree step make eight parts including the source. Distribution respects the
+supplied name order and offers origin spacing or gaps between loaded bounds.
+Grid snapping rounds origins on chosen axes. Measurements report origin distance
+and optionally render-bounds separation. Turn off live Radial Symmetry before
+batch layout of linked set members. Viewport and cursor settings are UI state
+without an undo step; placement layout edits support undo.
+
+Build with whole Rust assets: custom mesh primitives (including a new triangle),
+mesh edits and material replacement cannot become game prefabs. Existing
+triangular Rust parts and triangular arrangements are allowed. Whole placements
+can rotate freely. Static decoration scaling needs verification; networked doors,
+IO and deployables ignore scaling in Rust. See the sourced rules in [docs/design.md](docs/design.md).
 
 The authenticated listener uses `127.0.0.1:9877` by default and a per-user token.
 Port and enablement belong to preferences. Existing output files require explicit
