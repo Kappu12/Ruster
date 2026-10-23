@@ -1,6 +1,7 @@
 """Export disposable realized copies; protected Rust libraries stay read-only."""
 from contextlib import contextmanager
 from pathlib import Path
+import subprocess
 import tempfile
 import bpy
 from mathutils import Matrix
@@ -17,7 +18,7 @@ FORMATS = {
     'USDA': ('USD ASCII', '.usda', 'wm.usd_export', {'selected_objects_only': True, 'export_textures_mode': 'NEW'}),
     'USDC': ('USD Binary', '.usdc', 'wm.usd_export', {'selected_objects_only': True, 'export_textures_mode': 'NEW'}),
     'ABC': ('Alembic', '.abc', 'wm.alembic_export', {'selected': True, 'start': 1, 'end': 1, 'as_background_job': False}),
-    'BLEND': ('Blender Model Library', '.blend', None, {}),
+    'BLEND': ('Blender Scene', '.blend', None, {}),
 }
 
 
@@ -123,6 +124,25 @@ def realized_scene(roots, local_dependencies=False, pack_images=False):
         texture_directory.cleanup()
 
 
+def write_blend_scene(path, temporary):
+    """Save only the realized scene, with standard Blender workspaces and no cache links."""
+    # Saving this editor's mainfile would include protected originals and other
+    # scenes. Write the isolated scene, then let a factory Blender process turn
+    # that library into a regular mainfile without touching the user's session.
+    with tempfile.TemporaryDirectory(prefix='.ruster-blend-', dir=path.parent) as directory:
+        staged = Path(directory)/path.name
+        bpy.data.libraries.write(str(staged), {temporary}, fake_user=True, compress=True)
+        code = ('import bpy; bpy.context.preferences.filepaths.save_version=0; '
+                "bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath, check_existing=False, compress=True)")
+        completed = subprocess.run([bpy.app.binary_path, '-b', '-t', '2', '--factory-startup',
+            '--disable-autoexec', str(staged), '--python-exit-code', '1', '--python-expr', code],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), timeout=180)
+        if completed.returncode or not staged.is_file() or not staged.stat().st_size:
+            raise ValueError('Blender scene export failed: '+completed.stdout[-2000:])
+        staged.replace(path)
+
+
 def export_models(path, format_, roots):
     if format_ not in {item[0] for item in available_formats()}:
         raise ValueError('That exporter is unavailable in this Blender build')
@@ -135,6 +155,6 @@ def export_models(path, format_, roots):
             result = operator(name)(filepath=str(path), **kwargs)
             if result != {'FINISHED'}:raise ValueError('Model exporter did not finish')
         else:
-            bpy.data.libraries.write(str(path), {temporary}, fake_user=True, compress=True)
+            write_blend_scene(path, temporary)
     if not path.is_file() or not path.stat().st_size:raise ValueError('Exporter did not produce a model file')
     return path

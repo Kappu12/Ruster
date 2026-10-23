@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -84,6 +85,34 @@ def run():
                 assert texture_paths and all((path.parent/name).is_file() for name in texture_paths),material_text
             assert bpy.context.scene==original_scene
             assert counts==(len(bpy.data.scenes),len(bpy.data.objects),len(bpy.data.meshes)),format_+' leaked data'
+        # The direct menu export defaults to the whole composition and offers
+        # selected-only export. Opening the result needs no Ruster/cache/addon.
+        assert not bpy.ops.ruster.blend_export.get_rna_type().properties['selected_only'].default
+        selected_before = [obj.name for obj in bpy.context.selected_objects]
+        target = directory/'direct.blend'
+        assert bpy.ops.ruster.blend_export(filepath=str(target), selected_only=True) == {'FINISHED'}
+        assert [obj.name for obj in bpy.context.selected_objects] == selected_before
+        assert bpy.context.scene == original_scene
+        assert counts==(len(bpy.data.scenes),len(bpy.data.objects),len(bpy.data.meshes))
+        completed = subprocess.run([bpy.app.binary_path, '-b', '-t', '2', '--factory-startup', '--disable-autoexec',
+            str(target), '--python-exit-code', '1', '--python', str(ROOT/'tests/blender_open_export.py'),
+            '--', str(directory/'render.png')], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding='utf-8', errors='replace', creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0), timeout=90)
+        assert completed.returncode==0, completed.stdout
+        assert 'RUSTER_EXPORTED_BLEND_OPENS_AND_RENDERS_OK' in completed.stdout, completed.stdout
+        assert 'Library file, loading empty scene' not in completed.stdout
+        # A failed isolated save must preserve an existing destination and source.
+        original_run = model_export.subprocess.run
+        target.write_bytes(b'preserve destination')
+        def failed_save(*args, **kwargs):raise RuntimeError('Synthetic Blender save failure')
+        model_export.subprocess.run = failed_save
+        try:
+            try:model_export.export_models(target, 'BLEND', [first])
+            except RuntimeError as error:assert 'Synthetic Blender save failure' in str(error)
+            else:raise AssertionError('Expected export failure')
+        finally:model_export.subprocess.run = original_run
+        assert target.read_bytes()==b'preserve destination' and bpy.context.scene==original_scene
+        assert counts==(len(bpy.data.scenes),len(bpy.data.objects),len(bpy.data.meshes))
         with bpy.data.libraries.load(str(directory/'model-BLEND.blend'),link=False) as (source_, destination):
             destination.scenes=list(source_.scenes)
         library_scene=destination.scenes[0]

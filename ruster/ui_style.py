@@ -22,6 +22,7 @@ ICONS={
     'move':'EMPTY_ARROWS','rotate':'ORIENTATION_GIMBAL','scale':'FULLSCREEN_ENTER',
     'select':'RESTRICT_SELECT_OFF','water':'MOD_OCEAN','splat':'TEXTURE','biome':'WORLD',
     'topology':'GROUP_VERTEX','alpha':'IMAGE_ALPHA','blank':'BLANK1','snapping':'SNAP_ON',
+    'perspective':'VIEW_PERSPECTIVE',
 }
 
 TOOL_ICONS={
@@ -38,6 +39,7 @@ ACTIONS={
     'ruster.prefab_import':('Import RustEdit Prefab…','import'),
     'ruster.prefab_export':('Export RustEdit Prefab…','export'),
     'ruster.model_export':('Export Models…','export'),
+    'ruster.blend_export':('Export Blender File (.blend)…','export'),
     'ruster.io_settings':('Rust IO Settings…','settings'),
     'ruster.import_map':('Import .map…','import'),
     'ruster.export_map':('Export .map…','export'),
@@ -62,6 +64,7 @@ ACTIONS={
     'transform.translate':('Move','move'),
     'transform.rotate':('Rotate','rotate'),
     'transform.resize':('Scale','scale'),
+    'view3d.view_persportho':('Perspective/Orthographic','perspective'),
 }
 
 

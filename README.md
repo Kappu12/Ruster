@@ -41,6 +41,9 @@ Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placement
 can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
 Navigation. The authoring plane is Z=0.
 
+The viewport header's **Perspective** button toggles perspective/orthographic
+projection (also **Numpad 5**); its pressed state indicates perspective.
+
 The **left toolbar** includes **Object Snap** (magnet) and **Radial Symmetry**
 (array) toggles, each with a settings popover below it. Snap Settings offers
 vertex, edge or face snapping to loaded original models and **45° / 90°** steps
@@ -84,7 +87,8 @@ and gameplay are not reproduced exactly.
 | Open/Import `.map` | Imports prefab IDs and world transforms only; Import appends to the composition. |
 | Export `.map` | Writes current prefab placements in empty space, with no terrain or path layers. This is not a complete playable world. |
 | Import/Export Assembly | `.rusterprefab` stores reusable prefab references and relative transforms. |
-| Export Models | Offers available GLB/glTF, FBX, OBJ, PLY, STL, USD, Alembic and Blender-library exporters; loaded geometry is required. |
+| Export Blender File (.blend) | In the top-left Ruster menu and Prefab Studio panel. Exports the whole composition by default, with optional selected-only export, as a regular Blender scene with editable meshes, local materials and packed textures. Open in normal Blender to add cameras/lights and render; loaded geometry is required. |
+| Export Models | Offers available GLB/glTF, FBX, OBJ, PLY, STL, USD, Alembic and Blender scene exporters; loaded geometry is required. |
 
 Native `.prefab` interchange was verified against installed RustEdit 1.2.19 and
 the supplied 1,730-placement Maze: unchanged import/export preserves the complete

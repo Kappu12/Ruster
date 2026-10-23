@@ -362,6 +362,23 @@ class RUSTER_OT_model_export(bpy.types.Operator, ExportHelper):
         except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
 
 
+class RUSTER_OT_blend_export(bpy.types.Operator, ExportHelper):
+    bl_idname = 'ruster.blend_export'
+    bl_label = 'Export Blender File'
+    bl_description = 'Export a standalone Blender scene with editable models and packed textures for rendering in Blender'
+    filename_ext = '.blend'
+    filter_glob: StringProperty(default='*.blend', options={'HIDDEN'})
+    selected_only: BoolProperty(name='Selected Prefabs Only', default=False)
+    def execute(self, context):
+        try:
+            from .model_export import export_models
+            roots = placement.selected_prefabs() if self.selected_only else scene.prefab_roots()
+            result = export_models(self.filepath, 'BLEND', roots)
+            self.report({'INFO'}, 'Exported ' + result.name)
+            return {'FINISHED'}
+        except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
+
+
 class RUSTER_OT_edit_mode(bpy.types.Operator):
     bl_idname = 'ruster.edit_mode'
     bl_label = 'Edit Path Nodes'
@@ -376,7 +393,7 @@ class RUSTER_OT_edit_mode(bpy.types.Operator):
 def register():
     _category_menus.update(('@'+key,category_menu(key,label)) for key,label,_patterns in GROUPS)
     classes = [RUSTER_OT_io_settings, RUSTER_OT_add_prefab, RUSTER_MT_add, *_category_menus.values(), RUSTER_OT_prefab_import,
-               RUSTER_OT_prefab_export, RUSTER_OT_model_export, RUSTER_OT_edit_mode]
+               RUSTER_OT_prefab_export, RUSTER_OT_model_export, RUSTER_OT_blend_export, RUSTER_OT_edit_mode]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
