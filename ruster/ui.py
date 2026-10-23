@@ -40,6 +40,8 @@ class RUSTER_PT_start(bpy.types.Panel):
         from . import branding
         branding.label(layout,text=f'Ruster {__version__}',context=context)
         wrapped(layout,context,context.scene.ruster.title,icon='prefab')
+        from .quitting import save_status
+        layout.label(text=save_status(),icon=I['save'])
         layout.label(text=f'{len(scene.prefab_roots()):,} prefab placements')
         layout.menu('RUSTER_MT_add',text='Add Rust Prefab · Shift+A',icon=I['prefab'])
         row=layout.row(align=True)
@@ -446,7 +448,8 @@ def topbar(self,context):
     layout=self.layout
     if context.region.alignment=='RIGHT':
         layout.template_reports_banner();layout.template_running_jobs()
-        layout.label(text=context.scene.ruster.title,icon=I['world'])
+        from .quitting import save_status
+        layout.label(text=context.scene.ruster.title+' · '+save_status(),icon=I['project'])
     else:
         bpy.types.TOPBAR_MT_editor_menus.draw_collapsible(context,layout)
         layout.separator()

@@ -427,8 +427,8 @@ class RUSTER_OT_new(bpy.types.Operator):
     def invoke(self, context, event):
         if context.scene.ruster.mode == 'PREFAB' and not context.scene.objects:
             return {'FINISHED'}
-        return context.window_manager.invoke_confirm(self, event, title='Create a new project?',
-            message='Save your current project first. Unsaved changes will be discarded.')
+        from .quitting import confirm_replacement
+        return confirm_replacement('NEW')
 
     def execute(self, context):
         from .studio import new_prefab
@@ -547,11 +547,11 @@ class RUSTER_OT_open(bpy.types.Operator, ImportHelper):
     filter_glob: StringProperty(default='*.map;*.prefab;*.ruster', options={'HIDDEN'})
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_confirm(self, event, title='Open a map or project?',
-            message='Save your current project first. Opening replaces the current scene.')
+        from .quitting import confirm_replacement
+        return confirm_replacement('OPEN', self.filepath)
 
     def execute(self, context):
-        # Confirmation runs before file selection, so it also covers .map imports.
+        # Interactive invocation checks unsaved work before entering the picker.
         if not self.filepath:
             context.window_manager.fileselect_add(self)
             return {'RUNNING_MODAL'}
@@ -570,6 +570,9 @@ class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
     filter_glob: StringProperty(default='*.ruster', options={'HIDDEN'})
     save_as: BoolProperty(default=False, options={'HIDDEN'})
     quit_after_save: BoolProperty(default=False, options={'HIDDEN','SKIP_SAVE'})
+    after_save: EnumProperty(items=[('NONE','Stay in Project',''),('NEW','New Prefab',''),
+        ('OPEN','Open Project','')], default='NONE', options={'HIDDEN','SKIP_SAVE'})
+    next_filepath: StringProperty(options={'HIDDEN','SKIP_SAVE'})
 
     def invoke(self, context, event):
         if context.scene.ruster.project_path and not self.save_as:
@@ -587,6 +590,9 @@ class RUSTER_OT_save(bpy.types.Operator, ExportHelper):
             if self.quit_after_save:
                 from . import quitting
                 quitting.schedule_quit()
+            elif self.after_save != 'NONE':
+                from .quitting import schedule_action
+                schedule_action(self.after_save, self.next_filepath)
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))

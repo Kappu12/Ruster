@@ -187,7 +187,9 @@ def refresh_windows():
             _windows[hwnd]=(user.SendMessageW(hwnd,0x80,0,_handles[0]),user.SendMessageW(hwnd,0x80,1,_handles[1]))
         caption=ctypes.create_unicode_buffer(512);user.GetWindowTextW(hwnd,caption,len(caption))
         title=('Preferences' if 'Preferences' in caption.value else getattr(getattr(bpy.context.scene,'ruster',None),'title','Prefab Studio'))
-        wanted=f'{title} — Ruster {__version__}'
+        from .quitting import save_status
+        status='' if title=='Preferences' or not hasattr(bpy.context.scene,'ruster') else ' · '+save_status()
+        wanted=f'{title}{status} — Ruster {__version__}'
         if caption.value!=wanted:user.SetWindowTextW(hwnd,wanted)
         return True
     user.EnumWindows.argtypes=[callback_type,w.LPARAM];user.EnumWindows(update,0)

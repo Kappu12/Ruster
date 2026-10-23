@@ -20,10 +20,16 @@ def run():
         target = directory/'Saved Project.ruster'
         assert bpy.ops.ruster.save(filepath=str(target)) == {'FINISHED'}
         assert target.is_file() and not quitting.has_unsaved_changes()
+        quitting.status_tick()
+        assert quitting.save_status() == 'Saved'
         root.location.x = 5
         assert quitting.has_unsaved_changes()
+        quitting.status_tick()
+        assert quitting.save_status() == 'Unsaved changes'
         root.location.x = 0
         assert not quitting.has_unsaved_changes(), 'Restoring the saved transform still prompts'
+        quitting.status_tick()
+        assert quitting.save_status() == 'Saved'
         # Preview state and native Blender's dirty bit are not project edits.
         root['ruster_model_status'] = 'Loading model'
         root['ruster_model_error'] = 'A cached preview is not available'
@@ -86,6 +92,26 @@ def run():
             assert decisions == ['quit'], 'Save failure closed the editor'
         finally:
             quitting.schedule_quit = native_quit;app.project.save = native_save
+        # New/Open continue only after a successful project save. A failed
+        # save leaves the current document and requested destination untouched.
+        continuations = [];native_schedule = quitting.schedule_action
+        quitting.schedule_action = lambda action, filepath='':continuations.append((action, filepath))
+        try:
+            scene.prefab_roots()[0].location.y += 3
+            assert bpy.ops.ruster.save(filepath=str(target), after_save='NEW') == {'FINISHED'}
+            assert continuations == [('NEW', '')]
+            assert bpy.ops.ruster.save(filepath=str(target), after_save='OPEN', next_filepath='next.ruster') == {'FINISHED'}
+            assert continuations[-1] == ('OPEN', 'next.ruster')
+            app.project.save = fail
+            try:bpy.ops.ruster.save(filepath=str(target), after_save='NEW')
+            except RuntimeError:pass
+            assert len(continuations) == 2, 'Save failure replaced the document'
+            app.project.save = native_save
+            assert quitting.confirm_replacement('NEW') == {'FINISHED'}
+            assert not bpy.context.scene.objects, 'Clean New still prompted'
+            assert quitting.save_status() == 'Not saved yet'
+        finally:
+            quitting.schedule_action = native_schedule;app.project.save = native_save
         studio.new_prefab()
         assert not quitting.has_unsaved_changes()
         ruster.unregister()

@@ -146,10 +146,8 @@ def step():
                 assert new_invocations == [0, 1], 'New Prefab button was not invoked'
                 assert len(bpy.context.scene.objects) == 1, 'Confirmation did not protect the current composition'
                 screenshot('new-confirm')
-                # Native confirmation placement differs between Win32 and X11.
-                # Accept its focused default button through the real event loop.
-                window.event_simulate(type='RET', value='PRESS')
-                window.event_simulate(type='RET', value='RELEASE')
+                # New shares the Save/Don't Save/Cancel document guard.
+                bpy.ops.ruster.discard_changes(action='NEW')
             elif stage == 6:
                 assert not bpy.context.scene.objects, 'Confirmed New Prefab did not clear the composition'
                 screenshot('new-confirmed')
