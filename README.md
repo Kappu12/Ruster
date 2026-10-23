@@ -43,6 +43,10 @@ reuses it across categories/search. Catalog and favorite changes refresh it;
 typing does not repeatedly scan the catalog or load game models.
 The Prefab Browser also offers categories, favorites, local availability,
 full-path/ID tooltips and paginated results.
+Its **Recent** filter lists the last 48 distinct prefabs placed, newest first.
+The information button inspects an asset's full path, ID, local availability and
+cache status before placement, with Copy ID / Copy Path actions. **Reset Filters**
+shows all locally available assets, including hidden helpers.
 Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placements
 can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
 Navigation. The authoring plane is Z=0.
@@ -72,6 +76,10 @@ whole placements or groups; model exports use temporary realized copies. A
 wireframe box identifies a placement awaiting its model and disappears when the
 original linked model attaches. IDs, transforms and interchange data remain
 independent of that display box. Errors and cancellation appear in asset status.
+The header's **Models** popover and **Model Loading** panel show loaded, loading,
+unloaded, issue and helper counts. Use **Select Unloaded** or **Select Issues**,
+then **Load / Retry Selected Models**. **View Asset Report** displays readable
+errors and offers a copy of the complete report.
 
 **Shift+A** includes hidden helpers and unavailable catalog entries, regardless
 of the sidebar's current filters. Search `cyan tube` or `glowing hose` for **IO Hose Tube
@@ -110,6 +118,8 @@ Quit Ruster (`Ctrl+Q`, or the Windows close button / `Alt+F4`) checks the saved
 `.ruster` document. Unchanged projects close directly; unsaved changes offer
 Save, Don't Save and Cancel using the project filename. Save opens the `.ruster`
 picker for untitled projects. Cancelling or a failed save keeps the editor open.
+New and Open use the same save choices before replacing unsaved work. The header,
+Prefab Studio panel and Windows window caption show the project's save state.
 Opening legacy map projects recovers their prefab composition; the active product
 does not expose terrain, path editing or seed generation. That source remains
 inactive for compatibility work.

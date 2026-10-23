@@ -1,109 +1,131 @@
 # Ruster interface
 
-## Visual rule
+## Product scope
 
-Use Blender's native theme and UI components. Do not invent a second visual
-system. Keep its normal typography, spacing, icons, panel hierarchy, selection
-colors, input fields, tooltips and keyboard conventions. Do not modify the user's
-ordinary Blender configuration.
+Ruster is a prefab composition editor built on Blender 5.2 LTS. Its active
+workspace is **Prefab Studio**. Users compose whole original Rust assets, save
+editable `.ruster` projects, and export native RustEdit `.prefab` files,
+prefab-only `.map` files, assemblies or standalone models.
 
-All Ruster menus, dialogs and panels use the bundled Blender icon pack, with
-semantic names and shared action labels in `ruster/ui_style.py`. Toolbar tools
-use distinct `.dat` icons shipped with the pinned Blender runtime. Do not add a
-second icon font, emoji, external raster button graphics or fixed color palette.
-The runtime and its icon licenses remain in the app distribution.
+Opening a `.map` reads prefab placements only. Exporting `.map` writes those
+placements into empty space without terrain or paths. This is not a complete
+playable world. Retained terrain, path, painting and generation source is dormant
+and must not appear as supported authoring UI. Legacy map projects recover their
+prefab composition. See [FEATURES.md](FEATURES.md) for verification limits.
 
-Use native property splits without animation decorators for map authoring
-controls. Group advanced options in native collapsible sections, retain normal
-row heights, and indicate the active viewport tool with Blender's pressed state.
-Hints wrap according to sidebar width and UI scale. Busy asset jobs use Blender's
-progress bar only when the worker reports a real total; otherwise show status.
-Dark and light themes must both work, and New Project must preserve preferences.
+## Native visual language
 
-## Entry and modes
+Use Blender's native theme and UI components: typography, spacing, icons, panel
+hierarchy, selection colors, fields, tooltips and keyboard conventions. All
+Ruster menus, dialogs and panels share semantic icons and action labels in
+`ruster/ui_style.py`. Toolbar tools use distinct `.dat` icons from the pinned
+runtime. Do not introduce an external icon font or a fixed UI palette.
 
-First launch tries the saved valid Rust folder, then standard Steam paths,
-Windows registry, secondary libraries and Rust's app manifest. Offer Preferences
-at Rust Assets if discovery finds no valid installation. Never recursively scan drives or
-modify Steam files. Store the result per user, outside project files. Indexing
-is visible and runs outside the UI process.
+Keep advanced options in native collapsible sections and retain normal row
+heights. Hints wrap for sidebar width and UI scale. Use a progress bar only when
+the worker supplies a real total; otherwise show the current phase. Both dark
+and light themes must work. New Prefab preserves user preferences. Ruster uses an
+isolated configuration and never changes an ordinary Blender installation's
+preferences.
 
-The start screen has two primary actions: Open Map or Project, and New Project.
-Use Blender's native splash frame and bundled artwork, with Ruster's map/project
-actions and recent projects underneath. Keep start controls in the Ruster sidebar
-after the splash is dismissed. Reopening Start uses the same native splash.
-Opening `.map` selects Rust map mode; opening `.ruster` restores its saved mode.
-New Project restores the standard Blender startup scene and full workspaces.
+## Entry and discovery
 
-Map mode uses one Rust Map workspace, with the 3D viewport, Outliner, native
-property panels and the Ruster sidebar. Replace unrelated top-level authoring
-menus with project, edit, map and asset actions. Retain normal viewport navigation,
-selection, transforms, snapping, shading, undo and redo. Expose only implemented
-Rust workflows. Do not add nonfunctional brushes or decorative controls.
-Select the Ruster sidebar after the first map draw. Native Properties panels
-without an existing poll need their RNA registration refreshed when installing
-map-mode filtering; restore their original registrations on app unload.
+Start with an empty Prefab Studio workspace. The centered **New / Open** popup
+offers New Prefab, Open Map/Prefab/Project, recent projects and recovery. Its
+placement is independent of the pointer. Keep project actions accessible in the
+Ruster menu and sidebar after dismissal.
 
-## Editing contract
+Discover validated Rust installations from the saved folder, standard Steam
+paths, the Windows registry and secondary Steam libraries. Do not recursively
+scan drives or modify Steam files. Manual installation and local RustEdit
+string-pool selection belong in **Preferences → Assets**. These paths are user
+settings, separate from project data.
 
-Terrain brushes edit full-resolution layer data; the viewport mesh is a disposable
-preview at adjustable detail. Paths use native curve node editing and retain
-source metadata. Each brush stroke is one undo step. A prefab root is an editable placement; its model hierarchy is
-read-only linked library data. The root supports placement transforms and whole-
-instance operations; never expose mesh editing, sculpting, booleans, make-local
-or library-override actions as map editing. Terrain holes affect only terrain.
-Duplicate/delete operate on complete instances; reject editable/unpacked model
-copies at export and offer original-model restoration. Legacy editable previews
-must not be treated as verified originals without rebuilding from asset sources. Missing
-visuals are clearly represented as placement boxes, with a report explaining why.
-Unsupported custom mesh data may be stored in `.ruster` but blocks `.map` export.
-Prefab painting uses whole instances, native strokes and local favorite palettes.
-Esc removes the whole pending stroke; placement spacing is not collider testing.
+**Shift+A** opens compact native category menus. Immediate typing or **Search All
+Prefabs** searches the entire catalog, including hidden and unavailable entries,
+independently of sidebar filters. Reuse one incrementally warmed metadata index;
+searching must not load models or repeatedly scan the catalog.
 
-Layer masks are grayscale PNG/TIFF, with a visible layer/channel choice and image
-orientation hint in the native file selector. Images map their top row to +Y by
-default. Weight masks resize bilinearly and set one channel exactly; redistribute
-the remaining weight proportionally with integer rounding to a total of 255.
-Topology and terrain-hole masks use nearest samples and a midpoint threshold;
-editing one topology bit must preserve all the others, including unknown bits.
-Validate and compute the complete result before committing an undoable terrain
-snapshot. No-op imports must not create redundant snapshots. Never touch prefab
-geometry or unrelated layers, and never export a mask at reduced preview detail.
+The sidebar browser combines search, categories, favorites, recently used
+prefabs, local availability and hidden-asset filters. Recent placements are
+stored per user, deduplicated and bounded to 48 IDs, newest first. Favorites stay
+independent. Preserve pagination after filtering; stale page indices must return
+a valid page. Reset Filters clears search, category, favorites and recents and
+shows all locally available assets, including hidden helpers.
 
-## MCP connection
+Each browser entry offers inspection without placement: full asset path, ID,
+local availability, conversion-cache presence, Copy ID and Copy Path. Empty
+favorites and recents explain how to populate them. Missing assets explain what
+needs attention rather than appearing as an unexplained disabled action.
 
-All application settings share Blender’s native Preferences editor. Preserve its
-standard sections and add Rust Assets / Rust MCP in the same left-hand navigation.
-Rust installation uses a native directory field; MCP uses native toggles and fields.
-Do not introduce a separate Ruster settings popup. Native section shortcuts and
-Blender’s original panels must keep working, and unregister restores them. The bridge is off by default, bound only to loopback, and uses
-per-user authentication. Its enablement, port and token belong to local settings,
-never project data. Offer a copied client configuration pointing at the bundled
-Python/stdio adapter. Scene observation and typed Rust edits run on Blender's
-main thread through the community bridge queue. Stop closes active connections
-and drops queued work. No arbitrary code execution, prefab mesh operations,
-third-party generation services or telemetry are exposed. Block mutations during
-strokes/path node edits and preserve native undo, original models and source maps.
+## Composition and originals
 
-## Saving
+Use native viewport navigation, selection, transforms, snapping and undo. A
+prefab root is an editable placement; its source mesh/material hierarchy remains
+a protected linked library. Transform, group, duplicate, replace or remove whole
+placements. Never present mesh editing, sculpting, make-local or library
+overrides as Rust prefab authoring. Model exports operate on disposable copies.
 
-`.ruster` means the editable project, not a renamed `.map` or `.blend`. Saving
-packs scene previews and source map data and full-resolution edit snapshots. Export writes a separate game map and
-preserves unedited/unknown data. Opening or creating a project prompts the user
-to save existing work before replacing it. Do not silently overwrite a source map.
+Use Z-up metres in the editor. The authoring plane is Z=0. View projection and
+overlays are adjacent header controls; Shift+F enters native Walk Navigation.
+Object Snap and Radial Symmetry have toolbar toggles and settings popovers.
+Explain when editing or deleting a symmetry member affects its complete set.
 
-## Performance
+Pending models use wireframe placement boxes. Geometry-free sounds, terrain
+stamps and other helpers have explicit markers and descriptions. Their placement
+records remain intact. Do not label intentional helpers as model failures.
 
-Catalog and extract game bundles in a separate worker process. Cache using source
-bundle identity and timestamps, share Blender mesh datablocks for repeated
-prefabs, and attach converted visuals incrementally. Keep the original terrain
-samples separately from the reduced viewport mesh. Report unsupported assets
-without hiding their placement data.
+## Loading and diagnostics
 
-The MCP models Rust structures through compositions of original whole prefabs.
-It exposes catalog pages/categories and cached model bounds so AI clients never
-need to invent IDs. Typed placement/transform batches roll back on failure;
-source geometry and materials stay immutable. Scene pages include hierarchy and
-world bounds, terrain sampling supplies surface context, and viewport PNG results
-supply visual feedback. Resource guides and prompts document the workflow and its
-limits. None of these operations introduce custom UI widgets or icon systems.
+Catalog browsing never triggers bulk conversion. Request original models on
+demand, share models between repeated placements, and link cached models
+incrementally. Keep conversion outside the UI process and enforce worker,
+memory and batch bounds documented in [README.md](README.md).
+
+Use one shared status presentation in the header popover, Model Loading sidebar
+panel and Assets preferences. Show the current phase and counts of placements
+loaded, loading, not loaded, with issues and represented by helpers. Counts refer
+to placements; conversion requests are bounded by unique prefab IDs.
+
+Select Unloaded and Select Issues locate placements needing attention. Load /
+Retry Selected Models uses that selection; Cancel stops pending work. Surface
+linking separately from conversion so "ready" does not imply models are already
+visible. Asset Report displays readable issue details and copies the complete
+diagnostics, including errors retained in offline projects. Keep long reports
+bounded in the dialog and preserve the complete text for copying.
+
+## Saving and replacing a document
+
+`.ruster` is the editable project. It packs linked previews for reopening without
+the conversion cache and saves atomically. Export creates a separate interchange
+file; never silently overwrite a source map.
+
+Show Saved, Unsaved changes or Not saved yet in the header and Prefab Studio
+panel. Windows window captions include the same state. Compare the editable
+document to the successful `.ruster` savepoint; preview loading, selection and
+viewport changes do not mark it dirty. UI drawing reads cached state rather than
+hashing the document on every redraw.
+
+Quit, New and Open protect unsaved work with Save, Don't Save and Cancel. Clean
+saved projects proceed without a warning. Save uses the current `.ruster` target
+or opens the project picker for untitled work. Continue only after a successful
+save; cancelling a picker or a failed write retains the current document. Let a
+save picker close before continuing to another document or file picker.
+
+Recovery writes atomically every two minutes while idle and preserves the manual
+save target. Offer recovery in New / Open. Recovery does not replace the manual
+savepoint.
+
+## MCP and preferences
+
+Assets and MCP share Blender's native Preferences navigation with its standard
+interface, theme and navigation sections. Preserve native shortcuts and restore
+original registrations when unloading the app.
+
+MCP is off by default, bound to loopback and authenticated per user. Port, token
+and enablement belong to preferences. Copy client configuration for the bundled
+stdio adapter. Typed discovery, placement, layout, inspection and interchange
+operations run through the main-thread queue and preserve undo and original
+models. There is no arbitrary Python or custom mesh authoring endpoint. Stop
+closes connections and drops queued work. The maintained workflow and Rust
+composition rules are in `ruster://guide/building` and `ruster://guide/design`.
