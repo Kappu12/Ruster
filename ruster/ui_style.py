@@ -65,6 +65,7 @@ ACTIONS={
     'transform.rotate':('Rotate','rotate'),
     'transform.resize':('Scale','scale'),
     'view3d.view_persportho':('Perspective/Orthographic','perspective'),
+    'wm.search_single_menu':('Search All Prefabs…','search'),
 }
 
 

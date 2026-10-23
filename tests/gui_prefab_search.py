@@ -1,4 +1,4 @@
-"""Actual Shift+A opens a native list; immediate typing searches all metadata."""
+"""Actual Shift+A opens categories; immediate typing searches all metadata."""
 import os,sys,tempfile,traceback
 from pathlib import Path
 from contextlib import closing
@@ -33,11 +33,14 @@ queries=[('dev',42,'add',''),('dev cube',42,'add',''),('DEV',42,'add',''),
          ('IO',147092032,'add',''),('io',4153457039,'second',''),
          ('glow',147092032,'add',''),('GLOW',147092032,'add',''),
          ('cyan glow',147092032,'add',''),('glow cyan',147092032,'add',''),
-         ('(CYAN glow)',147092032,'add',''),
+         # Like Blender's Add menu, A-Z starts search. Leading punctuation is
+         # entered through the explicit Search All Prefabs action instead.
+         ('(CYAN glow)',147092032,'search',''),
          ('glowing hose',147092032,'add',''),('fluid pipe',147092032,'add',''),
          ('neon',147092032,'add',''),('maze',147092032,'add',''),
          ('page item 15',215,'add',''),('EFFECT SOUND',50,'add',''),
-         ('catalog only marker',51,'add',''),('dev cube',None,'empty','@PROPS'),
+         ('catalog only marker',51,'add',''),('catalog only marker',51,'search',''),
+         ('dev cube',None,'empty','@PROPS'),
          ('dev cube',42,'add',''),('glow',None,'cancel',''),('zzzxnotfound',None,'empty','')]
 state={'phase':0,'case':0}
 
@@ -57,6 +60,7 @@ def step():
             elif phase==1:
                 state['requests']=len(requests)
                 if category:bpy.ops.ruster.add_prefab('INVOKE_DEFAULT',category=category)
+                elif operation=='search':bpy.ops.wm.search_single_menu('INVOKE_DEFAULT',menu_idname='RUSTER_MT_add')
                 else:
                     # Key events carry cursor coordinates too. The default (0,0)
                     # would dispatch Shift+A to the Timeline rather than 3D View.
@@ -67,7 +71,7 @@ def step():
             elif phase==2:
                 if state['case']==0 and (output:=os.environ.get('RUSTER_SEARCH_SCREENSHOTS')):
                     path=Path(output);path.mkdir(parents=True,exist_ok=True)
-                    bpy.ops.screen.screenshot(filepath=str(path/'native-prefab-list.png'))
+                    bpy.ops.screen.screenshot(filepath=str(path/'native-prefab-categories.png'))
                 digits=dict(zip('0123456789',('ZERO','ONE','TWO','THREE','FOUR','FIVE','SIX','SEVEN','EIGHT','NINE')))
                 punctuation={'(':'NINE',')':'ZERO'}
                 for char in query:

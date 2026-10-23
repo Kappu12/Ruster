@@ -21,6 +21,9 @@ _menu_cache = {}
 MENU_CACHE_LIMIT = 2
 _category_menus = {}
 _model_items = []
+# These categories partition the catalog. The special HIDDEN and ALL_ASSETS
+# filters overlap them and would duplicate entries in Blender's menu search.
+ADD_GROUPS = tuple(group for group in GROUPS if group[0] not in {'HIDDEN','ALL_ASSETS'})
 
 # Scalar settings verified against the installed SerializedIOEntity contract.
 IO_SETTINGS = {
@@ -239,12 +242,11 @@ def prefab_menu_data(context, category=''):
     """One small metadata snapshot per native menu, never model/bundle data."""
     from .core import palettes, settings
     from .core.asset_names import display_name, menu_label, IO_SEARCH_ORDER
-    state=(context or bpy.context).scene.ruster
     path=scene.cache_dir()/'catalog.sqlite3'
     favorites=frozenset(palettes.favorite_ids(settings.load()))
-    # Shift+A is the complete catalog, independent of sidebar category/helper
-    # filters. Explicit category entry points keep their local-availability filter.
-    available_only=state.available_only if category and category!='@ALL_ASSETS' else False
+    # Native Add/search always covers the complete catalog, independently of
+    # the sidebar's availability, category and helper filters.
+    available_only=False
     key=(str(path),path.stat().st_mtime_ns if path.exists() else 0,category,available_only,favorites)
     if key not in _menu_cache:
         rows=catalog.search(scene.cache_dir(),limit=-1,category=category,
@@ -307,7 +309,16 @@ class RUSTER_MT_add(bpy.types.Menu):
     bl_options = {'SEARCH_ON_KEY_PRESS'}
 
     def draw(self, context):
-        draw_prefab_menu(self,context)
+        from .ui_style import action
+        layout=self.layout
+        if context.mode!='OBJECT':
+            layout.label(text='Finish editing before adding prefabs')
+            return
+        action(layout,'wm.search_single_menu').menu_idname='RUSTER_MT_add'
+        layout.separator()
+        # Native menu search traverses this complete, nonoverlapping partition.
+        for key,label,_patterns in ADD_GROUPS:
+            layout.menu(_category_menus['@'+key].__name__,text=label)
 
 
 def category_menu(key, label):

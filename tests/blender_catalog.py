@@ -95,12 +95,33 @@ def run():
             db.commit()
         class Search:category='@DEVELOPMENT'
         assert studio.search_items(Search(),None)[0][1]=='Dev Cube Tiled 01'
-        # Shift+A is a native complete list, independent of sidebar filters.
+        # Shift+A starts with compact categories; native search still covers
+        # every prefab, independent of sidebar filters and model availability.
         state=bpy.context.scene.ruster
         state.include_helpers=False;state.available_only=True
         menu=studio.prefab_menu_data(None)
         assert {'42','43','44'}<={item[0] for item in menu['items']}
         assert 'SEARCH_ON_KEY_PRESS' in studio.RUSTER_MT_add.bl_options
+        from types import SimpleNamespace
+        class AddMenuLayout:
+            def __init__(self):self.menus=[];self.operators=[]
+            def operator(self,name,**kwargs):
+                self.operators.append(name)
+                assert name!='ruster.place','Root Add menu flattened the entire catalog'
+                return SimpleNamespace()
+            def separator(self):pass
+            def menu(self,name,**kwargs):self.menus.append(name)
+        layout=AddMenuLayout()
+        studio.RUSTER_MT_add.draw(SimpleNamespace(layout=layout),bpy.context)
+        assert layout.operators==['wm.search_single_menu']
+        assert len(layout.menus)==len(studio.ADD_GROUPS)<=16
+        assert studio._category_menus['@ALL_ASSETS'].__name__ not in layout.menus
+        assert studio._category_menus['@HIDDEN'].__name__ not in layout.menus
+        # Every indexed ID, including hidden and unavailable entries, must be
+        # reachable exactly once when native search traverses the root menu.
+        categorized=[item[0] for key,_label,_patterns in studio.ADD_GROUPS
+                     for item in studio.prefab_menu_data(None,'@'+key)['items']]
+        assert sorted(categorized)==sorted(item[0] for item in menu['items'])
         assert 'query' not in studio.RUSTER_OT_add_prefab.bl_rna.properties
         for category in ('@HIDDEN','@ALL_ASSETS','@DEVELOPMENT'):
             studio.prefab_menu_data(None,category)

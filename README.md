@@ -32,8 +32,9 @@ no game binaries or game assets are distributed in this repository.
 
 ## Compose and save
 
-Press **Shift+A** for Blender's native Add menu with the complete prefab catalog.
-Start typing immediately, then press Enter once to place a result at the 3D
+Press **Shift+A** for a compact native Add menu with prefab category submenus.
+Start typing immediately, or choose **Search All Prefabs…**, to search the entire
+catalog across all categories. Press Enter once to place a result at the 3D
 cursor. Names and IO aliases match regardless of capitalization or word order.
 The Prefab Browser also offers categories, favorites, local availability,
 full-path/ID tooltips and paginated results.
