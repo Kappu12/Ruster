@@ -332,6 +332,23 @@ class RUSTER_OT_setup(bpy.types.Operator):
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
 
+def welcome_projects(config):
+    recent=[Path(path) for path in config.get('recent_projects',[])[:5] if Path(path).is_file()]
+    recovery=Path(config['last_recovery']) if config.get('last_recovery') else None
+    return recent,recovery if recovery and recovery.is_file() else None
+
+
+def welcome_popup_position(window,ui_scale,config):
+    # call_panel anchors its first button, rather than its frame, to the mouse.
+    # Account for the welcome header/footer and growth of the recent-project
+    # column, using the same button/separator sizes as the native layout below.
+    recent,recovery=welcome_projects(config)
+    recent_height=(len(recent)+bool(recovery))*(1.15+.35)
+    create_height=3*1.15+2*.35
+    offset_units=2-max(0,recent_height-create_height)/2
+    return window.width//2,round(window.height/2-offset_units*20*ui_scale)
+
+
 class RUSTER_OT_welcome(bpy.types.Operator):
     bl_idname = 'ruster.welcome'
     bl_label = 'Ruster'
@@ -339,7 +356,14 @@ class RUSTER_OT_welcome(bpy.types.Operator):
     def invoke(self, context, event):
         # Native splash blocks deliberately KEEP_OPEN after operator buttons.
         # A standard panel closes first, then lets New/Open show confirmation.
-        return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='RUSTER_PT_welcome', keep_open=False)
+        window=context.window
+        original=(event.mouse_x,event.mouse_y)
+        anchor=welcome_popup_position(window,context.preferences.system.ui_scale,settings.load())
+        try:
+            window.cursor_warp(*anchor)
+            return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='RUSTER_PT_welcome', keep_open=False)
+        finally:
+            window.cursor_warp(*original)
 
     def draw(self, context):
         from . import __version__
@@ -372,12 +396,10 @@ class RUSTER_OT_welcome(bpy.types.Operator):
         recent_col.label(text='Recent Projects')
         recent_buttons = recent_col.column()
         recent_buttons.scale_y = 1.15
-        recent=settings.load().get('recent_projects',[])
-        recovery=settings.load().get('last_recovery','')
-        if recovery and Path(recovery).is_file():
-            action(recent_buttons,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=recovery
+        recent,recovery=welcome_projects(settings.load())
+        if recovery:
+            action(recent_buttons,'ruster.open',text='Recover Autosaved Session',icon='recover').filepath=str(recovery)
             recent_buttons.separator(factor=.35)
-        recent=[Path(path) for path in recent[:5] if Path(path).is_file()]
         if recent:
             for path in recent:
                 action(recent_buttons,'ruster.open',text=path.name,icon='world' if path.suffix.lower()=='.map' else 'project').filepath=str(path)

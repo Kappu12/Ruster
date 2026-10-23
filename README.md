@@ -12,6 +12,8 @@ Launch `Ruster.exe` on Windows or `Ruster.sh` on Linux. Packaged apps include th
 Blender and Python runtime. Startup opens an empty **Prefab** workspace. The
 **New / Open** popup provides New Prefab, Open Map/Prefab/Project, Import `.map`,
 recent projects and recovery. New Prefab returns to an empty composition.
+The startup popup opens in the center of the app window, independently of the
+mouse position; reopening Start uses the same placement.
 
 Open **Edit → Preferences**. **Assets** and **MCP** appear in the same left-hand
 navigation as Blender's interface, theme and navigation preferences. Theme and

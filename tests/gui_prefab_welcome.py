@@ -30,6 +30,8 @@ def new_invoke(self, context, event):
     new_invocations.append(len(context.scene.objects))
     return original_new_invoke(self, context, event)
 app.RUSTER_OT_new.invoke = new_invoke
+if scale:=os.environ.get('RUSTER_WELCOME_UI_SCALE'):
+    bpy.context.preferences.view.ui_scale=float(scale)
 ruster.register()
 stage = 0
 mouse_x = mouse_y = 0
@@ -108,7 +110,8 @@ def step():
         window = bpy.context.window_manager.windows[0]
         with bpy.context.temp_override(window=window):
             if stage == 0:
-                mouse_x, mouse_y = window.width//2, int(window.height*.6)
+                # The popup must not follow a pointer parked in a corner.
+                mouse_x, mouse_y = window.width-40, window.height-40
                 window.event_simulate(type='MOUSEMOVE', value='NOTHING',
                     x=mouse_x, y=mouse_y)
             elif stage == 1:
@@ -121,6 +124,8 @@ def step():
                     bpy.ops.wm.quit_blender()
                     return None
                 screenshot('welcome')
+                from ruster.core import settings
+                mouse_x,mouse_y=app.welcome_popup_position(window,bpy.context.preferences.system.ui_scale,settings.load())
                 bpy.context.scene.ruster.title = 'Empty composition stays open'
                 click(window, mouse_x-150*bpy.context.preferences.system.ui_scale, mouse_y)
             elif stage == 3:
@@ -130,8 +135,12 @@ def step():
                 screenshot('empty-dismissed')
                 obj = bpy.data.objects.new('Disposable welcome test', None)
                 bpy.context.scene.collection.objects.link(obj)
+                window.cursor_warp(40,40)
                 bpy.ops.ruster.welcome('INVOKE_DEFAULT')
             elif stage == 4:
+                screenshot('reopened-welcome')
+                from ruster.core import settings
+                mouse_x,mouse_y=app.welcome_popup_position(window,bpy.context.preferences.system.ui_scale,settings.load())
                 click(window, mouse_x-150*bpy.context.preferences.system.ui_scale, mouse_y)
             elif stage == 5:
                 assert new_invocations == [0, 1], 'New Prefab button was not invoked'
@@ -141,9 +150,26 @@ def step():
                 # Accept its focused default button through the real event loop.
                 window.event_simulate(type='RET', value='PRESS')
                 window.event_simulate(type='RET', value='RELEASE')
-            else:
+            elif stage == 6:
                 assert not bpy.context.scene.objects, 'Confirmed New Prefab did not clear the composition'
                 screenshot('new-confirmed')
+                # Also cover the taller five-recents-plus-recovery layout.
+                from ruster.core import settings
+                recent=[]
+                for index in range(5):
+                    path=Path(temporary.name)/f'Example project {index}.ruster'
+                    path.touch();recent.append(str(path))
+                recovery=Path(temporary.name)/'Recovery.ruster';recovery.touch()
+                settings.save({**settings.load(),'recent_projects':recent,'last_recovery':str(recovery)})
+                window.cursor_warp(40,window.height-40)
+                bpy.ops.ruster.welcome('INVOKE_DEFAULT')
+            elif stage == 7:
+                screenshot('welcome-with-recents')
+                from ruster.core import settings
+                mouse_x,mouse_y=app.welcome_popup_position(window,bpy.context.preferences.system.ui_scale,settings.load())
+                click(window,mouse_x-150*bpy.context.preferences.system.ui_scale,mouse_y)
+            else:
+                assert new_invocations==[0,1,0], 'Taller centered welcome did not keep New Prefab functional'
                 print('RUSTER_PREFAB_WELCOME_OK', flush=True)
                 bpy.ops.wm.quit_blender()
                 return None
