@@ -23,6 +23,7 @@ GRAPHICAL_TESTS = (
     'gui_startup.py', 'gui_prefab_welcome.py', 'gui_project_close.py', 'gui_prefab_polish.py', 'gui_prefab_search.py',
     'gui_material_preview.py', 'gui_construction.py', 'gui_prefab_layout.py', 'gui_blender_controls.py', 'gui_volumes.py',
     'gui_preview_loading.py', 'gui_mcp.py',
+    'gui_live_preview.py',
 )
 
 
@@ -47,7 +48,7 @@ def run_suite(executable, suite='background', app_root=None, xvfb=False):
             command = ['xvfb-run', '-a', '-s', '-screen 0 1600x1000x24', *command]
         with tempfile.TemporaryDirectory(prefix='ruster-native-profile-') as profile:
             config=Path(profile)/'config';config.mkdir()
-            env={**os.environ,'BLENDER_USER_CONFIG':str(config)}
+            env={**os.environ,'BLENDER_USER_CONFIG':str(config),'RUSTER_PREVIEW_TEST_NO_DISCOVERY':'1'}
             subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=150 if graphical else 120)
 
 

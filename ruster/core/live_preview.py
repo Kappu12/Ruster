@@ -37,6 +37,14 @@ def port_number(port):
     return port
 
 
+def verify_server_ready(path):
+    path = Path(path)
+    if path.stat().st_size > 4096:raise ValueError('Invalid preview server readiness report')
+    report = json.loads(path.read_text())
+    if report.get('protocol') != 1 or report.get('secure') is not False or report.get('ip') != '127.0.0.1':
+        raise ValueError('The server did not verify inactive EAC and a loopback-only listener')
+
+
 def check_ports(port):
     handles = []
     try:
@@ -157,8 +165,9 @@ class PreviewSession:
         self.note('DOWNLOADING', 'Installing the Carbon server plugin loader')
         request = urllib.request.Request(CARBON_RELEASE, headers={'User-Agent': 'Ruster-Live-Preview', 'Accept': 'application/vnd.github+json'})
         with urllib.request.urlopen(request, timeout=30) as response:release = json.loads(response.read(2*1024*1024))
-        asset = next(a for a in release['assets'] if a['name'] == 'Carbon.Windows.Release.zip')
-        url = asset['browser_download_url'];digest = asset.get('digest', '')
+        asset = next((a for a in release['assets'] if a['name'] == 'Carbon.Windows.Release.zip'), None)
+        if asset is None:raise ValueError('The official Carbon release has no Windows server archive')
+        url = asset['browser_download_url'];digest = asset.get('digest') or ''
         if not url.startswith('https://github.com/CarbonCommunity/Carbon/releases/download/') or not digest.startswith('sha256:'):
             raise ValueError('Carbon release has no trusted URL and SHA256 digest')
         archive = self.root/'carbon.zip';download(url, archive, self.cancel, digest=digest[7:])
@@ -192,19 +201,24 @@ class PreviewSession:
             deadline = time.monotonic()+900
             while not self.cancel.wait(.2):
                 if self.process.poll() is not None:raise RuntimeError(f'Preview server exited ({self.process.returncode}); see server.log')
+                if (self.directory/'server.blocked').exists():
+                    raise RuntimeError((self.directory/'server.blocked').read_text()[:4096])
                 with self.lock:
                     pending, self.pending = self.pending, None
                 if pending is not None:
                     self.revision += 1;write_snapshot(self.directory, self.revision, pending)
                 if (self.directory/'server.ready').is_file() and self.status != 'RUNNING':
-                    self.note('RUNNING', f'Local server ready at 127.0.0.1:{self.port}')
+                    verify_server_ready(self.directory/'server.ready')
+                    self.note('RUNNING', 'Local server ready · EAC disabled')
                 if self.status != 'RUNNING' and time.monotonic() > deadline:
                     raise TimeoutError('The preview plugin did not become ready within 15 minutes. See server.log')
+                if self.status != 'RUNNING' and any('PlayerPrefsException' in line for line in self.log_tail(12)):
+                    raise RuntimeError('Rust server startup could not write its preferences. See server.log')
             self.note('STOPPED', 'Local preview stopped')
         except InterruptedError:self.note('STOPPED', 'Preview setup cancelled')
         except Exception as error:self.note('FAILED', str(error))
         finally:
-            (self.directory/'active.flag').unlink(missing_ok=True)
+            self._stop_marker()
             if self.process and self.process.poll() is None:
                 self.process.terminate()
                 try:self.process.wait(timeout=5)
@@ -231,8 +245,18 @@ class PreviewSession:
         if self.thread:self.thread.join(timeout=7)
 
     def request_stop(self):
+        if self.active:self.note('STOPPING', 'Stopping the local preview')
         self.cancel.set()
-        (self.directory/'active.flag').unlink(missing_ok=True)
+        self._stop_marker()
+
+    def _stop_marker(self):
+        # Stop uses an independent marker as well as removing active.flag.
+        # Concurrent Windows deletion can report ACCESS_DENIED while a file is
+        # delete-pending. That must never skip owned-process cleanup.
+        try:atomic_write(self.directory/'stop.flag', b'Stop Ruster preview\n')
+        except OSError:pass
+        try:(self.directory/'active.flag').unlink(missing_ok=True)
+        except OSError:pass
 
     def info(self):
         with self.lock:
@@ -241,7 +265,8 @@ class PreviewSession:
 
     def log_tail(self, lines=8):
         values = []
-        for path in (self.directory/'installation.log', self.log, self.directory/'server.status', self.directory/'client.status'):
+        for path in (self.root/'steamcmd/logs/console_log.txt', self.directory/'installation.log', self.log,
+                     self.directory/'server.status', self.directory/'client.status'):
             try:
                 with path.open('rb') as handle:handle.seek(max(0, path.stat().st_size-8192));value = handle.read(8192)
                 values.extend(value.decode('utf8', errors='replace').splitlines()[-lines:])

@@ -16,7 +16,8 @@ import sys
 
 def is_eac_name(value):
     name = str(value).replace('\\', '/').rsplit('/', 1)[-1].casefold()
-    return 'easyanticheat' in name or name.startswith(('eac_', 'eac.', 'eac-', 'eacclient', 'eacserver'))
+    return ('easyanticheat' in name or name == 'start_protected_game.exe'
+            or name.startswith(('eac_', 'eac.', 'eac-', 'eacclient', 'eacserver', 'eacdriver', 'eaclauncher', 'eacservice')))
 
 
 @dataclass
@@ -219,6 +220,11 @@ def inject(installation, dll, session, pid):
     def check():
         current = verify_probe(inspector.inspect(pid), installation)
         if current.created != first.created:raise ValueError('Rust restarted during verification; injection cancelled')
+        if (not (session/'active.flag').is_file() or (session/'stop.flag').exists()
+                or (session/'server.blocked').exists()):
+            raise ValueError('The local preview server is not active')
+        from .live_preview import verify_server_ready
+        verify_server_ready(session/'server.ready')
     check()
     manifest = json.loads(dll.with_suffix('.json').read_text())
     if manifest.get('protocol') != 1 or hashlib.sha256(dll.read_bytes()).hexdigest() != manifest.get('sha256'):

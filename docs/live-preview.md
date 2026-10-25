@@ -49,6 +49,11 @@ IL2CPP methods are found through their exported reflection API and checked
 signatures. Missing or ambiguous methods produce a compatibility error; there
 are no guessed offsets or fallback game-code patches.
 
+The dedicated server starts with its native `-insecure` switch. The companion
+checks `Network.Net.sv.secure` before advertising readiness and on every update.
+Ruster validates that report before enabling Inject. A secure or non-loopback
+server is refused and stopped; no EAC setting is bypassed or patched.
+
 ## Current limits and validation
 
 This is an experimental implementation, not a claim of verified current-game
@@ -56,6 +61,8 @@ compatibility. Build checks, offline EAC rejection tests, binary protocol tests,
 and Blender lifecycle tests do not prove that a particular Rust release can run
 the injected module. No client injection or gameplay testing was performed during
 development, at the user's request. Runtime errors appear in the panel and logs.
+The isolated server startup check hit a sandbox restriction on preference writes,
+so a complete server boot is also unverified in this environment.
 
 The initial composition is baked into a small flat preview map so Rust loads its
 original asset scenes. Both companions claim those placements instead of adding

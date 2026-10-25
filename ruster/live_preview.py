@@ -1,7 +1,10 @@
 """Explicit local playtest controls; importing this never touches a game process."""
 import atexit
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+import os
 from pathlib import Path
+import sys
 import time
 
 import bpy
@@ -9,7 +12,7 @@ from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
 
 from .core import live_preview as backend, preview_client, settings
 from .core.preview_protocol import MAX_PLACEMENTS
-from .ui_style import properties, wrapped
+from .ui_style import properties, wrapped, section
 
 _classes = []
 _job = None
@@ -36,19 +39,22 @@ def dll_path():return Path(__file__).resolve().parent/'preview_native/bin/Ruster
 def placements():
     from . import scene
     from .assets import catalog
+    bpy.context.view_layer.update()
     roots = scene.prefab_roots()
     if len(roots) > MAX_PLACEMENTS:raise ValueError('Live preview supports at most 2,000 prefab placements')
     if not roots:return []
     rows = []
-    with catalog.read_connection(scene.cache_dir()) as db:
+    with closing(catalog.read_connection(scene.cache_dir())) as db:
+        ids = {int(root['ruster_uid']) for root in roots}
+        paths = dict(db.execute('SELECT uid,path FROM names WHERE uid IN ('+','.join('?' for _ in ids)+')', tuple(ids)))
         for root in roots:
             if scene.matrix_has_shear(root.matrix_world):raise ValueError(root.name+': group transform introduces shear')
             uid = int(root['ruster_uid'])
-            record = db.execute('SELECT path FROM names WHERE uid=?', (uid,)).fetchone()
-            if not record:raise ValueError(root.name+': original prefab path is missing from the catalog')
+            path = paths.get(uid)
+            if not path:raise ValueError(root.name+': original prefab path is missing from the catalog')
             location, rotation, scale = root.matrix_world.decompose()
             unity = (scene.BASIS @ rotation.to_matrix() @ scene.BASIS).to_quaternion()
-            rows.append({'key': root.session_uid, 'uid': uid, 'path': record[0],
+            rows.append({'key': root.session_uid, 'uid': uid, 'path': path,
                 'position': scene.to_unity(location), 'rotation': (unity.x, unity.y, unity.z, unity.w),
                 'scale': scene.to_unity(scale), 'euler': scene.blender_euler(rotation)})
     return sorted(rows, key=lambda row: row['key'])
@@ -83,7 +89,7 @@ def tick():
             if kind == 'probe':_clients = [];_probe_message = str(error)
             else:_error = str(error)
         _next_probe = time.monotonic()+3
-    if (not _future) and time.monotonic() >= _next_probe:
+    if (not _future) and time.monotonic() >= _next_probe and not os.environ.get('RUSTER_PREVIEW_TEST_NO_DISCOVERY'):
         try:submit('probe', preview_client.discover, installation())
         except ValueError as error:_probe_message = str(error);_next_probe = time.monotonic()+5
     if _job and _job.active:
@@ -183,8 +189,11 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout = self.layout;state = context.window_manager.ruster_live_preview
+        if sys.platform != 'win32':
+            wrapped(layout, context, 'Client live preview currently requires Windows x64.', icon='info')
+            return
         active = bool(_job and _job.active);running = bool(_job and _job.status == 'RUNNING')
-        wrapped(layout, context, 'Preview placements in a private local Rust server. First start downloads the server separately (several GB).')
+        wrapped(layout, context, 'First start downloads a separate local Rust server (several GB).')
         fields = properties(layout.column());fields.enabled = not active
         fields.prop(state, 'port')
         properties(layout.column()).prop(state, 'owner')
@@ -194,8 +203,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         row = layout.row(align=True);row.label(text=f'127.0.0.1:{_job.port if active else state.port}')
         row.operator('ruster.preview_copy_ip', icon='COPYDOWN')
         layout.separator()
-        wrapped(layout, context, 'Close Rust first. Use the button below, or open RustClient.exe directly from your Rust folder. Launching through Steam uses EAC. Wait for the main menu, then click Inject.', icon='info')
-        wrapped(layout, context, 'Inject checks the executable, launch information, loaded modules, and EAC processes, services and drivers. Unknown or active EAC blocks injection. Restart Rust after preview before playing on EAC servers.', icon='locked')
+        wrapped(layout, context, 'Launch RustClient.exe directly, or use the button below. Steam Play launches EAC. Wait for the main menu before injecting.', icon='info')
         row = layout.row();row.enabled = not bool(_future)
         if _clients:
             allowed = False
@@ -206,13 +214,17 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
             row.operator('ruster.inject_preview', icon='PLUGIN')
         else:row.operator('ruster.launch_preview_rust', icon='PLAY')
         wrapped(layout, context, _probe_message, icon='info')
+        wrapped(layout, context, 'Active or unknown EAC blocks Inject. Restart Rust after preview before joining EAC servers.', icon='locked')
         if _error:wrapped(layout, context, _error, icon='error')
         if _job:
             try:
                 lines = (_job.directory/'client.status').read_text().splitlines()
                 if lines:wrapped(layout, context, 'Client: '+ ' — '.join(lines[:2]), icon='info')
             except OSError:pass
-        wrapped(layout, context, 'In Rust: press F1, type connect followed by the copied IP, then press Enter. Client preview is experimental and requires a compatible Rust build.')
+        wrapped(layout, context, 'In Rust: F1, then connect followed by the copied IP. Client preview is experimental.')
+        details = section(layout, 'ruster_preview_eac_checks', 'EAC Checks', 'locked')
+        if details is not None:
+            wrapped(details, context, 'Inject verifies the executable, launch information, loaded modules, EAC processes, services and drivers. Incomplete inspection blocks injection. The server must report EAC disabled before Inject is enabled.')
         row = layout.row();row.enabled = running
         row.operator('ruster.preview_command', text='Grant Owner ID', icon='USER').owner = True
         row = layout.row(align=True);row.enabled = running

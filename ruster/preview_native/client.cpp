@@ -39,7 +39,9 @@ bool eacName(std::wstring name) {
     auto pos=name.find_last_of(L"/\\");if(pos!=std::wstring::npos)name=name.substr(pos+1);
     return name.find(L"easyanticheat")!=std::wstring::npos || name.rfind(L"eac_",0)==0
         || name.rfind(L"eac.",0)==0 || name.rfind(L"eac-",0)==0
-        || name.rfind(L"eacclient",0)==0 || name.rfind(L"eacserver",0)==0;
+        || name.rfind(L"eacclient",0)==0 || name.rfind(L"eacserver",0)==0
+        || name.rfind(L"eacdriver",0)==0 || name.rfind(L"eaclauncher",0)==0
+        || name.rfind(L"eacservice",0)==0 || name==L"start_protected_game.exe";
 }
 
 bool eacOff() {
@@ -49,10 +51,12 @@ bool eacOff() {
     MODULEENTRY32W item{};item.dwSize=sizeof(item);
     bool ok=Module32FirstW(snap,&item)!=FALSE;
     if(ok)do {if(eacName(item.szModule)){ok=false;break;}}while(Module32NextW(snap,&item));
+    if(ok&&GetLastError()!=ERROR_NO_MORE_FILES)ok=false;
     CloseHandle(snap);if(!ok)return false;
     snap=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);if(snap==INVALID_HANDLE_VALUE)return false;
     PROCESSENTRY32W process{};process.dwSize=sizeof(process);ok=Process32FirstW(snap,&process)!=FALSE;
     if(ok)do {if(eacName(process.szExeFile)){ok=false;break;}}while(Process32NextW(snap,&process));
+    if(ok&&GetLastError()!=ERROR_NO_MORE_FILES)ok=false;
     CloseHandle(snap);if(!ok)return false;
     SC_HANDLE scm=OpenSCManagerW(nullptr,nullptr,SC_MANAGER_ENUMERATE_SERVICE);
     if(!scm)return false;
@@ -223,7 +227,7 @@ bool inPreviewWorld() {
 }
 
 struct Placement {uint64_t key;uint32_t uid;std::string path;Vec pos;Quat rot;Vec scale;};
-struct Instance {uint32_t handle;uint32_t uid;};
+struct Instance {uint32_t handle;uint32_t uid;Vec pos;Quat rot;Vec scale;};
 std::map<uint64_t,Instance> objects;
 bool baseline=false;
 template<typename T>T take(const std::vector<uint8_t>& data,size_t& offset) {
@@ -259,6 +263,7 @@ void claimInitial() {
     if(!input||input.tellg()>16*1024*1024)throw std::runtime_error("Initial preview snapshot is unavailable");
     auto length=input.tellg();std::vector<uint8_t> data(static_cast<size_t>(length));input.seekg(0);
     input.read(reinterpret_cast<char*>(data.data()),length);uint64_t revision;auto rows=decode(data,revision);
+    if(rows.empty()){baseline=true;return;}
     void* args[]={gameObjectType};Object* all=api.call(findObjects,nullptr,args);auto count=api.array_length(all);
     if(count>1000000)throw std::runtime_error("Game object lookup exceeds preview limits");
     std::map<std::string,std::vector<Object*>> byPath;
@@ -272,6 +277,9 @@ void claimInitial() {
     std::map<uint64_t,Instance> claimed;
     try {
         for(auto& p:rows) {
+            Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
+            Object* prefab=api.call(findPrefab,manager,lookup);
+            if(prefab&&isNetworked(prefab))continue;
             Object* match=nullptr;auto& candidates=byPath[p.path];
             for(auto it=candidates.begin();it!=candidates.end();++it){
                 Object* transform=api.call(getTransform,*it);Object* boxed=api.call(getPosition,transform);
@@ -279,7 +287,7 @@ void claimInitial() {
                 if(fabs(pos.x-p.pos.x)<.005&&fabs(pos.y-p.pos.y)<.005&&fabs(pos.z-p.pos.z)<.005){match=*it;candidates.erase(it);break;}
             }
             if(!match)throw std::runtime_error("Waiting for the initial map object: "+p.path);
-            if(!isNetworked(match))claimed[p.key]={api.gchandle_new(match,false),p.uid};
+            if(!isNetworked(match))claimed[p.key]={api.gchandle_new(match,false),p.uid,p.pos,p.rot,p.scale};
         }
     }catch(...){for(auto& entry:claimed)api.gchandle_free(entry.second.handle);throw;}
     objects.swap(claimed);baseline=true;
@@ -303,7 +311,9 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
                 std::vector<uint8_t> data;{std::lock_guard<std::mutex> lock(pendingMutex);data=pending;}
                 if(!data.empty()) {
                     uint64_t revision;auto rows=decode(data,revision);
-                    if(revision!=applied) {
+                    uint64_t serverRevision=0;
+                    try {serverRevision=std::stoull(readText(L"server.revision"));} catch(...) {}
+                    if(revision!=applied && serverRevision==revision) {
                         std::map<uint64_t,bool> present;
                         // The transaction is bounded to 2000 placements. A user
                         // edit snapshot is replaced only after complete parsing.
@@ -313,13 +323,20 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
                             if(!prefab)throw std::runtime_error("Rust could not load "+p.path+". Restart preview with this asset in the initial scene.");
                             if(isNetworked(prefab))continue; // Native network replication owns these.
                             present[p.key]=true;auto found=objects.find(p.key);
-                            if(found!=objects.end()&&found->second.uid!=p.uid){remove(found->second);objects.erase(found);found=objects.end();}
+                            if(found!=objects.end()) {
+                                auto& old=found->second;
+                                if(old.uid==p.uid&&!memcmp(&old.pos,&p.pos,sizeof(Vec))&&!memcmp(&old.rot,&p.rot,sizeof(Quat))
+                                        &&!memcmp(&old.scale,&p.scale,sizeof(Vec)))continue;
+                                // Recreate changed static objects through their original
+                                // lifecycle so instanced renderers can register afresh.
+                                remove(old);objects.erase(found);found=objects.end();
+                            }
                             Object* obj=nullptr;
                             if(found==objects.end()) {
                                 bool active=true;void* args[]={path,&p.pos,&p.rot,&p.scale,&active};
                                 obj=api.call(createPrefab,manager,args);
                                 if(!obj)throw std::runtime_error("Rust could not load "+p.path+". Load this asset in the preview map first.");
-                                objects[p.key]={api.gchandle_new(obj,false),p.uid};
+                                objects[p.key]={api.gchandle_new(obj,false),p.uid,p.pos,p.rot,p.scale};
                             }else obj=api.gchandle_get_target(found->second.handle);
                             Object* transform=api.call(getTransform,obj);void* pos[]={&p.pos};void* rot[]={&p.rot};void* scale[]={&p.scale};
                             api.call(setPosition,transform,pos);api.call(setRotation,transform,rot);api.call(setScale,transform,scale);
@@ -346,7 +363,7 @@ DWORD WINAPI run(void*) {
     hook=SetWindowsHookExW(WH_GETMESSAGE,onMessage,module,windowThread);
     if(!hook){status("ERROR","Could not register the local main-thread preview callback.");return 3;}
     status("STARTING","Waiting for the Unity main thread and local preview map.");
-    while(exists(L"active.flag")) {
+    while(exists(L"active.flag")&&!exists(L"stop.flag")) {
         if(!eacOff()){status("BLOCKED","EAC became active or unreadable. Preview has stopped.");UnhookWindowsHookEx(hook);return 4;}
         std::ifstream input(std::filesystem::path(file(L"scene.bin")),std::ios::binary|std::ios::ate);
         if(input){auto length=input.tellg();if(length>=20&&length<=16*1024*1024){
@@ -369,7 +386,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI RusterStart(void* argument) {
     if(!argument||!eacOff())return 1;
     stopping=false;stopped=false;baseline=false;applied=0;
     directory=static_cast<const wchar_t*>(argument);
-    if(directory.size()>30000||!exists(L"active.flag")||!exists(L"scene.bin")||!exists(L"map.url"))return 2;
+    if(directory.size()>30000||!exists(L"active.flag")||exists(L"stop.flag")||!exists(L"scene.bin")||!exists(L"map.url"))return 2;
     worker=CreateThread(nullptr,0,run,nullptr,0,nullptr);return worker?0:3;
 }
 BOOL WINAPI DllMain(HINSTANCE self,DWORD reason,LPVOID) {

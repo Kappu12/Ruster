@@ -115,13 +115,14 @@ def main():
     if system == 'Windows':
         # Compile our own native source; Rust/SteamCMD/Carbon stay first-run
         # downloads and are never included in the application archive.
-        from build_preview_client import build as build_preview
+        if __package__:from .build_preview_client import build as build_preview
+        else:from build_preview_client import build as build_preview
         build_preview()
     for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Ruster.cmd','Ruster.sh','LICENSE',
                  'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name
         if source.is_dir():
-            shutil.copytree(source, destination, ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+            shutil.copytree(source, destination, ignore=shutil.ignore_patterns('__pycache__','*.pyc','*.pdb','*.lib'))
         else:
             shutil.copy2(source, destination)
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--only-binary=:all:', '--no-binary=tpk_ar',

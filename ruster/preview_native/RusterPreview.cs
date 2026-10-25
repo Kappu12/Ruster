@@ -44,7 +44,10 @@ namespace Oxide.Plugins
                 candidates.Remove(obj); objects[p.key] = obj;
             }
             initialized = true;
-            File.WriteAllText(Path.Combine(directory, "server.ready"), "Ruster preview plugin ready");
+            var ready = Path.Combine(directory, "server.ready");
+            File.WriteAllText(ready + ".tmp", JsonConvert.SerializeObject(new { protocol = 1, secure = Network.Net.sv.secure, ip = ConVar.Server.ip }));
+            if (File.Exists(ready)) File.Delete(ready);
+            File.Move(ready + ".tmp", ready);
             timer.Every(0.25f, Tick);
             Puts("Local preview bridge ready. Rust client preview requires explicit no-EAC injection.");
         }
@@ -52,7 +55,12 @@ namespace Oxide.Plugins
         void Tick()
         {
             if (!initialized) return;
-            if (!File.Exists(Path.Combine(directory, "active.flag"))) { Cleanup(); return; }
+            if (!File.Exists(Path.Combine(directory, "active.flag")) || File.Exists(Path.Combine(directory, "stop.flag"))) { Cleanup(); return; }
+            if (Network.Net.sv.secure || ConVar.Server.ip != "127.0.0.1")
+            {
+                File.WriteAllText(Path.Combine(directory, "server.blocked"), "Server safety check failed: preview requires inactive EAC and loopback-only networking.");
+                File.Delete(Path.Combine(directory, "server.ready")); Cleanup(); return;
+            }
             try
             {
                 var connected = Path.Combine(directory, "client.connected");
@@ -96,24 +104,28 @@ namespace Oxide.Plugins
                 var position = Vector(p.position); var scale = Vector(p.scale);
                 var rotation = new Quaternion(p.rotation[0], p.rotation[1], p.rotation[2], p.rotation[3]);
                 GameObject obj;
+                bool created = false;
                 if (!objects.TryGetValue(p.key, out obj) || obj == null || obj.name != p.path)
                 {
                     if (obj != null) Destroy(obj);
                     obj = GameManager.server.CreatePrefab(p.path, position, rotation, scale);
                     if (obj == null) throw new Exception("Rust cannot load " + p.path);
                     objects[p.key] = obj;
+                    created = true;
                     foreach (var entity in obj.GetComponentsInChildren<BaseEntity>(true))
                     {
                         entity.enableSaving = false;
                         if (entity.net == null) entity.Spawn();
                     }
                 }
+                if (!created && obj.transform.position == position && obj.transform.rotation == rotation && obj.transform.localScale == scale) continue;
                 obj.transform.SetPositionAndRotation(position, rotation); obj.transform.localScale = scale;
                 foreach (var entity in obj.GetComponentsInChildren<BaseEntity>(true))
                 { entity.networkEntityScale = true; entity.UpdateNetworkGroup(); entity.SendNetworkUpdateImmediate(); }
             }
             Physics.SyncTransforms();
             revision = snapshot.revision;
+            File.WriteAllText(Path.Combine(directory, "server.revision"), revision.ToString());
             File.WriteAllText(Path.Combine(directory, "server.status"), "READY\nServer scene revision " + revision + " (" + objects.Count + " placements)");
         }
 

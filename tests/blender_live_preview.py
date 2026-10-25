@@ -31,6 +31,30 @@ def run():
             assert state.port == 29100 and state.owner == '76561198000000000'
             assert called == [], 'Registration inspected the real client'
             assert live_preview.placements() == []
+            # Capture original prefab IDs and absolute world transforms without
+            # requiring a game model, client process, or injected code.
+            from ruster import scene
+            from ruster.assets import catalog
+            from ruster.core import wire
+            db = catalog.connect(scene.cache_dir())
+            db.execute('INSERT INTO names VALUES(?,?)', (123456, 'assets/test/source.prefab'));db.commit();db.close()
+            fields = [wire.encode(1, 2, b'Decor'), wire.encode(2, 0, 123456),
+                wire.encode(3, 2, wire.set_vector(None, (1, 2, 3))),
+                wire.encode(4, 2, wire.set_vector(None, (0, 90, 0))),
+                wire.encode(5, 2, wire.set_vector(None, (2, 3, 4)))]
+            obj = scene.root_object(fields, scene.new_collection('Preview fixture'))
+            rows = live_preview.placements();assert len(rows) == 1
+            row = rows[0]
+            assert row['uid'] == 123456 and row['path'] == 'assets/test/source.prefab'
+            assert all(abs(a-b) < 1e-5 for a,b in zip(row['position'], (1, 2, 3)))
+            assert all(abs(a-b) < 1e-5 for a,b in zip(row['scale'], (2, 3, 4)))
+            from math import sqrt
+            assert abs(abs(row['rotation'][1])-sqrt(.5)) < 1e-5
+            key = row['key'];obj.name = 'Renamed placement'
+            assert live_preview.placements()[0]['key'] == key
+            duplicate = obj.copy();bpy.context.scene.collection.objects.link(duplicate)
+            rows = live_preview.placements();assert len({r['key'] for r in rows}) == 2
+            bpy.data.objects.remove(duplicate, do_unlink=True);bpy.data.objects.remove(obj, do_unlink=True)
             assert bpy.types.RUSTER_PT_live_preview.bl_category == 'Ruster'
             from types import SimpleNamespace
             synthetic = SimpleNamespace(window_manager=SimpleNamespace(ruster_live_preview=state, clipboard=''))

@@ -62,6 +62,25 @@ Legacy stream framing, size checks and the Python fallback remain Ruster code.
 - https://github.com/MiloszKrajewski/lz4net (legacy framing reference)
 - https://wiki.facepunch.com/rust/Map_Data
 
+## Local live preview
+
+The preview client DLL is compiled from Ruster's GPL source with the official
+Zig 0.15.2 toolchain. The build verifies the compiler archive's SHA256; the
+compiler itself is not included in the application. Bundled LLVM C++ runtime
+notices are retained in `ruster/preview_native/LICENSES/` (Apache-2.0 with LLVM
+exceptions and the accompanying legacy notices). The Zig compiler notice is
+retained there as well.
+
+SteamCMD, the Rust dedicated server and Carbon are downloaded separately on
+first use, rather than redistributed in Ruster's executable or application ZIP.
+Carbon's Windows release digest is verified against its official GitHub release
+metadata. Original server and runtime notices remain in that installation.
+
+- https://ziglang.org/download/0.15.2/
+- https://github.com/llvm/llvm-project
+- https://developer.valvesoftware.com/wiki/SteamCMD
+- https://github.com/CarbonCommunity/Carbon
+
 ## Rust content
 
 Rust and its assets belong to Facepunch and their respective rights holders.

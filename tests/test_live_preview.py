@@ -3,6 +3,7 @@ from dataclasses import replace
 import io
 from pathlib import Path
 import struct
+import sys
 import threading
 from unittest.mock import Mock
 import zipfile
@@ -40,7 +41,8 @@ def test_no_eac_requires_multiple_independent_observations(tmp_path):
         with pytest.raises(ValueError):client.verify_probe(replace(probe, **changes), tmp_path)
 
 
-@pytest.mark.parametrize('name', ['EasyAntiCheat_EOS.sys', 'C:\\Games\\EasyAntiCheat_x64.dll', 'EAC_Client.dll', 'easyanticheat_eos'])
+@pytest.mark.parametrize('name', ['EasyAntiCheat_EOS.sys', 'C:\\Games\\EasyAntiCheat_x64.dll', 'EAC_Client.dll',
+    'easyanticheat_eos', 'EACDriver.sys', 'start_protected_game.exe'])
 def test_eac_names_include_drivers_and_case(name):
     assert client.is_eac_name(name)
 
@@ -73,6 +75,17 @@ def test_pid_reuse_blocks_injection(tmp_path, monkeypatch):
     monkeypatch.setattr(client, '_windows', lambda: inspector)
     (tmp_path/'RusterPreview.dll').touch();(tmp_path/'scene.bin').touch()
     with pytest.raises(ValueError, match='restarted'):
+        client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
+    inspector.k.OpenProcess.assert_not_called()
+
+
+def test_injection_rechecks_server_runtime_eac_before_writing(tmp_path, monkeypatch):
+    inspector = Mock();inspector.inspect.return_value = safe_probe(tmp_path)
+    monkeypatch.setattr(client, '_windows', lambda: inspector)
+    (tmp_path/'RusterPreview.dll').touch();(tmp_path/'scene.bin').touch()
+    (tmp_path/'active.flag').touch()
+    (tmp_path/'server.ready').write_text('{"protocol":1,"secure":true,"ip":"127.0.0.1"}')
+    with pytest.raises(ValueError, match='inactive EAC'):
         client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
     inspector.k.OpenProcess.assert_not_called()
 
@@ -156,3 +169,66 @@ def test_console_commands_are_owned_bounded_and_single_line(tmp_path):
     with pytest.raises(ValueError):job.send_command('status\nquit')
     job.status = 'STARTING'
     with pytest.raises(ValueError):job.send_command('ownerid 76561198000000000')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only preview lifecycle')
+def test_owned_server_lifecycle_with_synthetic_child(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import time
+    monkeypatch.setattr(server, 'check_ports', lambda port: None)
+    job = server.PreviewSession(tmp_path, port=29000, placements=[])
+    job._install = lambda: tmp_path/'RustDedicated.exe'
+    def map_server():
+        job.url = 'http://127.0.0.1:12345/synthetic.map'
+        (job.directory/'map.url').write_text(job.url)
+    job._serve_map = map_server
+    script = tmp_path/'synthetic-server.py'
+    script.write_text("""import os,time
+from pathlib import Path
+session=Path(os.environ['RUSTER_PREVIEW_DIR'])
+(session/'server.ready').write_text('{"protocol":1,"secure":false,"ip":"127.0.0.1"}')
+while (session/'active.flag').exists():time.sleep(.02)
+""")
+    real_popen = subprocess.Popen
+    def popen(args, **kwargs):
+        kwargs.pop('creationflags', None);kwargs['cwd'] = tmp_path
+        return real_popen([sys.executable, str(script)], **kwargs)
+    monkeypatch.setattr(server.subprocess, 'Popen', popen)
+    untouched = tmp_path/'other-server.sav';untouched.write_bytes(b'keep')
+    job.start()
+    deadline = time.monotonic()+5
+    try:
+        while job.status != 'RUNNING' and time.monotonic() < deadline:time.sleep(.03)
+        assert job.status == 'RUNNING', job.info()
+        job.update([placement()])
+        deadline = time.monotonic()+3
+        while job.revision < 2 and time.monotonic() < deadline:time.sleep(.03)
+        assert job.revision == 2
+    finally:job.close()
+    assert job.status == 'STOPPED' and job.process.poll() is not None
+    assert untouched.read_bytes() == b'keep' and not (job.directory/'active.flag').exists()
+
+
+def test_server_runtime_report_must_confirm_inactive_eac(tmp_path):
+    import json
+    path = tmp_path/'server.ready'
+    path.write_text(json.dumps({'protocol': 1, 'secure': False, 'ip': '127.0.0.1'}))
+    server.verify_server_ready(path)
+    for report in ({'protocol': 1, 'secure': True, 'ip': '127.0.0.1'},
+                   {'protocol': 1, 'secure': False, 'ip': '0.0.0.0'},
+                   {'protocol': 1, 'ip': '127.0.0.1'}):
+        path.write_text(json.dumps(report))
+        with pytest.raises(ValueError):server.verify_server_ready(path)
+
+
+def test_stop_marker_survives_windows_delete_pending_error(tmp_path, monkeypatch):
+    job = object.__new__(server.PreviewSession);job.directory = tmp_path
+    (tmp_path/'active.flag').write_text('active')
+    original = Path.unlink
+    def unlink(path, *args, **kwargs):
+        if path.name == 'active.flag':raise PermissionError('Windows delete-pending')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'unlink', unlink)
+    job._stop_marker()
+    assert (tmp_path/'stop.flag').is_file()
