@@ -96,6 +96,7 @@ class OwnedProcessJob:
         self.kernel.SetInformationJobObject.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD]
         self.kernel.AssignProcessToJobObject.argtypes = [w.HANDLE, w.HANDLE]
         self.kernel.CloseHandle.argtypes = [w.HANDLE]
+        self.kernel.QueryInformationJobObject.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.c_void_p]
         handle = self.kernel.CreateJobObjectW(None, None)
         if not handle:raise ctypes.WinError(ctypes.get_last_error())
         limits = Extended();limits.basic.flags = 0x2000
@@ -107,6 +108,19 @@ class OwnedProcessJob:
         if self.handle and not self.kernel.AssignProcessToJobObject(self.handle, int(process._handle)):
             import ctypes
             raise ctypes.WinError(ctypes.get_last_error())
+
+    @property
+    def active_processes(self):
+        if not self.handle:return 0
+        import ctypes
+        from ctypes import wintypes as w
+        class Accounting(ctypes.Structure):
+            _fields_ = [('times', ctypes.c_longlong*4), ('page_faults', w.DWORD),
+                ('total', w.DWORD), ('active', w.DWORD), ('terminated', w.DWORD)]
+        value = Accounting()
+        if not self.kernel.QueryInformationJobObject(self.handle, 1, ctypes.byref(value), ctypes.sizeof(value), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return value.active
 
     def close(self):
         if self.handle:self.kernel.CloseHandle(self.handle);self.handle = None

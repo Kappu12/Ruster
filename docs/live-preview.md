@@ -12,6 +12,9 @@ game/server in Ruster's executable.
    companion plugin. Allow several GB for the server. Later starts reuse this
    separate installation. After a Rust update or server version mismatch, enable
    **Update Server on Start** under **Setup and EAC Checks** before starting.
+   Setup shows an approximate overall percentage and the SteamCMD, download,
+   verification and plugin-loader phases. A completed Rust download is reused
+   if a later setup stage fails, including SteamCMD's first-run self-relaunch.
 3. Close any running Rust client. Click **Launch Rust Without EAC**, or run
    `RustClient.exe` directly from your Rust installation. Keep Steam running, but
    do not use Steam's Play button or `Rust.exe` to start this preview session.
@@ -20,6 +23,7 @@ game/server in Ruster's executable.
    menu and the local server to be ready, then click it. This is the only action
    that loads the preview DLL into the game. Detection and server startup do not
    inject, patch the game, or launch a client automatically.
+   Passed EAC checks alone do not enable Inject; the server must also be Ready.
 5. Click **Copy IP**. In Rust's F1 console, enter `connect ` followed by that
    address. After joining, the module claims the original map placements and
    applies editor snapshots to static scene objects. The server companion updates
@@ -72,11 +76,21 @@ compatibility. Build checks, offline EAC rejection tests, binary protocol tests,
 and Blender lifecycle tests do not prove that a particular Rust release can run
 the injected module. No client injection or gameplay testing was performed during
 development, at the user's request. Runtime errors appear in the panel and logs.
-The isolated server startup check hit a sandbox restriction on preference writes,
-so a complete server boot is also unverified in this environment.
+The local dedicated server has been booted successfully with an empty void map,
+the companion loaded, and runtime EAC-disabled readiness verified. Client-side
+prefab rendering and injected gameplay remain untested.
 
-The initial composition is baked into a small flat preview map so Rust loads its
-original asset scenes. Both companions claim those placements instead of adding
+The composition is centered in a 1,000 metre void map. Terrain is entirely holes,
+the ocean is moved out of view through Rust's replicated environment setting,
+and no extra scenery or platform is added. The initial composition's placement
+center is translated to the origin in the preview snapshots; the project itself
+stays unchanged. That translation stays fixed during edits. Starting empty uses
+the first composition's center instead. Load the composition before starting so
+the map can preload its original asset scenes. The companion supplies a spawn
+point above available prefab colliders. Use owner permissions and Rust's F1
+`noclip` for free movement when the composition has no walkable surface.
+
+Both companions claim the baked placements instead of adding
 duplicates. A newly introduced asset that Rust cannot load dynamically reports
 an error; restart preview with that asset in the initial composition. There is a
 2,000 placement limit. Updates stage replacements before removing previous

@@ -6,6 +6,7 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import re
 from pathlib import Path, PurePosixPath
 import secrets
 import shutil
@@ -19,13 +20,44 @@ import uuid
 import zipfile
 
 from .project import atomic_write
-from .preview_protocol import write_snapshot, preview_map, canonical_placements
+from .preview_protocol import write_snapshot, preview_map, canonical_placements, composition_origin, centered_placements
 from .process_limits import OwnedProcessJob
 
 STEAMCMD_URL = 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip'
 CARBON_RELEASE = 'https://api.github.com/repos/CarbonCommunity/Carbon/releases/latest'
 STOPPED = {'STOPPED', 'FAILED'}
 SERVER_LEASE_SECONDS = 15.
+STEAM_SUCCESS = "Success! App '258550' fully installed."
+
+
+def steam_installation_ready(installation):
+    """Check Steam's completed app state independently of its bootstrap exit."""
+    from .steam import read_vdf
+    installation = Path(installation)
+    try:
+        state = read_vdf(installation/'steamapps/appmanifest_258550.acf')['appstate']
+        return (state.get('appid') == '258550' and state.get('stateflags') == '4'
+            and state.get('updateresult') == '0' and int(state.get('sizeondisk', 0)) > 0
+            and all((installation/name).is_file() and (installation/name).stat().st_size > 0 for name in
+                ('RustDedicated.exe', 'UnityPlayer.dll', 'RustDedicated_Data/Managed/Assembly-CSharp.dll')))
+    except (OSError, ValueError, KeyError, TypeError):return False
+
+
+def steam_progress(text):
+    """Return phase, overall estimate and current phase fraction from SteamCMD."""
+    if STEAM_SUCCESS in text:return 'Rust server installed', .9, 1.
+    updates = re.findall(r'Update state \([^\r\n]*?\) ([^,\r\n]+), progress: (\d+(?:\.\d+)?)', text)
+    for phase, value in reversed(updates):
+        phase = phase.casefold();fraction = max(0., min(1., float(value)/100))
+        if phase == 'downloading':return 'Downloading Rust server', .10+.72*fraction, fraction
+        if phase in ('verifying update', 'validating'):return 'Verifying Rust server', .82+.05*fraction, fraction
+        if phase == 'committing':return 'Installing Rust server files', .87+.03*fraction, fraction
+        if phase in ('reconfiguring', 'preallocating', 'running'):return 'Preparing Rust server download', .10, None
+    updates = re.findall(r'\[\s*(\d+)%\]', text)
+    if updates:
+        fraction = min(1., int(updates[-1])/100)
+        return 'Updating SteamCMD', .05+.05*fraction, fraction
+    return 'Starting SteamCMD', .05, None
 
 
 def read_bounded(path, limit=4096):
@@ -123,17 +155,20 @@ def extract_zip(archive, destination, limit=512*1024*1024):
         bundle.extractall(destination)
 
 
-def download(url, path, cancel, *, maximum=128*1024*1024, digest=None):
+def download(url, path, cancel, *, maximum=128*1024*1024, digest=None, progress=None):
     path = Path(path);temporary = path.with_suffix(path.suffix+'.download')
     request = urllib.request.Request(url, headers={'User-Agent': 'Ruster-Live-Preview', 'Accept': 'application/octet-stream'})
     checksum = hashlib.sha256();total = 0
     try:
         with urllib.request.urlopen(request, timeout=30) as response, temporary.open('wb') as out:
+            try:expected = int(response.headers.get('Content-Length', 0))
+            except (AttributeError, ValueError, TypeError):expected = 0
             while chunk := response.read(256*1024):
                 if cancel.is_set():raise InterruptedError('Preview setup cancelled')
                 total += len(chunk)
                 if total > maximum:raise ValueError('Download exceeds installation size limit')
                 checksum.update(chunk);out.write(chunk)
+                if progress:progress(total, expected)
         if digest and checksum.hexdigest() != digest:raise ValueError('Download SHA256 does not match the published release')
         temporary.replace(path)
     finally:temporary.unlink(missing_ok=True)
@@ -145,7 +180,7 @@ def command(binary, identity, port, url, log):
     return [str(binary), '-batchmode', '-nographics', '-insecure', '-logfile', str(log),
         '+server.identity', identity, '+server.ip', '127.0.0.1', '+server.port', str(port),
         '+server.queryport', str(port+2), '+rcon.ip', '127.0.0.1', '+rcon.port', str(port+1),
-        '+rcon.password', secrets.token_urlsafe(32), '+server.maxplayers', '1',
+        '+rcon.password', secrets.token_hex(32), '+server.maxplayers', '1',
         '+server.encryption', '1',
         '+server.hostname', 'Ruster Local Live Preview', '+server.levelurl', url,
         '+server.saveinterval', '86400', '+app.listenip', '127.0.0.1', '+app.port', '0']
@@ -162,9 +197,12 @@ class PreviewSession:
         self.directory = self.root/'sessions'/self.identity;self.directory.mkdir(parents=True)
         self.log = self.directory/'server.log'
         self.status = 'STARTING';self.message = 'Preparing local preview'
+        self.progress = None;self.phase_progress = None;self.phase = ''
         self.process = None;self.http = None;self.thread = None
         self.cancel = threading.Event();self.lock = threading.Lock();self.events = deque(maxlen=80)
-        self.revision = 1;self.url = '';self._initial = canonical_placements(placements)
+        self.revision = 1;self.url = '';initial = canonical_placements(placements)
+        self.origin = composition_origin(initial);self._initial = centered_placements(initial, self.origin)
+        self._origin_chosen = bool(initial)
         self._map = preview_map(self._initial);self.token = secrets.token_hex(32)
         self.process_lock = threading.Lock();self.owned_job = None
         self.pending = None
@@ -178,6 +216,22 @@ class PreviewSession:
     def note(self, status, message):
         with self.lock:
             self.status, self.message = status, message;self.events.append(message)
+            self.progress = None;self.phase_progress = None;self.phase = ''
+        self._save_status()
+
+    def installation_progress(self, phase, overall, fraction=None):
+        if self.cancel.is_set():return
+        overall = max(0., min(1., overall))
+        if fraction is not None:fraction = max(0., min(1., fraction))
+        with self.lock:
+            if self.progress is not None and overall < self.progress:return
+            if self.phase != phase:self.events.append(phase)
+            self.status = 'DOWNLOADING';self.phase = phase;self.progress = overall;self.phase_progress = fraction
+            self.message = phase+(f' · {fraction:.0%}' if fraction is not None else '')
+
+    def _save_status(self):
+        try:atomic_write(self.directory/'session.status.json', json.dumps(self.info(), indent=2).encode())
+        except OSError:pass
 
     def start(self):
         if self.thread is not None:raise ValueError('This preview session has already been started')
@@ -202,20 +256,34 @@ class PreviewSession:
     def _install(self):
         binary = self.install/'RustDedicated.exe'
         stamp = self.install/'ruster-preview-install.json'
-        if not self.update_server and binary.is_file() and stamp.is_file() and (self.install/'carbon/managed/Carbon.dll').is_file():return binary
+        if not self.update_server and steam_installation_ready(self.install) and stamp.is_file() and (self.install/'carbon/managed/Carbon.dll').is_file():return binary
         self.note('DOWNLOADING', 'Updating the local Rust server with SteamCMD' if binary.is_file() else 'Downloading SteamCMD and the official Rust dedicated server (several GB)')
         steam = self.root/'steamcmd';steam.mkdir(exist_ok=True)
-        if not (steam/'steamcmd.exe').is_file():
-            archive = self.root/'steamcmd.zip';download(STEAMCMD_URL, archive, self.cancel, maximum=16*1024*1024)
-            extract_zip(archive, steam, 64*1024*1024)
-        with (self.directory/'installation.log').open('wb') as output:
-            self._spawn([str(steam/'steamcmd.exe'), '+force_install_dir', str(self.install),
-                '+login', 'anonymous', '+app_update', '258550', 'validate', '+quit'], cwd=steam,
-                stdout=output, stderr=subprocess.STDOUT)
-            self._wait_process(7200)
-            if self.process.returncode or not binary.is_file():raise RuntimeError('SteamCMD could not install Rust. See installation.log')
+        if self.update_server or not steam_installation_ready(self.install):
+            if not (steam/'steamcmd.exe').is_file():
+                self.installation_progress('Downloading SteamCMD', 0.)
+                archive = self.root/'steamcmd.zip'
+                download(STEAMCMD_URL, archive, self.cancel, maximum=16*1024*1024,
+                    progress=lambda done, total: self.installation_progress('Downloading SteamCMD', .04*done/total, done/total) if total else None)
+                self.installation_progress('Extracting SteamCMD', .04)
+                extract_zip(archive, steam, 64*1024*1024)
+            log = self.directory/'installation.log'
+            with log.open('wb') as output:
+                self._spawn([str(steam/'steamcmd.exe'), '+force_install_dir', str(self.install),
+                    '+login', 'anonymous', '+app_update', '258550', 'validate', '+quit'], cwd=steam,
+                    stdout=output, stderr=subprocess.STDOUT)
+                self._wait_process(7200, descendants=True, progress_log=log)
+            # SteamCMD updates/relaunches itself on first use. The original
+            # bootstrap process can report a nonzero exit after its child has
+            # successfully installed the app. Verify the completed app and this
+            # attempt's success message, after all owned descendants finish.
+            tail = self._log_text(log)
+            if not steam_installation_ready(self.install) or (self.process.returncode and STEAM_SUCCESS not in tail):
+                raise RuntimeError(f'SteamCMD exited ({self.process.returncode}) before Rust installation completed. See installation.log')
+        else:self.installation_progress('Rust server already installed; resuming setup', .9, 1.)
         if self.cancel.is_set():raise InterruptedError()
         self.note('DOWNLOADING', 'Installing the Carbon server plugin loader')
+        self.installation_progress('Checking Carbon server plugin loader', .9)
         request = urllib.request.Request(CARBON_RELEASE, headers={'User-Agent': 'Ruster-Live-Preview', 'Accept': 'application/vnd.github+json'})
         with urllib.request.urlopen(request, timeout=30) as response:release = json.loads(response.read(2*1024*1024))
         asset = next((a for a in release['assets'] if a['name'] == 'Carbon.Windows.Release.zip'), None)
@@ -223,14 +291,30 @@ class PreviewSession:
         url = asset['browser_download_url'];digest = asset.get('digest') or ''
         if not url.startswith('https://github.com/CarbonCommunity/Carbon/releases/download/') or not digest.startswith('sha256:'):
             raise ValueError('Carbon release has no trusted URL and SHA256 digest')
-        archive = self.root/'carbon.zip';download(url, archive, self.cancel, digest=digest[7:])
+        archive = self.root/'carbon.zip'
+        download(url, archive, self.cancel, digest=digest[7:], progress=lambda done, total:
+            self.installation_progress('Downloading Carbon server plugin loader', .91+.06*done/total, done/total) if total else None)
+        self.installation_progress('Installing Carbon server plugin loader', .97)
         extract_zip(archive, self.install)
         atomic_write(stamp, json.dumps({'carbon': release['tag_name'], 'sha256': digest[7:]}, indent=2).encode())
+        self.installation_progress('Server installation complete', 1., 1.)
         return binary
 
-    def _wait_process(self, timeout):
+    @staticmethod
+    def _log_text(path):
+        try:
+            with Path(path).open('rb') as handle:
+                handle.seek(max(0, Path(path).stat().st_size-32768))
+                return handle.read(32768).decode('utf8', errors='replace')
+        except OSError:return ''
+
+    def _wait_process(self, timeout, *, descendants=False, progress_log=None):
         deadline = time.monotonic()+timeout
-        while self.process.poll() is None:
+        while True:
+            running = self.process.poll() is None
+            if descendants:running = bool(self.owned_job.active_processes) or running
+            if progress_log:self.installation_progress(*steam_progress(self._log_text(progress_log)))
+            if not running:return
             if self.cancel.wait(.2):raise InterruptedError()
             if time.monotonic() > deadline:raise TimeoutError('Preview process timed out')
 
@@ -247,7 +331,7 @@ class PreviewSession:
             source = Path(__file__).resolve().parents[1]/'preview_native/RusterPreview.cs'
             atomic_write(plugins/'RusterPreview.cs', source.read_bytes()+b'\n'+source.with_name('PreviewProtocol.cs').read_bytes())
             self._serve_map()
-            atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url, 'token': self.token}).encode())
+            atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url, 'token': self.token, 'origin': self.origin}).encode())
             atomic_write(self.directory/'active.flag', b'Ruster local preview\n')
             import os
             env = {**os.environ, 'RUSTER_PREVIEW_DIR': str(self.directory)}
@@ -274,6 +358,8 @@ class PreviewSession:
                     raise TimeoutError('The preview plugin did not become ready within 15 minutes. See server.log')
                 if self.status != 'RUNNING' and any('PlayerPrefsException' in line for line in self.log_tail(12)):
                     raise RuntimeError('Rust server startup could not write its preferences. See server.log')
+                if self.status != 'RUNNING' and 'at World.GetCachedHeightMapResolution' in self._log_text(self.log):
+                    raise RuntimeError('Rust could not read the preview map height layer. See server.log')
         except InterruptedError:final_message = 'Preview setup cancelled'
         except Exception as error:final_status, final_message = 'FAILED', str(error)
         finally:
@@ -305,8 +391,11 @@ class PreviewSession:
 
     def update(self, placements):
         if not self.active:return
-        frozen = canonical_placements(placements)
-        with self.lock:self.pending = frozen
+        source = canonical_placements(placements)
+        with self.lock:
+            if source and not self._origin_chosen:
+                self.origin = composition_origin(source);self._origin_chosen = True
+            self.pending = centered_placements(source, self.origin)
 
     def send_command(self, value):
         if self.status != 'RUNNING':raise ValueError('Wait for the local server to become ready')
@@ -339,7 +428,8 @@ class PreviewSession:
     def info(self):
         with self.lock:
             return {'status': self.status, 'message': self.message, 'address': f'127.0.0.1:{self.port}',
-                'directory': str(self.directory), 'revision': self.revision, 'events': list(self.events)}
+                'directory': str(self.directory), 'revision': self.revision, 'events': list(self.events),
+                'progress': self.progress, 'phase_progress': self.phase_progress, 'phase': self.phase}
 
     def log_tail(self, lines=8):
         values = []

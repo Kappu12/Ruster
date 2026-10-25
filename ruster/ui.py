@@ -419,8 +419,8 @@ def view_header(self,context):
     space=context.space_data
     view_controls=layout.row(align=True)
     action(view_controls,'view3d.view_persportho',text='',depress=space.region_3d.view_perspective=='PERSP')
-    view_controls.prop(space.overlay,'show_overlays',text='Overlays',icon=I['overlay'],toggle=True)
-    view_controls.prop(context.scene,'ruster_show_volumes',text='Volumes',icon=I['volume'],toggle=True)
+    view_controls.prop(space.overlay,'show_overlays',text='',icon=I['overlay'],toggle=True)
+    view_controls.prop(context.scene,'ruster_show_volumes',text='',icon=I['volume'],toggle=True)
     layout.prop(space.shading,'type',text='',expand=True)
 
 
@@ -469,10 +469,10 @@ def topbar(self,context):
         from .quitting import save_status
         layout.label(text=context.scene.ruster.title+' · '+save_status(),icon=I['project'])
     else:
-        bpy.types.TOPBAR_MT_editor_menus.draw_collapsible(context,layout)
-        layout.separator()
         from . import branding
         branding.label(layout,text='Prefab Editor',context=context)
+        layout.separator()
+        bpy.types.TOPBAR_MT_editor_menus.draw_collapsible(context,layout)
 
 
 def close_map_timeline():

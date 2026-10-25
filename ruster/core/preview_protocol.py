@@ -80,19 +80,33 @@ def write_snapshot(directory, revision, placements):
         separators=(',', ':'), allow_nan=False).encode())
 
 
+def composition_origin(placements):
+    """Choose one stable center for a preview session without editing the file."""
+    rows = canonical_placements(placements)
+    if not rows:return (0., 0., 0.)
+    return tuple((min(row['position'][axis] for row in rows)+max(row['position'][axis] for row in rows))/2 for axis in range(3))
+
+
+def centered_placements(placements, origin):
+    rows = canonical_placements(placements)
+    for row in rows:row['position'] = tuple(value-offset for value, offset in zip(row['position'], origin))
+    return canonical_placements(rows)
+
+
 def preview_map(placements, size=1000):
-    """A small private flat test map, with original prefab IDs and no terrain edits."""
+    """A void preview map: hidden terrain holes and no world scenery or paths."""
     placements = canonical_placements(placements)
-    if size != 1000:raise ValueError('The flat preview map is fixed at 1,000 metres')
+    if size != 1000:raise ValueError('The void preview map is fixed at 1,000 metres')
     if any('euler' not in row for row in placements):raise ValueError('Initial map placements require Euler rotation metadata')
     n, m = 513, 512
     layers = {
-        'terrain': struct.pack('<h', round(495/1000*32766)) * n*n,
-        'water': struct.pack('<h', round(450/1000*32766)) * n*n,
+        'height': b'\0\0' * n*n,
+        'terrain': b'\0\0' * n*n,
+        'water': b'\0\0' * n*n,
         'splat': b'\0\0\0\0\xff\0\0\0' * m*m,
         'biome': b'\0\xff\0\0' * m*m,
         'topology': b'\0\0\0\0' * m*m,
-        'alpha': b'\xff' * m*m,
+        'alpha': b'\0' * m*m,
     }
     fields = [wire.encode(1, 0, size)]
     for name, payload in layers.items():

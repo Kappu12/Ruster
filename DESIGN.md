@@ -32,6 +32,10 @@ Live Preview occupies its own native editor below Placements on the right,
 outside the viewport's extension sidebar. Keep that editor when removing the
 timeline and restore it for older projects whose saved layouts lack it. Its
 status, no-EAC launch/injection controls and console use the shared UI vocabulary.
+Installation displays measured phase progress and an explicitly approximate
+overall percentage. Preview compositions are centered in a void without moving
+the authored objects. Keep viewport Overlays and Volumes as icon-only toggles,
+and place the app identity before the Ruster menu in the far-left corner.
 
 ## Entry and discovery
 

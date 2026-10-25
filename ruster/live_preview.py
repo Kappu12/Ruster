@@ -311,6 +311,8 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         action(controls, 'ruster.stop_live_preview' if active else 'ruster.start_live_preview')
         message = status()
         wrapped(layout, context, message['message'], icon='error' if message['status'] == 'FAILED' else 'busy' if active and not running else 'info')
+        if active and message.get('progress') is not None:
+            layout.progress(factor=message['progress'], type='BAR', text=f"Setup · ~{message['progress']:.0%}")
         row = layout.row(align=True);row.label(text=f'127.0.0.1:{_job.port if active else state.port}')
         action(row, 'ruster.preview_copy_ip')
         layout.separator()
@@ -321,6 +323,8 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
             action(row, 'ruster.inject_preview', text='Preview Module Loaded' if _module_loaded else None)
         else:action(row, 'ruster.launch_preview_rust')
         wrapped(layout, context, _probe_message, icon='error' if _clients and not _client_allowed and not _module_loaded else 'info')
+        if _clients and not running and not _module_loaded:
+            wrapped(layout, context, 'Inject unlocks when the local server is Ready.', icon='busy')
         wrapped(layout, context, 'Active or unknown EAC blocks Inject.', icon='locked')
         notice = layout.box()
         wrapped(notice, context, RESTART_NOTICE, icon='locked')

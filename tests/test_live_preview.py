@@ -39,6 +39,13 @@ def ready_session(path, **changes):
     return report
 
 
+def installed_steam_server(path, flags='4'):
+    (path/'steamapps').mkdir(parents=True, exist_ok=True)
+    (path/'steamapps/appmanifest_258550.acf').write_text('"AppState" { "appid" "258550" "StateFlags" "'+flags+'" "UpdateResult" "0" "SizeOnDisk" "6104131185" }')
+    for name in ('RustDedicated.exe', 'UnityPlayer.dll', 'RustDedicated_Data/Managed/Assembly-CSharp.dll'):
+        file = path/name;file.parent.mkdir(parents=True, exist_ok=True);file.write_bytes(b'offline fixture')
+
+
 def test_no_eac_requires_multiple_independent_observations(tmp_path):
     probe = safe_probe(tmp_path)
     assert client.verify_probe(probe, tmp_path) is probe
@@ -131,13 +138,16 @@ def test_duplicate_and_oversized_snapshots_are_rejected():
     with pytest.raises(ValueError):protocol.encode_snapshot(1, [placement(key=i+1) for i in range(2001)])
 
 
-def test_initial_map_contains_exact_original_placements_and_flat_layers():
+def test_initial_map_contains_original_placements_and_void_layers():
     world = RustMap.read(protocol.preview_map([placement()]))
     assert world.size == 1000 and len(world.prefabs) == 1
     assert prefab_id(world.prefabs[0]) == 123456
     assert prefab_transform(world.prefabs[0]) == ((1., 2., 3.), (0., 90., 0.), (1., 2., 3.))
     assert world.height_grid()[0] == 513
-    assert world.layers['alpha'] == b'\xff'*(512*512)
+    assert world.layers['alpha'] == b'\0'*(512*512)
+    assert set(world.layers['terrain']) == {0} and set(world.layers['water']) == {0}
+    assert world.layers['height'] == world.layers['terrain']
+    assert not world.paths
 
 
 @pytest.mark.parametrize('name', ['../escape', '/root/file', 'C:/outside', 'safe/../../escape', 'safe\\..\\..\\escape'])
@@ -166,6 +176,7 @@ def test_server_command_is_private_insecure_and_uses_requested_port():
     for field in ('+server.ip', '+rcon.ip', '+app.listenip'):assert args[args.index(field)+1] == '127.0.0.1'
     assert args[args.index('+server.port')+1] == '29000'
     assert args[args.index('+server.maxplayers')+1] == '1'
+    assert not args[args.index('+rcon.password')+1].startswith('-')
     assert len(args[args.index('+rcon.password')+1]) >= 32
 
 
@@ -296,7 +307,8 @@ def test_module_integrity_and_build_source_must_match(tmp_path):
 def test_reused_server_can_be_explicitly_updated(tmp_path, monkeypatch):
     monkeypatch.setattr(server, 'check_ports', lambda port: None)
     job = server.PreviewSession(tmp_path)
-    binary = job.install/'RustDedicated.exe';binary.touch()
+    installed_steam_server(job.install)
+    binary = job.install/'RustDedicated.exe'
     (job.install/'ruster-preview-install.json').touch()
     carbon = job.install/'carbon/managed/Carbon.dll';carbon.parent.mkdir(parents=True);carbon.touch()
     assert job._install() == binary
@@ -306,6 +318,112 @@ def test_reused_server_can_be_explicitly_updated(tmp_path, monkeypatch):
     job._spawn = stop_before_launch
     with pytest.raises(InterruptedError, match='synthetic updater reached'):job._install()
     assert job.status == 'DOWNLOADING'
+
+
+@pytest.mark.parametrize('log,expected', [
+    ('[ 50%] Downloading update...', ('Updating SteamCMD', .075, .5)),
+    ('Update state (0x61) downloading, progress: 50.00 (300 / 600)', ('Downloading Rust server', .46, .5)),
+    ('Update state (0x81) verifying update, progress: 60.00 (360 / 600)', ('Verifying Rust server', .85, .6)),
+    ('Update state (0x101) committing, progress: 50.00 (300 / 600)', ('Installing Rust server files', .885, .5)),
+    (server.STEAM_SUCCESS, ('Rust server installed', .9, 1.)),
+])
+def test_steamcmd_reports_phase_progress_and_an_overall_estimate(log, expected):
+    phase, overall, fraction = server.steam_progress(log)
+    assert phase == expected[0] and overall == pytest.approx(expected[1]) and fraction == expected[2]
+
+
+def test_completed_steam_manifest_requires_server_files(tmp_path):
+    assert not server.steam_installation_ready(tmp_path)
+    installed_steam_server(tmp_path, flags='1026')
+    assert not server.steam_installation_ready(tmp_path)
+    installed_steam_server(tmp_path)
+    assert server.steam_installation_ready(tmp_path)
+    (tmp_path/'UnityPlayer.dll').unlink()
+    assert not server.steam_installation_ready(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only preview installation')
+@pytest.mark.parametrize('already_installed,exit_code,success,flags,expected', [
+    (True, None, False, '4', True), (False, 7, True, '4', True),
+    (False, 7, False, '4', False), (False, 7, True, '1026', False)])
+def test_installation_resumes_and_accepts_verified_bootstrap_relaunch(tmp_path, monkeypatch, already_installed, exit_code, success, flags, expected):
+    from types import SimpleNamespace
+    monkeypatch.setattr(server, 'check_ports', lambda port: None)
+    job = server.PreviewSession(tmp_path)
+    if already_installed:installed_steam_server(job.install)
+    steam = job.root/'steamcmd';steam.mkdir();(steam/'steamcmd.exe').touch()
+    launches = []
+    def spawn(args, **kwargs):
+        launches.append(args);job.process = SimpleNamespace(returncode=exit_code)
+        installed_steam_server(job.install, flags)
+        kwargs['stdout'].write((server.STEAM_SUCCESS if success else 'ERROR! Update failed.').encode());kwargs['stdout'].flush()
+    job._spawn = spawn
+    waits = [];job._wait_process = lambda timeout, **kwargs: waits.append(kwargs)
+    release = {'tag_name': 'test', 'assets': [{'name': 'Carbon.Windows.Release.zip', 'digest': 'sha256:'+'a'*64,
+        'browser_download_url': 'https://github.com/CarbonCommunity/Carbon/releases/download/test/Carbon.Windows.Release.zip'}]}
+    monkeypatch.setattr(server.urllib.request, 'urlopen', lambda *a, **k: io.BytesIO(json.dumps(release).encode()))
+    monkeypatch.setattr(server, 'download', lambda *a, **k: None)
+    def extract(archive, destination):
+        file = Path(destination)/'carbon/managed/Carbon.dll';file.parent.mkdir(parents=True);file.write_bytes(b'offline fixture')
+    monkeypatch.setattr(server, 'extract_zip', extract)
+    if expected:
+        assert job._install() == job.install/'RustDedicated.exe'
+        assert (job.install/'ruster-preview-install.json').exists()
+        assert job.info()['progress'] == 1.
+    else:
+        with pytest.raises(RuntimeError, match='SteamCMD exited'):job._install()
+        assert not (job.install/'ruster-preview-install.json').exists()
+    assert bool(launches) != already_installed
+    if launches:assert waits[0]['descendants'] is True
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only preview session')
+def test_preview_centers_initial_composition_and_keeps_a_fixed_origin(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'check_ports', lambda port: None)
+    rows = [placement(position=(100., 10., 20.)), placement(key=18, position=(110., 12., 40.))]
+    job = server.PreviewSession(tmp_path, placements=rows)
+    assert job.origin == (105., 11., 30.)
+    assert [p['position'] for p in job._initial] == [(-5., -1., -10.), (5., 1., 10.)]
+    world = RustMap.read(job._map)
+    assert prefab_transform(world.prefabs[0])[0] == (-5., -1., -10.)
+    moved = [placement(position=(101., 10., 20.))]
+    job.update(moved)
+    assert job.pending[0]['position'] == (-4., -1., -10.)
+    assert moved[0]['position'] == (101., 10., 20.)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows owned bootstrap process tree')
+def test_waits_for_installer_child_after_bootstrap_process_exits(tmp_path, monkeypatch):
+    from ruster.core.process_limits import OwnedProcessJob
+    monkeypatch.setattr(server, 'check_ports', lambda port: None)
+    job = server.PreviewSession(tmp_path);job.owned_job = OwnedProcessJob()
+    marker = tmp_path/'child-finished'
+    child = "import time;from pathlib import Path;time.sleep(.35);Path("+repr(str(marker))+").write_text('finished')"
+    parent = "import subprocess,sys;subprocess.Popen([sys.executable,'-c',"+repr(child)+"]);sys.exit(7)"
+    try:
+        job._spawn([getattr(sys, '_base_executable', sys.executable), '-c', parent], stdout=server.subprocess.DEVNULL, stderr=server.subprocess.DEVNULL)
+        job._wait_process(5, descendants=True)
+        assert job.process.returncode == 7 and marker.read_text() == 'finished'
+        assert job.owned_job.active_processes == 0
+    finally:job._stop_process();job.owned_job.close()
+
+
+def test_download_progress_uses_received_bytes_and_content_length(tmp_path, monkeypatch):
+    class Response(io.BytesIO):headers = {'Content-Length': '600000'}
+    monkeypatch.setattr(server.urllib.request, 'urlopen', lambda *a, **k: Response(b'x'*600000))
+    reported = []
+    server.download('https://example.com', tmp_path/'file.zip', threading.Event(), progress=lambda done, total: reported.append((done,total)))
+    assert reported[-1] == (600000,600000) and len(reported) == 3
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only preview session')
+def test_preview_started_empty_centers_first_composition_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'check_ports', lambda port: None)
+    job = server.PreviewSession(tmp_path)
+    job.update([placement(position=(123., 4., 567.))])
+    assert job.pending[0]['position'] == (0., 0., 0.)
+    job.update([placement(position=(124., 4., 567.))])
+    assert job.pending[0]['position'] == (1., 0., 0.)
 
 
 def test_loaded_old_module_is_rejected_before_any_remote_operation(tmp_path, monkeypatch):

@@ -22,7 +22,8 @@ state = {'phase': 0, 'draws': set(), 'started': time.monotonic()}
 
 class FakeJob:
     active = True;status = 'RUNNING';port = 28015;directory = root
-    def info(self):return {'status': 'RUNNING', 'message': 'Local server ready at 127.0.0.1:28015'}
+    def info(self):return {'status': self.status, 'message': getattr(self, 'message', 'Local server ready at 127.0.0.1:28015'),
+        'progress': getattr(self, 'progress', None)}
     def log_tail(self, count):return ['Local preview bridge ready', 'Server scene revision 8 (24 placements)']
     def update(self, rows):pass
     def close(self):pass
@@ -76,8 +77,15 @@ def tick():
             live_preview._module_loaded = True
             live_preview._probe_message = 'Preview module is loaded'
             live_preview._client_status = 'READY · Live scene revision 8 applied (24 placements).'
+        elif phase in (4, 5):
+            live_preview._module_loaded = False;live_preview._clients = [];live_preview._client_status = ''
+            live_preview._probe_message = 'Rust is not running'
+            live_preview._job.status = 'DOWNLOADING'
+            live_preview._job.message = 'Updating SteamCMD · 50%' if phase == 4 else 'Downloading Rust server · 50%'
+            live_preview._job.progress = .075 if phase == 4 else .46
+            live_preview.refresh_status()
         else:
-            assert state['draws'] >= {0, 1, 2, 3}
+            assert state['draws'] >= {0, 1, 2, 3, 4, 5}
             live_preview._job = None
             ruster.unregister()
             print('RUSTER_LIVE_PREVIEW_DRAW_STATES_OK', flush=True)

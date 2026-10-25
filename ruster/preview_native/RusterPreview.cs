@@ -51,6 +51,9 @@ namespace Oxide.Plugins
                 if(ConVar.Server.ip!="127.0.0.1"||Network.Net.sv.secure)throw new Exception("Preview requires a loopback-only insecure server");
                 config=JsonConvert.DeserializeObject<SessionConfig>(ReadText(Path.Combine(directory,"config.json"),4096));
                 if(config==null||config.url!=World.Url||config.token==null||config.token.Length!=64)throw new Exception("Preview map URL or session identity does not match");
+                // env.oceanlevel is a native replicated variable. Move the ocean
+                // out of view for this owned session; alpha holes hide terrain.
+                ConVar.Env.oceanlevel=-1000000f;
                 var initial=Snapshot.Read(Path.Combine(directory,"initial.bin"));
                 HashSet<GameObject> baked;
                 var candidates=World.SpawnedPrefabs.TryGetValue("RusterPreview",out baked)?new List<GameObject>(baked):new List<GameObject>();
@@ -108,6 +111,25 @@ namespace Oxide.Plugins
                 if(snapshot.revision>revision)Apply(snapshot);
             }
             catch(Exception error){Write("server.status","ERROR\n"+error.Message);}
+        }
+        object OnPlayerRespawn(BasePlayer player,BasePlayer.SpawnPoint original)
+        {
+            if(!initialized||!Active()||player==null||player.net==null||player.net.connection==null)return null;
+            var address=player.net.connection.ipaddress;
+            if(address!="127.0.0.1"&&!address.StartsWith("127.0.0.1:",StringComparison.Ordinal))return null;
+            // Void maps have no beach spawn points. Spawn above the composition
+            // without adding any platform or other geometry to the preview.
+            var bounds=new Bounds(Vector3.zero,Vector3.zero);bool found=false;
+            foreach(var obj in objects.Values)
+            {
+                if(obj==null)continue;
+                foreach(var collider in obj.GetComponentsInChildren<Collider>(true))
+                {
+                    if(!collider.enabled||collider.isTrigger)continue;
+                    if(!found){bounds=collider.bounds;found=true;}else bounds.Encapsulate(collider.bounds);
+                }
+            }
+            return new BasePlayer.SpawnPoint{pos=new Vector3(bounds.center.x,(found?bounds.max.y:0)+3,bounds.center.z),rot=Quaternion.identity};
         }
         void Commands()
         {
