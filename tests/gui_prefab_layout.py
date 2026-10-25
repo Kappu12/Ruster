@@ -36,6 +36,11 @@ checked_draw(layout.RUSTER_OT_layout, 'layout')
 checked_draw(layout.RUSTER_OT_composition_check, 'check')
 checked_draw(layout.RUSTER_PT_layout, 'panel')
 ruster.register()
+keymap = bpy.context.window_manager.keyconfigs.addon.keymaps['3D View']
+item = keymap.keymap_items.new('ruster.layout', 'F8', 'PRESS')
+item.properties.operation = 'LINEAR';item.properties.count = 3
+item.properties.offset = (3, 0, 0)
+bpy.context.window_manager.keyconfigs.update()
 state = {'stage': 0}
 operations = [value for value, _label, _description in layout.OPERATIONS]
 
@@ -74,12 +79,17 @@ def tick():
                 bpy.ops.screen.screenshot(filepath=str(ROOT/'build/prefab-layout-ui.png'))
                 window.event_simulate(type='ESC', value='PRESS')
             elif stage == 17:
-                bpy.ops.ruster.layout(operation='LINEAR', count=3, offset=(3, 0, 0))
-                assert len(scene.prefab_roots()) == 4
+                window.event_simulate(type='MOUSEMOVE', value='NOTHING', x=region.x+100, y=region.y+100)
+                window.event_simulate(type='F8', value='PRESS', x=region.x+100, y=region.y+100)
+                window.event_simulate(type='F8', value='RELEASE', x=region.x+100, y=region.y+100)
             elif stage == 18:
+                window.event_simulate(type='RET', value='PRESS', x=region.x+100, y=region.y+100)
+                window.event_simulate(type='RET', value='RELEASE', x=region.x+100, y=region.y+100)
+            elif stage == 19:
+                assert len(scene.prefab_roots()) == 4
                 bpy.ops.ed.undo()
                 assert len(scene.prefab_roots()) == 1, 'Layout must undo in one step'
-            elif stage == 19:
+            elif stage == 20:
                 bpy.ops.ed.redo()
                 assert len(scene.prefab_roots()) == 4
             else:

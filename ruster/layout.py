@@ -138,6 +138,7 @@ class RUSTER_PT_layout(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'Ruster'
     bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 20
 
     def draw(self, context):
         for operation, label, _description in OPERATIONS:

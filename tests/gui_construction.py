@@ -39,6 +39,9 @@ for cls in (construction.RUSTER_PT_construction, construction.RUSTER_PT_snapping
         return draw
     cls.draw = checked(original, cls.__name__)
 ruster.register()
+keymap = bpy.context.window_manager.keyconfigs.addon.keymaps['3D View']
+keymap.keymap_items.new('ruster.symmetry_apply', 'F8', 'PRESS')
+bpy.context.window_manager.keyconfigs.update()
 
 
 def at_view():
@@ -241,11 +244,16 @@ def perform():
         bpy.context.scene.cursor.location = (0, 4, 0)
         with at_view():bpy.ops.ruster.place(uid='123456')
         assert len(scene.prefab_roots()) == 4
+        window.event_simulate(type='MOUSEMOVE', value='NOTHING', x=state['region'].x+100, y=state['region'].y+100)
     elif stage == 32:
         bpy.context.scene.ruster_construction.sides = 6
-        with at_view():bpy.ops.ruster.symmetry_apply()
-        assert len(scene.prefab_roots()) == 6
+        # Timer-invoked Python operators do not get Blender's automatic undo
+        # push. Dispatch through a native keymap to test the real UI contract.
+        with at_view():bpy.ops.ed.undo_push(message='Before symmetry resize')
+        window.event_simulate(type='F8', value='PRESS', x=state['region'].x+100, y=state['region'].y+100)
+        window.event_simulate(type='F8', value='RELEASE', x=state['region'].x+100, y=state['region'].y+100)
     elif stage == 33:
+        assert len(scene.prefab_roots()) == 6, f'Resize did not run: {len(scene.prefab_roots())} placements'
         with at_view():bpy.ops.ed.undo()
         assert len(scene.prefab_roots()) == 4, 'Symmetry resize must undo in one step'
     elif stage == 34:

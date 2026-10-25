@@ -495,7 +495,7 @@ class RUSTER_PT_symmetry(bpy.types.Panel):
         layout.prop(settings, 'symmetry')
         col = layout.column()
         col.prop(settings, 'sides')
-        col.prop(settings, 'axis', expand=True)
+        col.row(align=True).prop(settings, 'axis', expand=True)
         col.prop(settings, 'rotate_copies')
         col.prop(settings, 'center')
         col.operator('ruster.symmetry_center', icon='CURSOR')
