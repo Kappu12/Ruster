@@ -1,6 +1,7 @@
 """Placement snapping and radial copies of whole, read-only prefab instances."""
 import math
 import uuid
+from contextlib import contextmanager
 
 import bpy
 from bpy.app.handlers import persistent
@@ -11,7 +12,23 @@ _classes = []
 _syncing = False
 _restoring = False
 _snapshots = {}
-COPY_KEYS = ('ruster_symmetry_source', 'ruster_symmetry_center', 'ruster_symmetry_angle')
+COPY_KEYS = ('ruster_symmetry_source', 'ruster_symmetry_center', 'ruster_symmetry_angle',
+             'ruster_symmetry_axis', 'ruster_symmetry_rotate')
+
+
+@contextmanager
+def symmetry_transaction(context):
+    """Do not let dependency updates replay partially constructed sets."""
+    global _syncing
+    previous = _syncing
+    _syncing = True
+    try:
+        context.view_layer.update()
+        yield
+    finally:
+        context.view_layer.update()
+        remember_symmetry(context.scene)
+        _syncing = previous
 
 
 def update_snapping(settings, context):
@@ -53,14 +70,18 @@ class RUSTER_PG_construction(bpy.types.PropertyGroup):
         items=[('VERTEX', 'Vertices', 'Snap to model corners'),
                ('EDGE', 'Edges', 'Snap to model edges'), ('FACE', 'Faces', 'Snap to model surfaces')])
     angle_snap: EnumProperty(name='Rotation Step', default='OFF', update=update_snapping,
-        items=[('OFF', 'Off', 'Free rotation'), ('45', '45°', 'Rotate in 45 degree steps'),
-               ('90', '90°', 'Rotate in 90 degree steps')])
+        items=[('OFF', 'Off', 'Free rotation')] +
+              [(str(angle), str(angle)+'°', f'Rotate in {angle} degree steps') for angle in (15, 30, 45, 60, 90, 180)])
     symmetry: BoolProperty(name='Radial Symmetry', default=False, update=update_symmetry,
         description='Repeat new prefabs around the center; editing or deleting any member affects its set while enabled')
     sides: IntProperty(name='Sides', default=4, min=2, max=16,
         description='Total placements per set, including the original (applies to newly added prefabs)')
     center: FloatVectorProperty(name='Center', size=3, subtype='TRANSLATION',
-        description='World center for new symmetry sets; rotation is around the vertical Z axis')
+        description='World center for new sets, or selected sets when Apply Settings is used')
+    axis: EnumProperty(name='Axis', default='Z',
+        items=[(axis, axis, 'Repeat around world '+axis) for axis in 'XYZ'])
+    rotate_copies: BoolProperty(name='Rotate Copies', default=True,
+        description='Turn copies around the axis; disable to keep every copy facing the same way')
 
 
 def clear_copy_link(obj):
@@ -68,34 +89,72 @@ def clear_copy_link(obj):
         if key in obj:del obj[key]
 
 
-def radial_matrix(matrix, center, angle):
+def radial_matrix(matrix, center, angle, axis='Z', rotate=True):
     center = Vector(center)
-    return Matrix.Translation(center) @ Matrix.Rotation(angle, 4, 'Z') @ Matrix.Translation(-center) @ matrix
+    result = Matrix.Translation(center) @ Matrix.Rotation(angle, 4, axis) @ Matrix.Translation(-center) @ matrix
+    if not rotate:
+        orientation = matrix.copy()
+        orientation.translation = result.translation
+        return orientation
+    return result
+
+
+def set_copy_link(obj, source, settings, index):
+    obj['ruster_symmetry_source'] = source['ruster_instance']
+    obj['ruster_symmetry_center'] = list(settings.center)
+    obj['ruster_symmetry_angle'] = math.tau * index / settings.sides
+    obj['ruster_symmetry_axis'] = [float(axis == settings.axis) for axis in 'XYZ']
+    obj['ruster_symmetry_rotate'] = settings.rotate_copies
+
+
+def member_matrix(matrix, companion, angle):
+    return radial_matrix(matrix, companion['ruster_symmetry_center'], angle,
+                         Vector(companion.get('ruster_symmetry_axis', (0, 0, 1))),
+                         bool(companion.get('ruster_symmetry_rotate', True)))
+
+
+def check_sources(sources, context):
+    from . import scene
+    if not sources:raise ValueError('Select whole prefab placements first')
+    if len(sources) * (context.scene.ruster_construction.sides - 1) > 2000:
+        raise ValueError('Symmetry is limited to 2,000 new placements per operation')
+    for source in sources:
+        if source.get('ruster_linked_extensions') or source.get('ruster_has_io'):
+            raise ValueError('Imported IO/linked metadata cannot be copied into symmetry sets')
+        if source.children:
+            raise ValueError('Select individual whole prefab placements without child objects')
+        if source.parent:
+            parent = source.parent.matrix_world @ source.matrix_parent_inverse
+            lengths = parent.to_scale()
+            if scene.matrix_has_shear(parent) or max(lengths)-min(lengths) > 1e-5:
+                raise ValueError('Use uniform parent group scale before applying symmetry')
+        from .studio import prefab_records
+        prefab_records([source], Vector())
 
 
 def add_symmetry(source, context):
     """Create copies atomically. Selection stays on the editable original."""
     settings = context.scene.ruster_construction
     if not settings.symmetry:return []
-    context.view_layer.update()
     created = []
-    try:
-        for index in range(1, settings.sides):
-            obj = source.copy()
-            source.users_collection[0].objects.link(obj)
-            created.append(obj)
-            obj['ruster_instance'] = uuid.uuid4().hex
-            obj['ruster_symmetry_source'] = source['ruster_instance']
-            obj['ruster_symmetry_center'] = list(settings.center)
-            obj['ruster_symmetry_angle'] = math.tau * index / settings.sides
-            if 'ruster_frame_on_load' in obj:del obj['ruster_frame_on_load']
-            obj.matrix_world = radial_matrix(source.matrix_world, settings.center, obj['ruster_symmetry_angle'])
-            obj.select_set(False)
-        remember_symmetry(context.scene)
-        return created
-    except Exception:
-        for obj in created:bpy.data.objects.remove(obj, do_unlink=True)
-        raise
+    with symmetry_transaction(context):
+        check_sources([source], context)
+        if source.get('ruster_symmetry_source') or symmetry_members([source]):
+            raise ValueError('This placement already belongs to a symmetry set; use Apply Settings')
+        try:
+            for index in range(1, settings.sides):
+                obj = source.copy()
+                source.users_collection[0].objects.link(obj)
+                created.append(obj)
+                obj['ruster_instance'] = uuid.uuid4().hex
+                set_copy_link(obj, source, settings, index)
+                if 'ruster_frame_on_load' in obj:del obj['ruster_frame_on_load']
+                obj.matrix_world = member_matrix(source.matrix_world, obj, obj['ruster_symmetry_angle'])
+                obj.select_set(False)
+            return created
+        except Exception:
+            for obj in created:bpy.data.objects.remove(obj, do_unlink=True)
+            raise
 
 
 def symmetry_groups(context_scene, previous=None):
@@ -123,6 +182,28 @@ def remember_symmetry(context_scene):
 
 def matrix_changed(matrix, previous):
     return any(abs(a-b) > 1e-6 for row, other in zip(matrix, previous) for a, b in zip(row, other))
+
+
+def move_complete_set(members, before):
+    """A common rigid/uniform transform moves the center and axis with the set."""
+    from .scene import matrix_has_shear
+    if len(members) < 2 or members.keys() != before.keys():return False
+    instance, driver = next(iter(members.items()))
+    try:delta = driver.matrix_world @ before[instance].inverted()
+    except ValueError:return False
+    lengths = delta.to_scale()
+    if matrix_has_shear(delta) or max(lengths)-min(lengths) > 1e-5 or delta.determinant() <= 0:return False
+    for instance, obj in members.items():
+        expected = delta @ before[instance]
+        if any(not math.isclose(a, b, abs_tol=2e-4, rel_tol=2e-6)
+               for row, other in zip(obj.matrix_world, expected) for a, b in zip(row, other)):
+            return False
+    for obj in members.values():
+        if not obj.get('ruster_symmetry_source'):continue
+        obj['ruster_symmetry_center'] = list(delta @ Vector(obj['ruster_symmetry_center']))
+        axis = Vector(obj.get('ruster_symmetry_axis', (0, 0, 1)))
+        obj['ruster_symmetry_axis'] = list((delta.to_3x3() @ axis).normalized())
+    return True
 
 
 @persistent
@@ -161,14 +242,14 @@ def sync_symmetry(context_scene, _depsgraph=None):
                 changed = [obj for instance, obj in members.items()
                            if instance in before and matrix_changed(obj.matrix_world, before[instance])]
                 if not changed:continue
+                if len(changed) == len(members) and move_complete_set(members, before):continue
                 driver = active if active in changed else changed[0]
                 companion = next((obj for obj in members.values() if obj.get('ruster_symmetry_source')), None)
                 if companion is None:continue
-                center = companion['ruster_symmetry_center']
                 angle = driver.get('ruster_symmetry_angle', 0.) if driver.get('ruster_symmetry_source') else 0.
-                anchor = radial_matrix(driver.matrix_world, center, -angle)
+                anchor = member_matrix(driver.matrix_world, companion, -angle)
                 for obj in members.values():
-                    target = radial_matrix(anchor, center, obj.get('ruster_symmetry_angle', 0.)
+                    target = member_matrix(anchor, companion, obj.get('ruster_symmetry_angle', 0.)
                                            if obj.get('ruster_symmetry_source') else 0.)
                     if obj != driver and matrix_changed(obj.matrix_world, target):obj.matrix_world = target
         remember_symmetry(context_scene)
@@ -201,10 +282,113 @@ class RUSTER_OT_symmetry_center(bpy.types.Operator):
     bl_label = 'Center at 3D Cursor'
     bl_description = 'Use the 3D cursor as the center for newly added symmetry sets'
     bl_options = {'REGISTER', 'UNDO'}
+    selection: BoolProperty(default=False, options={'HIDDEN'})
 
     def execute(self, context):
-        context.scene.ruster_construction.center = context.scene.cursor.location
+        from .placement import selected_prefabs
+        if self.selection:
+            objects = selected_prefabs()
+            if not objects:return {'CANCELLED'}
+            context.view_layer.update()
+            context.scene.ruster_construction.center = sum((o.matrix_world.translation for o in objects), Vector())/len(objects)
+        else:context.scene.ruster_construction.center = context.scene.cursor.location
         return {'FINISHED'}
+
+
+class RUSTER_OT_symmetry_create(bpy.types.Operator):
+    bl_idname = 'ruster.symmetry_create'
+    bl_label = 'Create Symmetry from Selection'
+    bl_description = 'Create a radial set for each selected whole prefab using the settings above'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):return context.mode == 'OBJECT' and bool(context.selected_objects)
+
+    def execute(self, context):
+        from .placement import selected_prefabs
+        sources = selected_prefabs()
+        created = []
+        enabled = context.scene.ruster_construction.symmetry
+        try:
+            with symmetry_transaction(context):
+                check_sources(sources, context)
+                linked = {obj for members in symmetry_groups(context.scene).values() for obj in members.values()}
+                if any(obj in linked for obj in sources):
+                    raise ValueError('Selection already contains a symmetry set; use Apply Settings or make it independent')
+                context.scene.ruster_construction.symmetry = True
+                try:
+                    for obj in sources:created.extend(add_symmetry(obj, context))
+                except Exception:
+                    for obj in created:bpy.data.objects.remove(obj, do_unlink=True)
+                    context.scene.ruster_construction.symmetry = enabled
+                    raise
+            return {'FINISHED'}
+        except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
+
+
+class RUSTER_OT_symmetry_select(bpy.types.Operator):
+    bl_idname = 'ruster.symmetry_select'
+    bl_label = 'Select Symmetry Set'
+    bl_description = 'Select all members of the selected sets, keeping the active member'
+
+    def execute(self, context):
+        from .placement import selected_prefabs, select
+        active = context.view_layer.objects.active
+        selected = selected_prefabs()
+        select(selected + symmetry_members(selected))
+        if active and active.select_get():context.view_layer.objects.active = active
+        return {'FINISHED'}
+
+
+class RUSTER_OT_symmetry_apply(bpy.types.Operator):
+    bl_idname = 'ruster.symmetry_apply'
+    bl_label = 'Apply Settings to Selected Sets'
+    bl_description = 'Rebuild selected sets around their original using the current side count, center, axis and orientation'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .placement import selected_prefabs, select
+        settings = context.scene.ruster_construction
+        selected = selected_prefabs()
+        groups = symmetry_groups(context.scene)
+        ids = {obj.get('ruster_symmetry_source') or obj.get('ruster_instance') for obj in selected}
+        chosen = {key: members for key, members in groups.items() if key in ids}
+        created, saved, remove = [], {}, []
+        try:
+            with symmetry_transaction(context):
+                if not chosen:raise ValueError('Select a member of an existing symmetry set')
+                if any(key not in members for key, members in chosen.items()):
+                    raise ValueError('A set has no original; make it independent and create a new set')
+                check_sources([obj for members in chosen.values() for obj in members.values()], context)
+                for members in chosen.values():
+                    for obj in members.values():
+                        saved[obj] = (obj.matrix_basis.copy(), {key: list(obj[key]) if hasattr(obj[key], 'to_list') else obj[key]
+                                      for key in COPY_KEYS if key in obj})
+                try:
+                    for source_id, members in chosen.items():
+                        source = members[source_id]
+                        peers = sorted((o for o in members.values() if o != source), key=lambda o: o['ruster_symmetry_angle'])
+                        for index in range(1, settings.sides):
+                            if index <= len(peers):obj = peers[index-1]
+                            else:
+                                obj = source.copy();source.users_collection[0].objects.link(obj);created.append(obj)
+                                obj['ruster_instance'] = uuid.uuid4().hex
+                                if 'ruster_frame_on_load' in obj:del obj['ruster_frame_on_load']
+                                obj.select_set(False)
+                            set_copy_link(obj, source, settings, index)
+                            obj.matrix_world = member_matrix(source.matrix_world, obj, obj['ruster_symmetry_angle'])
+                        remove.extend(peers[settings.sides-1:])
+                except Exception:
+                    for obj in created:bpy.data.objects.remove(obj, do_unlink=True)
+                    for obj, (matrix, metadata) in saved.items():
+                        obj.matrix_basis = matrix;clear_copy_link(obj)
+                        for key, value in metadata.items():obj[key] = value
+                    raise
+                # Only remove excess copies after all new placements succeeded.
+                for obj in remove:bpy.data.objects.remove(obj, do_unlink=True)
+                select([members[key] for key, members in chosen.items()])
+            return {'FINISHED'}
+        except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
 
 
 class RUSTER_OT_symmetry_release(bpy.types.Operator):
@@ -286,7 +470,7 @@ class RUSTER_PT_snapping(bpy.types.Panel):
         col.prop(settings, 'snap_element', text='')
         layout.separator()
         layout.label(text='Rotation Step')
-        layout.prop(settings, 'angle_snap', expand=True)
+        layout.prop(settings, 'angle_snap', text='')
         layout.operator('ruster.snap_rotation')
         layout.separator()
         layout.label(text='Use Move (G) or Rotate (R).')
@@ -304,11 +488,16 @@ class RUSTER_PT_symmetry(bpy.types.Panel):
         layout = self.layout
         layout.prop(settings, 'symmetry')
         col = layout.column()
-        col.enabled = settings.symmetry
         col.prop(settings, 'sides')
+        col.prop(settings, 'axis', expand=True)
+        col.prop(settings, 'rotate_copies')
         col.prop(settings, 'center')
         col.operator('ruster.symmetry_center', icon='CURSOR')
-        layout.label(text='New prefabs repeat around Z.')
+        col.operator('ruster.symmetry_center', text='Center at Selection', icon='PIVOT_MEDIAN').selection = True
+        layout.operator('ruster.symmetry_create', icon='MOD_ARRAY')
+        layout.operator('ruster.symmetry_apply', icon='FILE_REFRESH')
+        layout.operator('ruster.symmetry_select', icon='RESTRICT_SELECT_OFF')
+        layout.label(text='Settings affect new sets until applied.')
         layout.label(text='Move, rotate or scale any member.')
         layout.label(text='Delete any member to delete its set.')
         layout.label(text='Turn symmetry off to edit independently.')
@@ -338,6 +527,7 @@ class RUSTER_PT_construction(bpy.types.Panel):
 
 def register():
     for cls in (RUSTER_PG_construction, RUSTER_OT_symmetry_center, RUSTER_OT_symmetry_release, RUSTER_OT_symmetry_original,
+                RUSTER_OT_symmetry_create, RUSTER_OT_symmetry_apply, RUSTER_OT_symmetry_select,
                 RUSTER_OT_snap_rotation, RUSTER_PT_snapping, RUSTER_PT_symmetry, RUSTER_PT_construction):
         bpy.utils.register_class(cls)
         _classes.append(cls)

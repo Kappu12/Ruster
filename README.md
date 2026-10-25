@@ -66,6 +66,13 @@ the original), rotated around the vertical Z axis through the world center
 `(0, 0, 0)` by default. Set another center numerically or with **Center at 3D
 Cursor**. While symmetry is enabled, move, rotate or scale **any member** and the
 other members follow radially. Deleting any member removes that entire set.
+The settings also offer X/Y/Z axes and **Rotate Copies**; turn that option off
+to keep all copies facing the same way. **Create Symmetry from Selection** works
+on existing whole placements. **Apply Settings to Selected Sets** changes their
+center, axis, side count and orientation, retaining the original and surviving
+copy identities. **Select Symmetry Set** selects every member. Moving, rotating
+or uniformly scaling a complete set carries its center and axis with it.
+Rotation snapping supports 15°, 30°, 45°, 60°, 90° and 180° steps.
 Turn symmetry off to edit or delete individual placements, or use **Make
 Symmetry Set Independent** to unlink them permanently. Settings apply to new
 sets; existing sets retain their center and side count. Placement is one undo

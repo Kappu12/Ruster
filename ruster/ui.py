@@ -211,11 +211,13 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
             if obj.get('ruster_visual') and obj.get('ruster_model_error'):
                 wrapped(layout,context,obj['ruster_model_error'],icon='error')
                 action(layout,'ruster.assets',text='Retry Model / Materials')
-        if obj.get('ruster_symmetry_source'):
+        from .construction import symmetry_members
+        if obj.get('ruster_symmetry_source') or symmetry_members([obj]):
             message=('Editing or deleting this member affects its symmetry set.'
                      if context.scene.ruster_construction.symmetry else 'Symmetry is off; this member can be edited independently.')
             wrapped(layout,context,message,icon='info')
             layout.operator('ruster.symmetry_original',icon=I['select'])
+            layout.operator('ruster.symmetry_select',icon=I['select'])
             layout.operator('ruster.symmetry_release',icon=I['ungroup'])
         fields=properties(layout.column())
         fields.prop(obj,'location')

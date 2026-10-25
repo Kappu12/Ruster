@@ -19,7 +19,8 @@ DOCUMENT_PROPERTIES = ('ruster_kind', 'ruster_uid', 'ruster_record',
                        'ruster_prefab_source', 'ruster_prefab_index',
                        'ruster_linked_extensions', 'ruster_prefab_matrix',
                        'ruster_instance', 'ruster_symmetry_source',
-                       'ruster_symmetry_center', 'ruster_symmetry_angle')
+                       'ruster_symmetry_center', 'ruster_symmetry_angle',
+                       'ruster_symmetry_axis', 'ruster_symmetry_rotate')
 
 
 def property_value(value):
@@ -53,7 +54,7 @@ def fingerprint():
              for name in sorted(sources)]
     settings = bpy.context.scene.ruster_construction
     construction = (settings.object_snap, settings.snap_element, settings.angle_snap,
-                    settings.symmetry, settings.sides, tuple(settings.center))
+                    settings.symmetry, settings.sides, tuple(settings.center), settings.axis, settings.rotate_copies)
     document = (state.mode, state.title, state.project_path, state.source_map, state.map_size,
                 sorted(objects, key=repr), texts, construction,
                 collection_tree(bpy.context.scene.collection))

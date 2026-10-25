@@ -194,6 +194,80 @@ def any_member_regressions(uid, directory):
     assert len(assert_set(source_id, canonical, center)) == 4
 
 
+def extended_symmetry_regressions(uid, directory):
+    for axis in 'XYZ':
+        for rotate in (True, False):
+            studio.new_prefab();refresh()
+            settings = bpy.context.scene.ruster_construction
+            settings.symmetry = False
+            settings.sides, settings.axis, settings.rotate_copies = 4, axis, rotate
+            settings.center = (2, -3, 1)
+            bpy.context.scene.cursor.location = (8, 5, 4)
+            bpy.ops.ruster.place(uid=str(uid))
+            source = bpy.context.object
+            source.rotation_euler = (.2, -.5, .7)
+            refresh()
+            assert bpy.ops.ruster.symmetry_create() == {'FINISHED'}
+            refresh()
+            peers = construction.symmetry_members([source])
+            for peer in peers:
+                expected = construction.radial_matrix(source.matrix_world, settings.center, peer['ruster_symmetry_angle'], axis, rotate)
+                matrix_near(peer.matrix_world, expected)
+            peer = peers[0]
+            placement.select([peer])
+            desired = peer.matrix_world.copy();desired.translation += Vector((1, 2, 3))
+            peer.matrix_world = desired;refresh()
+            anchor = construction.radial_matrix(desired, settings.center, -peer['ruster_symmetry_angle'], axis, rotate)
+            matrix_near(source.matrix_world, anchor)
+            # Explicit apply updates a set, preserving surviving instance IDs.
+            old_ids = {o['ruster_instance'] for o in scene.prefab_roots()}
+            settings.sides, settings.axis, settings.center = 6, 'Y', (7, 1, -2)
+            assert bpy.ops.ruster.symmetry_apply() == {'FINISHED'}
+            refresh()
+            assert len(scene.prefab_roots()) == 6
+            assert old_ids <= {o['ruster_instance'] for o in scene.prefab_roots()}
+            settings.sides = 2
+            assert bpy.ops.ruster.symmetry_apply() == {'FINISHED'}
+            refresh()
+            assert len(scene.prefab_roots()) == 2
+            assert bpy.ops.ruster.symmetry_select() == {'FINISHED'}
+            assert len(bpy.context.selected_objects) == 2
+    # Moving a whole group must move its symmetry frame, not collapse members
+    # back around the old world center. Rotation also tilts the saved axis.
+    settings.axis, settings.rotate_copies = 'Z', True
+    source, peers = new_set(uid)
+    originals = {obj: obj.matrix_world.copy() for obj in [source, *peers]}
+    root = placement.group([source, *peers]);refresh()
+    delta = Matrix.LocRotScale(Vector((13, -6, 7)), Euler((.6, -.3, .2)).to_quaternion(), Vector((2, 2, 2)))
+    root.matrix_world = delta @ root.matrix_world
+    refresh()
+    for obj, before in originals.items():matrix_near(obj.matrix_world, delta @ before)
+    transformed_center = delta @ Vector((3, -2, 1))
+    near(peers[0]['ruster_symmetry_center'], transformed_center)
+    desired = peers[0].matrix_world.copy();desired.translation += Vector((1, -2, 0))
+    peers[0].matrix_world = desired;refresh()
+    anchor = construction.member_matrix(desired, peers[0], -peers[0]['ruster_symmetry_angle'])
+    matrix_near(source.matrix_world, anchor)
+    # Saved settings and tilted set axes survive a project roundtrip.
+    matrices = {o['ruster_instance']: o.matrix_world.copy() for o in scene.prefab_roots()}
+    settings.axis, settings.rotate_copies = 'X', False
+    app.save_project(directory/'extended-symmetry.ruster')
+    app.open_path(directory/'extended-symmetry.ruster');refresh()
+    settings = bpy.context.scene.ruster_construction
+    assert settings.axis == 'X' and not settings.rotate_copies
+    for obj in scene.prefab_roots():matrix_near(obj.matrix_world, matrices[obj['ruster_instance']])
+    # Failed creation must not enable symmetry or leave partial copies.
+    studio.new_prefab();refresh()
+    settings = bpy.context.scene.ruster_construction;settings.symmetry = False
+    bpy.ops.ruster.place(uid=str(uid));source = bpy.context.object
+    source['ruster_has_io'] = True
+    try:bpy.ops.ruster.symmetry_create()
+    except RuntimeError as error:assert 'metadata' in str(error)
+    else:raise AssertionError('Cloned imported IO metadata')
+    assert not settings.symmetry and scene.prefab_roots() == [source]
+    settings.axis, settings.rotate_copies = 'Z', True
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='ruster-construction-') as temporary:
         directory = Path(temporary)
@@ -294,6 +368,7 @@ def run():
         assert bpy.ops.ruster.place(uid=str(uid)) == {'FINISHED'}
         assert len(scene.prefab_roots()) == count+1
         any_member_regressions(uid, directory)
+        extended_symmetry_regressions(uid, directory)
         ruster.unregister()
         assert construction.sync_symmetry not in bpy.app.handlers.depsgraph_update_post
     print('Construction snapping and symmetry checks passed', flush=True)
