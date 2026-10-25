@@ -112,6 +112,11 @@ def main():
             stream.extractall(extract, filter='data')
     engine = next(p for p in extract.iterdir() if p.is_dir())
     shutil.move(str(engine), output/'runtime')
+    if system == 'Windows':
+        # Compile our own native source; Rust/SteamCMD/Carbon stay first-run
+        # downloads and are never included in the application archive.
+        from build_preview_client import build as build_preview
+        build_preview()
     for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Ruster.cmd','Ruster.sh','LICENSE',
                  'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name

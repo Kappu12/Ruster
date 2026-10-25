@@ -17,6 +17,7 @@ BACKGROUND_TESTS = (
     'blender_mcp.py', 'blender_studio.py', 'blender_catalog.py',
     'blender_placeholders.py', 'blender_prefab_transforms.py',
     'blender_materials.py', 'blender_construction.py', 'blender_layout.py', 'blender_volumes.py', 'blender_loading_budget.py',
+    'blender_live_preview.py',
 )
 GRAPHICAL_TESTS = (
     'gui_startup.py', 'gui_prefab_welcome.py', 'gui_project_close.py', 'gui_prefab_polish.py', 'gui_prefab_search.py',

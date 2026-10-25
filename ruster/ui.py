@@ -563,8 +563,9 @@ def map_workspace():
 
 
 def register():
+    from .live_preview import RUSTER_PT_live_preview
     classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_assets,RUSTER_MT_object,RUSTER_PT_welcome,
-             RUSTER_PT_start,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets,RUSTER_PT_asset_status]
+             RUSTER_PT_start,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_live_preview,RUSTER_PT_assets,RUSTER_PT_asset_status]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
     for cls in (bpy.types.WM_MT_splash,bpy.types.WM_MT_splash_quick_setup):
         _draws.append((cls,cls.draw));cls.draw=splash

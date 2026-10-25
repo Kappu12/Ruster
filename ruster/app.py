@@ -1085,6 +1085,8 @@ def register():
     browser.register()
     from . import mcp_bridge
     mcp_bridge.register()
+    from . import live_preview
+    live_preview.register()
     ui.register()
     from . import preferences
     preferences.register()
@@ -1146,6 +1148,8 @@ def unregister():
     from . import mcp_bridge
     mcp_bridge.unregister()
     ui.unregister()
+    from . import live_preview
+    live_preview.unregister()
     from . import protection,browser
     browser.unregister()
     protection.unregister()

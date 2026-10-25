@@ -11,3 +11,4 @@ python_modules/
 *.map
 !tests/fixtures/*.map
 !tests/fixtures/*.ruster
+/ruster/preview_native/bin/

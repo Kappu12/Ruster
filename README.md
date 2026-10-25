@@ -53,6 +53,13 @@ Rust exports describe original prefab IDs and placement transforms. Model export
 
 Save your working project before testing an export in RustEdit or Rust. Viewport previews show assets and placement; gameplay behavior is determined by the game.
 
+## Local live preview
+
+The **Live Preview** panel below **Placement** provides a private local server,
+configurable port, owner Steam ID, console, and an explicit client-module action.
+It downloads the server on first use. Client injection requires verified inactive
+EAC and is experimental; see [setup, checks and current limits](docs/live-preview.md).
+
 ## Connect an MCP client
 
 Ruster includes an optional local MCP connection for inspecting the editor and authoring prefab compositions with an AI client.
