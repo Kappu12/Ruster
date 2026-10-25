@@ -1,313 +1,142 @@
 # Ruster
 
-Ruster **0.10.0** is a Blender-based desktop editor for custom Rust prefab
-compositions. Build with whole original models from your installed game, then
-save a `.ruster` project or export a native `.prefab`, model file, or prefab-only
-`.map`. Blender 5.2 LTS supplies the viewport, native controls, selection,
-transforms and undo. [FEATURES.md](FEATURES.md) describes the supported scope.
+Ruster is a desktop prefab editor for Rust, built on Blender 5.2 LTS. It lets you assemble structures and scenes from the game's original prefabs, using models and textures read from your own Rust installation.
 
-## Start and install assets
+The editor works with whole prefab placements: choose assets, arrange them in the viewport, and export their IDs and transforms for Rust. Blender supplies the viewport, navigation, object tools, and undo history.
 
-Launch `Ruster.exe` on Windows or `Ruster.sh` on Linux. Packaged apps include their
-Blender and Python runtime. Startup opens an empty **Prefab** workspace. The
-**New / Open** popup provides New Prefab, Open Map/Prefab/Project, Import `.map`,
-recent projects and recovery. New Prefab returns to an empty composition.
-The startup popup opens in the center of the app window, independently of the
-mouse position; reopening Start uses the same placement.
+## Start with a packaged build
 
-Open **Edit → Preferences**. **Assets** and **MCP** appear in the same left-hand
-navigation as Blender's interface, theme and navigation preferences. Theme and
-UI scale survive New Prefab.
+Open [Build Ruster App](https://github.com/Kappu12/Ruster/actions/workflows/package.yml) and select a recent successful run. Download `Ruster-Windows` or `Ruster-Linux` from its artifacts. Extract the download, then extract the Ruster ZIP inside it.
 
-Ruster detects validated Steam Rust installations, including secondary libraries.
-If discovery fails, choose **Preferences → Assets**, select the folder containing
-`Bundles`, and click **Apply Installation**, for example:
+- **Windows x64:** open `Ruster.exe`.
+- **Linux x64:** run `./Ruster.sh` from the extracted application folder. If needed, run `chmod +x Ruster.sh` first.
 
-```text
-C:\Program Files (x86)\Steam\steamapps\common\Rust
-```
+Keep the application folder together. The package includes its Blender runtime and Python dependencies; a separate Blender installation is unnecessary. Packaging currently targets Windows and Linux on x64.
 
-The catalog reads the game's `AssetSceneManifest.json` and a locally installed
-RustEdit `stringpool.txt`. RustEdit's folder is detected or selected in Assets
-preferences. Ruster reads these local files without launching Rust or RustEdit;
-no game binaries or game assets are distributed in this repository.
+### Make your first composition
 
-## Compose and save
+1. Open **Preferences > Assets**. Let Ruster find your Steam installation, or select the Rust game folder containing `Bundles`, then click **Apply Installation**.
+2. Create a new prefab composition from the welcome screen.
+3. Press **Shift+A** to browse Rust prefabs. The browser supports search, categories, favorites, and recently used assets. Enable **Hidden Assets** when looking for helpers such as volumes or spawners.
+4. Add a prefab and arrange it in the viewport. Models and materials load on demand, with progress shown in **Model Loading**.
+5. Save a `.ruster` project, then export a `.prefab` when the composition is ready for RustEdit.
 
-Press **Shift+A** for a compact native Add menu with prefab category submenus.
-Start typing immediately, or choose **Search All Prefabs…**, to search the entire
-catalog across all categories. Press Enter once to place a result at the 3D
-cursor. Names and IO aliases match regardless of capitalization or word order.
-The Add menu prepares a shared metadata index in small idle-time batches and
-reuses it across categories/search. Catalog and favorite changes refresh it;
-typing does not repeatedly scan the catalog or load game models.
-The Prefab Browser also offers categories, favorites, local availability,
-full-path/ID tooltips and paginated results.
-Its **Recent** filter lists the last 48 distinct prefabs placed, newest first.
-The information button inspects an asset's full path, ID, local availability and
-cache status before placement, with Copy ID / Copy Path actions. **Reset Filters**
-shows all locally available assets, including hidden helpers.
-Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placements
-can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
-Navigation. The authoring plane is Z=0.
+If you have RustEdit installed, its folder can also be selected in **Preferences > Assets** as a source for prefab names through its local `stringpool.txt`.
 
-**Volumes** collects building restrictions, safe zones, radiation, environment
-and terrain/water triggers. The viewport's **Volumes** button shows or hides
-selectable translucent collider previews. Boxes, spheres, capsules and supported
-mesh colliders use the local game's source data; missing bounds remain labeled
-origin markers. The switch never removes volumes from saves or native exports.
+## Build in the viewport
 
-Effects have explicit search labels and arrow markers. For example, `Concrete1`
-under `fx/impacts` is a particle/audio impact effect; **Concrete Cube** is a
-construction model. Standard crate spawners preview original crate models at
-their placement origin, so moving/rotating the crate edits its spawner. The
-export keeps the spawner ID. These illustrate placement; Rust still chooses
-runtime variants and any randomized spawn offsets/rotations.
+Use Blender's object controls to move, rotate, and scale placements. **G**, **R**, and **S** start transforms; axis constraints and numeric input work as usual. **Shift+D** duplicates a placement, and **F3** opens command search. The Outliner provides another way to select and organize the composition.
 
-Large imports create placements first and attach cached previews in short,
-cancelable batches. First-use Blender libraries prepare in a separate background
-process, with cancellation and error reporting. Repeated copies share their model library. Asset counts are
-cached between redraws, and native Blender naming avoids repeated scene scans.
-Object labels may contain spaces: native Rust exports use prefab IDs and
-transforms, not editor object names.
+For repeated structures, use the layout tools:
 
-**F3** opens Blender's native search popup for prefab commands, including Layout
-and Symmetry. **Space** keeps the user's Blender Spacebar Action preference.
-The viewport header includes native transform orientation and pivot controls;
-the **Object** and right-click menus expose grouping, layout and symmetry.
-**Shift+D** duplicates at the original position and starts native Move: use
-X/Y/Z, numeric input and snapping, then Enter or click to confirm. Esc cancels
-the move and keeps the duplicate in place. **Alt+D** uses the same protected,
-shared-original workflow. Duplication outside the viewport stays in place.
-**X** asks before deleting; **Delete** deletes directly. **F9** opens Adjust Last
-Operation for layout tools. Duplication and movement undo together with Ctrl+Z.
+- Linear and radial arrays.
+- Alignment by model bounds and distribution by spacing.
+- Grid snapping and placement on a plane.
+- Radial symmetry sets that update together while symmetry is enabled.
+- Vertex, edge, and face snapping, plus stepped rotation.
 
-The viewport header's **Perspective** icon toggles perspective/orthographic
-projection (also **Numpad 5**); its pressed state indicates perspective. The
-**Overlays** toggle sits immediately beside it and controls viewport guides.
+Group placements to move an assembly as a unit. **Composition Checks** helps locate overlapping copies, mirrored transforms, and other export issues.
 
-The **left toolbar** includes **Object Snap** (magnet) and **Radial Symmetry**
-(array) toggles, each with a settings popover below it. Snap Settings offers
-vertex, edge or face snapping to loaded original models and **15°–180°** steps
-for native `R` rotation. **Align Rotation to Step** rounds an existing selection
-to the chosen world angles. `Ctrl` temporarily toggles native snapping.
+Original prefab geometry stays read-only in the composition. Shape changes come from choosing and arranging whole assets. **Export Blender File** creates a separate scene with editable models and packed textures for rendering or further work in Blender.
 
-Enable Radial Symmetry before adding a prefab to create **2–16 sides** (including
-the original), rotated around the vertical Z axis through the world center
-`(0, 0, 0)` by default. Set another center numerically or with **Center at 3D
-Cursor**. While symmetry is enabled, move, rotate or scale **any member** and the
-other members follow radially. Deleting any member removes that entire set.
-The settings also offer X/Y/Z axes and **Rotate Copies**; turn that option off
-to keep all copies facing the same way. **Create Symmetry from Selection** works
-on existing whole placements. **Apply Settings to Selected Sets** changes their
-center, axis, side count and orientation, retaining the original and surviving
-copy identities. **Select Symmetry Set** selects every member. Moving, rotating
-or uniformly scaling a complete set carries its center and axis with it.
-Rotation snapping supports 15°, 30°, 45°, 60°, 90° and 180° steps.
-Turn symmetry off to edit or delete individual placements, or use **Make
-Symmetry Set Independent** to unlink them permanently. Settings apply to new
-sets; existing sets retain their center and side count. Placement is one undo
-step, and saved `.ruster` projects retain the symmetry sets.
+## Choose an output
 
-The sidebar's **Prefab Layout** panel offers **Linear Array**, **Radial Array**,
-**Align Bounds**, **Distribute**, **Snap to Grid** and **Place on Plane**. Arrays
-create independent copies of whole selections (including groups), capped at
-2,000 new placements. Bounds operations require loaded original models. Align
-uses the active selected object as its reference; Distribute orders selections
-by their current position on the chosen axis. Grid snapping supports individual
-axes and an optional cursor origin. Each layout operation is one undo step.
-Turn live symmetry off before independently arranging members of a linked set.
-
-**Check Composition** reports export errors and flags overlapping copies,
-mirrored transforms and scaled imported IO. Selection buttons locate these
-placements without changing them. The IO check only identifies imported IO
-metadata; it does not classify every networked asset. Editor labels may contain
-spaces: Rust receives the original prefab ID, not the Blender object name.
-All placement export formats validate IDs, original model integrity, parents,
-constraints, finite transforms, zero scale and shear before writing files.
-
-Original mesh and material data remain protected linked libraries. Transform
-whole placements or groups; model exports use temporary realized copies. A
-wireframe box identifies a placement awaiting its model and disappears when the
-original linked model attaches. IDs, transforms and interchange data remain
-independent of that display box. Errors and cancellation appear in asset status.
-The header's **Models** popover and **Model Loading** panel show loaded, loading,
-unloaded, issue and helper counts. Use **Select Unloaded** or **Select Issues**,
-then **Load / Retry Selected Models**. **View Asset Report** displays readable
-errors and offers a copy of the complete report.
-
-**Shift+A** includes hidden helpers and unavailable catalog entries, regardless
-of the sidebar's current filters. Search `cyan tube` or `glowing hose` for **IO Hose Tube
-Pending (Cyan Glow)**. Its original Rust renderer is a small cyan emissive Cube;
-authored placement scaling creates the long Maze strips. All eight IO hose/wire
-handle variants were checked against their original local geometry and materials.
-Sound, terrain-stamp and other geometry-free prefabs receive explicit helper
-markers. Runtime-generated IO lines have no static mesh to reconstruct.
-
-Textured Solid mode gives lightweight base texture/color feedback. Material
-Preview and supported model exporters also use converted source emission,
-metallic/smoothness masks and transparency. Shadow-only proxies stay hidden.
-These are Blender previews; Rust's shader effects, bloom, animation, collisions
-and gameplay are not reproduced exactly.
-
-| File/action | Behavior |
+| Format | Purpose |
 | --- | --- |
-| Save Project (`Ctrl+S`) | `.ruster` stores the scene and packed linked previews for reopening without the conversion cache. |
-| Import/Export Prefab | Native RustEdit `.prefab` with supported imported metadata and existing IO settings. |
-| Open/Import `.map` | Imports prefab IDs and world transforms only; Import appends to the composition. |
-| Export `.map` | Writes current prefab placements in empty space, with no terrain or path layers. This is not a complete playable world. |
-| Import/Export Assembly | `.rusterprefab` stores reusable prefab references and relative transforms. |
-| Export Blender File (.blend) | In the top-left Ruster menu and Prefab Studio panel. Exports the whole composition by default, with optional selected-only export, as a regular Blender scene with editable meshes, local materials and packed textures. Open in normal Blender to add cameras/lights and render; loaded geometry is required. |
-| Export Models | Offers available GLB/glTF, FBX, OBJ, PLY, STL, USD, Alembic and Blender scene exporters; loaded geometry is required. |
+| `.ruster` | Save a Ruster project and resume editing it later. |
+| `.prefab` | Import or export a RustEdit prefab composition. |
+| `.map` | Import or export prefab placements. This workflow does not edit or export map terrain and paths. |
+| `.blend` | Export a standalone Blender scene for rendering and model work. |
+| Other model formats | Export selected models through the exporters available in the bundled Blender build, including glTF, FBX, and OBJ. |
 
-Native `.prefab` interchange was verified against installed RustEdit 1.2.19 and
-the supplied 1,730-placement Maze: unchanged import/export preserves the complete
-file byte-for-byte, including IO metadata. Existing IO scalar settings can be
-edited. Supported IO endpoints follow moved placements when identity/order stays
-valid; ambiguous edits are blocked. See [the compatibility contract](docs/rustedit-prefabs.md).
-This does not establish server behavior or support creating new wiring.
+Rust exports describe original prefab IDs and placement transforms. Model exports produce geometry for use in other applications. For imported RustEdit prefabs with IO data, the editor also exposes supported IO settings on the selected placement.
 
-Recovery saves atomically every two minutes while idle. Use **Recover Autosaved
-Session** in New / Open after a crash. Recovery preserves the regular save target.
-Quit Ruster (`Ctrl+Q`, or the Windows close button / `Alt+F4`) checks the saved
-`.ruster` document. Unchanged projects close directly; unsaved changes offer
-Save, Don't Save and Cancel using the project filename. Save opens the `.ruster`
-picker for untitled projects. Cancelling or a failed save keeps the editor open.
-New and Open use the same save choices before replacing unsaved work. The header,
-Prefab Studio panel and Windows window caption show the project's save state.
-Opening legacy map projects recovers their prefab composition; the active product
-does not expose terrain, path editing or seed generation. That source remains
-inactive for compatibility work.
+Save your working project before testing an export in RustEdit or Rust. Viewport previews show assets and placement; gameplay behavior is determined by the game.
 
-## On-demand loading and bounds
+## Connect an MCP client
 
-Catalog browsing never starts a full game-object index or bulk conversion.
-Models resolve their named asset scene, required dependencies and referenced
-visual prefabs only when requested. **Assets → Load Selected Models** accepts up
-to 100 different IDs per request and can refresh an existing composition. Loaded
-instances share models. Imports queue missing visuals; cached visuals recover
-incrementally. If an installed update changes the worker during an open session,
-save and restart before loading more models.
+Ruster includes an optional local MCP connection for inspecting the editor and authoring prefab compositions with an AI client.
 
-Each requested model uses a short-lived asset process. Windows limits each worker
-to **768 MiB** private committed memory, its supervisor tree to **1 GiB**, and the
-editor tree to **8 GiB**, including Material Preview driver/compiler headroom.
-These are ceilings, not expected use; GPU allocations/shared pages are separate.
-Jobs and watchdogs stop orphaned work. Unsupported assets remain labeled
-placeholders with reports. Mesh buffers, streamed metadata and bounded texture
-previews avoid accumulating an entire monument's source data in Python.
+1. Open **Preferences > MCP** and enable MCP.
+2. Click **Copy MCP Client Configuration**.
+3. Add the copied configuration to your client's MCP settings, then connect while Ruster remains open.
 
-## MCP / AI editor connection
+The copied configuration uses the application's Python and `mcp_server.py` entry point. The editor bridge listens on `127.0.0.1`, uses a per-user authentication token, and defaults to port `9877`.
 
-Open **Preferences → MCP**, enable MCP, and use **Copy MCP Client Configuration**
-in your MCP client. Keep Ruster open. MCP is disabled by default; the packaged
-stdio adapter includes its dependencies. A source checkout installs them with
-`tools/setup_assets.py`.
+Start an automation session by reading `ruster://guide/building` and calling `get_editor_status`. Tools can search the local catalog, request models, place and transform prefabs, organize groups, inspect the viewport, and export compositions. They operate on whole placements while preserving the original assets.
 
-There are **52 typed tools**, two resource guides, and two reusable prompts:
+## Run from source
 
-| Workflow | Representative tools |
-| --- | --- |
-| Discover and size | `get_editor_status`, `list_prefab_categories`, `search_prefabs`, `get_prefab_details`, `get_prefabs_details`, `request_prefab_assets` |
-| Inspect and select | `list_objects`, `get_objects_info`, `get_selection`, `select_objects`, `focus_view`, `get_viewport_image` |
-| Compose | `place_prefabs`, `transform_objects`, `group_objects`, `duplicate_objects`, `array_objects`, `align_objects`, `snap_objects_to_plane`, `delete_objects` |
-| Native Blender and layout | `get_blender_context`, `get_viewport_state`, `set_viewport_state`, `set_cursor`, `measure_objects`, `transform_objects_relative`, `radial_array_objects`, `distribute_objects`, `snap_objects_to_grid` |
-| Interchange and finish | `import_prefab`, `export_prefab`, `import_map_prefabs`, `export_map`, `get_io_settings`, `set_io_settings`, `get_export_formats`, `export_models`, `save_project`, `validate_map`, `undo`, `redo` |
+Use Python 3.13 and the Blender version pinned in [engine.lock.json](engine.lock.json), currently Blender 5.2.3. Set `RUSTER_BLENDER` to that Blender executable, or make `blender` available on your `PATH`.
 
-Read `ruster://guide/design` ([docs/design.md](docs/design.md)) and
-`ruster://guide/building` first; the workflow source is
-[BUILDING_GUIDE in the adapter](ruster/mcp_server.py). The prompts
-`build_rust_composition` and `audit_rust_composition` guide creation and inspection.
-Use actual catalog IDs and follow `next_offset` to discover every result. Request
-uncached models and poll status before relying on visible geometry/bounds.
+Install the asset and MCP dependencies into the application's `python_modules` directory using Blender's bundled Python:
 
-Coordinates are world XYZ metres with Z up; rotations are XYZ Euler degrees.
-Atomic placement batches allow 100 items, transforms 200; array/duplicate requests
-allow at most 2,000 new placements. Bounds alignment and plane snapping use loaded
-render geometry, not collision certification. MCP native-prefab, map and assembly
-imports are limited to 2,000 placements. Model exports have a
-bounded copy budget and may require smaller selections. After a timed-out
-mutation, inspect the scene before repeating it.
-
-`focus_view` supports native axes, `OBLIQUE`, or explicit `rotation_degrees`
-without moving the composition. Viewport images hide overlays by default and
-restore the user's display settings after capture. Assembly exports preserve a
-single group's pivot; `origin` can explicitly set the world XYZ export anchor.
-Importing an assembly preserves its requested position as the group pivot.
-
-Native viewport controls expose target, distance, rotation, projection, shading,
-overlays, X-ray, lens and clipping without moving models. Relative transforms
-scale on world axes, rotate around a shared pivot, then translate; shear is
-rejected. Radial arrays use an explicit center and axis: seven new copies at a
-45 degree step make eight parts including the source. Distribution respects the
-supplied name order and offers origin spacing or gaps between loaded bounds.
-Grid snapping rounds origins on chosen axes. Measurements report origin distance
-and optionally render-bounds separation. Turn off live Radial Symmetry before
-batch layout of linked set members. Viewport and cursor settings are UI state
-without an undo step; placement layout edits support undo.
-
-Build with whole Rust assets: custom mesh primitives (including a new triangle),
-mesh edits and material replacement cannot become game prefabs. Existing
-triangular Rust parts and triangular arrangements are allowed. Whole placements
-can rotate freely. Static decoration scaling needs verification; networked doors,
-IO and deployables ignore scaling in Rust. See the sourced rules in [docs/design.md](docs/design.md).
-
-The authenticated listener uses `127.0.0.1:9877` by default and a per-user token.
-Port and enablement belong to preferences. Existing output files require explicit
-`overwrite=True`. There is no arbitrary Python execution, terrain/path editing,
-map generation or external model download API. The transport adapts MIT-licensed
-[MCP for Blender](https://github.com/ahujasid/mcp-for-blender); see
-[third-party notices](THIRD_PARTY_NOTICES.md).
-
-## Source, packaging and checks
-
-Use Blender **5.2 LTS**; the pinned runtime is **5.2.3**, with Python **3.13**.
-Ruster uses an isolated Blender configuration.
-
-```powershell
-$env:RUSTER_BLENDER = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
-py -3 tools/setup_assets.py
-py -3 launch.py
+```sh
+python tools/setup_assets.py
+python launch.py
 ```
 
-Linux/macOS source launch uses `RUSTER_BLENDER=/path/to/blender` and
-`python3 tools/setup_assets.py`, then `python3 launch.py`. A project path may be
-passed to the launcher. Setup uses Blender's Python and leaves Rust unchanged.
+You can also select the executable for a single launch:
 
-On Windows x64 or Linux x64, package using Python 3.13:
-
-```text
-python tools/package.py --archive --output-name Ruster-windows-x64-5.2
+```sh
+python launch.py --blender "/path/to/blender"
 ```
 
-Use a platform-appropriate output name. Packaging verifies the pinned official
-Blender archive, bundles dependencies, and runs prefab-product, protection, UI,
-MCP, linked-library and transform checks plus the actual packaged stdio entry
-point. Build outputs are under `dist`; macOS standalone packaging is pending.
-Windows startup errors are logged in `%LOCALAPPDATA%\Ruster\logs\startup.log`.
+Pass an existing project or import file as the positional argument:
 
-```text
+```sh
+python launch.py "/path/to/composition.ruster"
+```
+
+The launcher uses a separate Blender process and a Ruster-specific configuration directory. Startup output is written to `logs/startup.log` in the user data folder.
+
+### Check changes
+
+In a Python 3.13 development environment:
+
+```sh
 python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
 python -m pytest -q
-python tools/native_checks.py --engine /absolute/path/to/blender --suite background
-python tools/native_checks.py --engine /absolute/path/to/blender --suite graphical
-python tests/mcp_stdio_smoke.py /absolute/path/to/packaged/Ruster
+python -m compileall -q ruster tools bootstrap.py launch.py
 ```
 
-CI and packaging share the background suite. Graphical checks use disposable
-Blender processes and synthetic assets; Linux CI adds `--xvfb` for a virtual
-display. Set `RUSTER_TEST_PYTHON` to the interpreter with `requirements-mcp.txt`
-installed for the graphical MCP client. Run the last command with the package's
-Python/dependencies available. The
-opt-in `tests/blender_hidden_assets.py -- PATH_TO_ASSET_CACHE` checks all eight
-previously converted original IO variants in an isolated temporary profile; it
-does not scan or redistribute game assets. Legacy world-editor tests remain in
-source and do not describe the active product. Current-game asset coverage,
-engine shader parity and live-server compatibility remain separate validation
-work. See [format notes](docs/ruster-format.md) and [feature coverage](FEATURES.md).
+Run the native editor fixtures against the pinned Blender executable:
 
-## License
+```sh
+python tools/native_checks.py --engine "/path/to/blender" --suite background
+python tools/native_checks.py --engine "/path/to/blender" --suite graphical
+```
 
-Ruster is GPL-3.0-or-later. Blender and bundled libraries retain their licenses;
-distributions must meet corresponding-source requirements. Rust assets remain
-Facepunch's content. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+On Linux, `--xvfb` gives the graphical suite a disposable virtual display when Xvfb is installed.
+
+### Create an application package
+
+On the target operating system, using Python 3.13:
+
+```sh
+python tools/package.py --archive
+```
+
+The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, runs the package checks, and writes the application and ZIP into `dist/`. Use `--output-name` to choose a different distribution folder name.
+
+GitHub Actions keeps up to two successful builds with both Windows and Linux downloads. Cleanup runs after each packaging workflow finishes, including failed builds. Artifacts also expire after 14 days.
+
+## Local files
+
+Ruster reads the installed game files without changing them. Its settings, asset cache, recovery files, and logs live separately:
+
+| Platform | Default user data folder |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\Ruster` |
+| Linux | `$XDG_DATA_HOME/ruster`, or `~/.local/share/ruster` when unset |
+
+Set `RUSTER_USER_DIR` to choose another user data folder. Projects and exports are saved to the locations you select.
+
+## Further reading
+
+- [Project container format](docs/ruster-format.md)
+- [RustEdit prefab format and interoperability](docs/rustedit-prefabs.md)
+- [Architecture](docs/architecture.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+Ruster's application code is licensed under GPL-3.0-or-later. See [LICENSE](LICENSE). Rust game assets remain the property of their respective owners and are supplied by your local installation. Ruster is an independent community project.
