@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import time
 from pathlib import Path
 
 import bpy
@@ -12,6 +13,9 @@ _dialog_open = False
 _classes = []
 _dirty = False
 _continuation = None
+_status_scan = None
+STATUS_CHECK_BUDGET = .003
+STATUS_STEPS_PER_TICK = 32
 
 # Original source records and group metadata are the editable document.
 # Model loading/status, selection, cursor and viewport settings are previews.
@@ -27,16 +31,28 @@ def property_value(value):
     return value.to_list() if hasattr(value, 'to_list') else value
 
 
-def collection_tree(collection):
-    return (collection.name, collection.hide_viewport, collection.hide_render,
-            sorted(collection_tree(child) for child in collection.children))
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def fingerprint():
+def collection_steps(collection):
+    children = []
+    for child in collection.children:
+        children.append((yield from collection_steps(child)))
+    value = digest((collection.name, collection.hide_viewport, collection.hide_render,
+                    sorted(children)))
+    yield
+    return value
+
+
+def fingerprint_steps():
+    """Hash independent records so timer scans can yield before encoding more."""
     state = bpy.context.scene.ruster
     objects, sources = [], set()
     for obj in bpy.context.scene.objects:
-        if obj.get('ruster_kind') == 'VISUAL':continue
+        if obj.get('ruster_kind') == 'VISUAL':
+            yield
+            continue
         if source := obj.get('ruster_prefab_source'):sources.add(source)
         # A generated name may change when a cached model arrives after Save.
         generated = obj.get('ruster_generated_name')
@@ -44,31 +60,55 @@ def fingerprint():
                        and re.fullmatch(r'Prefab '+str(obj.get('ruster_uid', ''))+r'(?:\.\d+)?', obj.name))
         name = '' if obj.name == generated or placeholder else obj.name
         parent = obj.parent
-        objects.append((name, obj.type, parent.name if parent else '',
+        objects.append(digest((name, obj.type, parent.name if parent else '',
                         tuple(tuple(row) for row in obj.matrix_basis),
                         tuple(tuple(row) for row in obj.matrix_parent_inverse),
                         tuple((key, property_value(obj.get(key))) for key in DOCUMENT_PROPERTIES),
                         tuple(sorted(c.name for c in obj.users_collection)),
-                        obj.hide_viewport, obj.hide_render, obj.hide_get()))
-    texts = [(name, bpy.data.texts[name].as_string() if name in bpy.data.texts else None)
-             for name in sorted(sources)]
+                        obj.hide_viewport, obj.hide_render, obj.hide_get())))
+        yield
+    texts = []
+    for name in sorted(sources):
+        text = bpy.data.texts.get(name)
+        content = None
+        if text is not None:
+            content = hashlib.sha256()
+            for line in text.lines:
+                body = line.body
+                for offset in range(0, len(body), 65536):
+                    content.update(body[offset:offset+65536].encode())
+                    yield
+                content.update(b'\n')
+                yield
+            content = content.hexdigest()
+        texts.append((name, content))
+        yield
+    collections = yield from collection_steps(bpy.context.scene.collection)
     settings = bpy.context.scene.ruster_construction
     construction = (settings.object_snap, settings.snap_element, settings.angle_snap,
                     settings.symmetry, settings.sides, tuple(settings.center), settings.axis, settings.rotate_copies)
     document = (state.mode, state.title, state.project_path, state.source_map, state.map_size,
-                sorted(objects, key=repr), texts, construction,
-                collection_tree(bpy.context.scene.collection))
-    return hashlib.sha256(json.dumps(document, sort_keys=True).encode()).digest()
+                sorted(objects), texts, construction, collections)
+    return digest(document)
+
+
+def fingerprint():
+    steps = fingerprint_steps()
+    while True:
+        try:next(steps)
+        except StopIteration as finished:return finished.value
 
 
 def mark_saved():
-    global _saved, _dirty
+    global _saved, _dirty, _status_scan
+    _status_scan = None
     _saved = fingerprint()
     _dirty = False
 
 
 def reset():
-    global _saved, _dialog_open, _dirty
+    global _saved, _dialog_open, _dirty, _status_scan
+    _status_scan = None
     _saved = None
     _dialog_open = False
     _dirty = False
@@ -83,17 +123,39 @@ def has_unsaved_changes():
 
 
 def save_status():
-    """Drawing reads a cached result; hashing the document runs on a timer."""
+    """Drawing reads the result of the most recent bounded document scan."""
     state = bpy.context.scene.ruster
     if _dirty:return 'Unsaved changes'
     return 'Saved' if state.project_path else 'Not saved yet'
 
 
 def status_tick():
-    global _dirty
+    global _dirty, _status_scan
     if not hasattr(bpy.context.scene, 'ruster'):return 1.
     if bpy.context.window_manager.is_interface_locked:return 1.
-    dirty = has_unsaved_changes()
+    state = bpy.context.scene.ruster
+    if _saved is None:
+        _status_scan = None
+        dirty = bool(bpy.context.scene.objects)
+    elif not state.project_path or not Path(state.project_path).is_file():
+        _status_scan = None
+        dirty = True
+    else:
+        if _status_scan is None:_status_scan = fingerprint_steps()
+        deadline = time.perf_counter() + STATUS_CHECK_BUDGET
+        try:
+            for _ in range(STATUS_STEPS_PER_TICK):
+                try:next(_status_scan)
+                except StopIteration as finished:
+                    _status_scan = None
+                    dirty = finished.value != _saved
+                    break
+                if time.perf_counter() >= deadline:return .01
+            else:return .01
+        except ReferenceError:
+            # A native deletion or file load can invalidate a yielded RNA value.
+            _status_scan = None
+            return .01
     if dirty != _dirty:
         _dirty = dirty
         from .app import redraw

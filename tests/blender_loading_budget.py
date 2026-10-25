@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 if '--' in sys.argv:sys.path.insert(0,sys.argv[sys.argv.index('--')+1])
 import bpy,ruster
-from ruster import app,scene,studio,loading
+from ruster import app,scene,studio,loading,quitting
 from ruster.core import wire
 from ruster.core.rustedit_prefab import RustEditPrefab
 
@@ -44,6 +44,34 @@ def run():
             for _ in range(20):loading.cached_model_summary()
             assert len(counts)==1,'Every viewport redraw rescanned the scene'
         finally:loading.model_summary=native_summary
+        # Save-status polling must yield on the same large scene too. Closing
+        # still compares the complete document, including during a partial scan.
+        app.save_project(Path(directory)/'large.ruster')
+        samples=[]
+        def refresh_status():
+            for _ in range(10000):
+                started=time.perf_counter();delay=quitting.status_tick()
+                samples.append(time.perf_counter()-started)
+                if delay==1.:return
+                assert delay==.01
+            raise AssertionError('Save-status scan never completed')
+        assert quitting.status_tick()==.01 and quitting._status_scan is not None
+        root=scene.prefab_roots()[0];saved_location=root.location.copy()
+        root.location.x+=5
+        assert quitting.has_unsaved_changes(),'A partial status scan hid unsaved work at close'
+        refresh_status();refresh_status()
+        assert quitting.save_status()=='Unsaved changes'
+        root.location=saved_location
+        refresh_status()
+        assert quitting.save_status()=='Saved','Returning to the saved document stayed dirty'
+        assert quitting.status_tick()==.01
+        quitting.mark_saved()
+        assert quitting._status_scan is None,'Save retained a scan from the previous savepoint'
+        assert quitting.status_tick()==.01
+        quitting.reset()
+        assert quitting._status_scan is None,'New retained references to the previous scene'
+        assert len(samples)>len(scene.prefab_roots())//quitting.STATUS_STEPS_PER_TICK
+        print(f'RUSTER_STATUS_BUDGET_OK: {len(samples)} ticks; maximum {max(samples)*1000:.2f}ms',flush=True)
         ruster.unregister()
 
 
