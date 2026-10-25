@@ -289,7 +289,8 @@ def dispatch(server,kind,p,bridge):
     elif kind=='transform_objects':
         items=p['transforms']
         if not isinstance(items,list) or not 1<=len(items)<=200 or any(not isinstance(i,dict) for i in items):raise ValueError('Provide 1–200 object transforms')
-        objects=object_names([i.get('name') for i in items],bridge);independent(objects)
+        from .mcp_blender import editable_roots
+        objects=editable_roots([i.get('name') for i in items],bridge)
         before={o:o.matrix_basis.copy() for o in objects}
         try:
             for obj,item in zip(objects,items):bridge.set_transform(obj,**{k:v for k,v in item.items() if k!='name'})
@@ -336,7 +337,8 @@ def dispatch(server,kind,p,bridge):
         elif len(objects)==1 and objects[0].get('ruster_kind')=='GROUP':origin=objects[0].matrix_world.translation.copy()
         else:origin=sum((o.matrix_world.translation for o in prefab_objects),Vector())/len(prefab_objects)
         if not all(math.isfinite(v) for v in origin):raise ValueError('Assembly origin exceeds Blender number range')
-        atomic_write(target,prefabs.encode_assembly([placement.world_record(o,origin) for o in prefab_objects],target.stem))
+        from .studio import prefab_records
+        atomic_write(target,prefabs.encode_assembly(prefab_records(prefab_objects,origin),target.stem))
         return {'path':str(target),'prefab_count':len(prefab_objects),'origin':list(origin)}
     else:raise ValueError('Unsupported composition tool')
     if kind!='focus_view' and bpy.context.preferences.edit.use_global_undo:bpy.ops.ed.undo_push(message='MCP: '+kind.replace('_',' ').title())

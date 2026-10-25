@@ -70,19 +70,19 @@ def import_map(path, *, replace=False, max_prefabs=None):
     return created
 
 
-def _validated_records():
-    """Enforce placement-only authoring before native record serialization."""
+def validate_placements(roots):
+    """Shared guards for map, native prefab and assembly serialization."""
     from .placement import parent_chain
     from .protection import model_error
-    from .studio import prefab_records
 
     bpy.context.view_layer.update()
     errors, notes = [], []
-    roots = scene.prefab_roots()
     checked_models = {}
     missing = 0
     for root in roots:
         try:
+            if root.get('ruster_kind') != 'PREFAB':
+                raise ValueError('Only whole prefab placements can be exported')
             problem = model_error(root, checked_models)
             if problem:
                 errors.append(f'{root.name}: {problem}')
@@ -118,6 +118,14 @@ def _validated_records():
             errors.append(f'{root.name}: invalid prefab metadata')
     if missing:
         notes.append(f'{missing} prefab placements have no loaded visual; IDs and transforms still export')
+    return errors, notes
+
+
+def _validated_records():
+    """Enforce placement-only authoring before native record serialization."""
+    from .studio import prefab_records
+    roots = scene.prefab_roots()
+    errors, notes = validate_placements(roots)
     objects = list(bpy.context.scene.objects)
     unpacked = [obj for obj in objects if obj.get('ruster_kind') == 'VISUAL']
     if unpacked:
@@ -138,7 +146,32 @@ def _validated_records():
     except Exception as error:
         return [str(error)], notes, []
     notes.append(f'{len(records):,} prefab placements ready to export')
+    notes.extend(message for _code, _objects, message in placement_warnings(roots))
     return [], notes, records
+
+
+def placement_warnings(roots):
+    """Actionable observations, not claims of universal gameplay compatibility."""
+    mirrored, scaled_io, duplicates = [], [], []
+    seen = {}
+    for root in roots:
+        matrix = root.matrix_world
+        if not all(math.isfinite(v) for row in matrix for v in row):continue
+        if matrix.determinant() < 0:mirrored.append(root)
+        if root.get('ruster_has_io') and any(abs(v-1) > 1e-5 for v in matrix.to_scale()):scaled_io.append(root)
+        # Compare the transform matrix, so equivalent Euler rotations match.
+        key = (root.get('ruster_uid'), tuple(round(v, 5) for row in matrix for v in row))
+        if key in seen:
+            duplicates.append(root)
+        else:seen[key] = root
+    result = []
+    if duplicates:
+        result.append(('DUPLICATES', duplicates, f'{len(duplicates)} overlapping copies of the same prefab share a transform; inspect before deleting'))
+    if mirrored:
+        result.append(('MIRRORED', mirrored, f'{len(mirrored)} mirrored placements need collision and lighting verification in Rust'))
+    if scaled_io:
+        result.append(('SCALED_IO', scaled_io, f'{len(scaled_io)} imported IO placements are scaled; Rust networked entities use unit scale'))
+    return result
 
 
 def validate():

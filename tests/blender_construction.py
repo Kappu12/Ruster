@@ -291,7 +291,9 @@ def run():
         for mode in ('FACE', 'EDGE', 'VERTEX'):
             settings.snap_element = mode
             assert tools.snap_elements == {mode}
-        for angle in ('45', '90'):
+        assert [(item.identifier,item.value) for item in construction.RUSTER_PG_construction.bl_rna.properties['angle_snap'].enum_items
+                if item.identifier in {'OFF','45','90'}] == [('OFF',0),('45',1),('90',2)]
+        for angle in ('15', '30', '45', '60', '90', '180'):
             settings.angle_snap = angle
             assert tools.use_snap_rotate
             assert abs(tools.snap_angle_increment_3d-math.radians(int(angle))) < 1e-6

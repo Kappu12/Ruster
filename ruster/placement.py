@@ -3,7 +3,6 @@ import base64
 import math
 from pathlib import Path
 import random
-import uuid
 import bpy
 from bpy.props import BoolProperty,FloatProperty,IntProperty,StringProperty
 from bpy_extras.io_utils import ImportHelper,ExportHelper
@@ -44,10 +43,8 @@ def parent_chain(obj):
 
 
 def world_record(obj,origin=None):
-    fields=wire.parse(base64.b64decode(obj['ruster_record']))
-    location,rotation,scale=obj.matrix_world.decompose()
-    if origin is not None:location-=origin
-    return update_transform(fields,scene.to_unity(location),scene.blender_euler(rotation),scene.to_unity(scale))
+    from .studio import prefab_records
+    return prefab_records([obj], Vector() if origin is None else origin)[0]
 
 
 def group(objects,name='Custom Prefab',origin=None):
@@ -130,7 +127,8 @@ class RUSTER_OT_assembly_export(bpy.types.Operator,ExportHelper):
             if not objects:raise ValueError('Select a prefab group or placements to export')
             context.view_layer.update()
             origin=context.object.matrix_world.translation if context.object and context.object.get('ruster_kind')=='GROUP' else sum((o.matrix_world.translation for o in objects),Vector())/len(objects)
-            records=[world_record(o,origin) for o in objects]
+            from .studio import prefab_records
+            records=prefab_records(objects,origin)
             atomic_write(self.filepath,prefabs.encode_assembly(records,Path(self.filepath).stem))
             return {'FINISHED'}
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
@@ -142,22 +140,27 @@ class RUSTER_OT_assembly_import(bpy.types.Operator,ImportHelper):
     bl_options={'REGISTER','UNDO'}
     filter_glob:StringProperty(default='*.rusterprefab',options={'HIDDEN'})
     def execute(self,context):
+        created=[];root=None
+        selected=list(context.selected_objects);active=context.view_layer.objects.active
         try:
             path=Path(self.filepath)
             if path.stat().st_size>32*1024*1024:raise ValueError('Custom prefab is too large')
             title,records=prefabs.decode_assembly(path.read_bytes())
             collection=bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs')
-            created=[]
             for fields in records:
                 position,rotation,scale=prefab_transform(fields)
                 position=Vector(position)+Vector(scene.to_unity(context.scene.cursor.location))
                 obj=scene.root_object(update_transform(fields,position,rotation,scale),collection)
-                scene.attach_visual(obj);created.append(obj)
-            group(created,title)
+                created.append(obj);scene.attach_visual(obj)
+            root=group(created,title,origin=context.scene.cursor.location.copy())
             from . import app
             app.request_missing_visuals(created)
             return {'FINISHED'}
-        except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
+        except Exception as error:
+            for obj in created:bpy.data.objects.remove(obj,do_unlink=True)
+            if root:bpy.data.objects.remove(root,do_unlink=True)
+            select(selected);context.view_layer.objects.active=active
+            self.report({'ERROR'},str(error));return {'CANCELLED'}
 
 
 class RUSTER_OT_scatter(bpy.types.Operator):
@@ -252,24 +255,10 @@ class RUSTER_OT_replace(bpy.types.Operator):
 
 
 def duplicate_selected():
+    from . import mcp_prefab_ops, mcp_bridge
     roots=selected_roots()
-    created=[]
-    for root in roots:
-        originals=[root]+[o for o in root.children_recursive if o.get('ruster_kind') in {'PREFAB','GROUP'}]
-        copies={}
-        for obj in originals:
-            new=obj.copy();obj.users_collection[0].objects.link(new)
-            if new.get('ruster_kind')=='PREFAB':scene.name_prefab(new,obj.name)
-            if new.type=='CURVE':new.data=obj.data.copy()
-            new['ruster_instance']=uuid.uuid4().hex
-            copies[obj]=new
-        for old,new in copies.items():
-            if old.parent in copies:new.parent=copies[old.parent]
-            from .construction import clear_copy_link
-            clear_copy_link(new)
-        copies[root].location.x+=2
-        created.append(copies[root])
-    select(created)
+    if not roots:raise ValueError('Select prefab placements or groups first')
+    created,_count=mcp_prefab_ops.clone_arrays(roots,1,(2,0,0),(0,0,0),mcp_bridge)
     return created
 
 
@@ -286,12 +275,14 @@ def register():
     for cls in (RUSTER_OT_group,RUSTER_OT_ungroup,RUSTER_OT_assembly_export,
                 RUSTER_OT_assembly_import,RUSTER_OT_select_same,RUSTER_OT_replace):
         bpy.utils.register_class(cls);_classes.append(cls)
-    from . import construction
+    from . import construction, layout
     construction.register()
+    layout.register()
 
 
 def unregister():
-    from . import construction
+    from . import construction, layout
+    layout.unregister()
     construction.unregister()
     for cls in reversed(_classes):bpy.utils.unregister_class(cls)
     _classes.clear()

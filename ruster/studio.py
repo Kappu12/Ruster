@@ -140,11 +140,13 @@ def new_prefab():
 def prefab_records(roots, origin):
     records = []
     bpy.context.view_layer.update()
-    from .protection import model_error
-    checked_models = {}
+    from .map_prefabs import validate_placements
+    roots = list(roots)
+    errors, _notes = validate_placements(roots)
+    if errors:raise ValueError('; '.join(errors[:5]))
+    if len(origin) != 3 or not all(math.isfinite(v) for v in origin):
+        raise ValueError('Export origin must be a finite XYZ position')
     for root in roots:
-        problem = model_error(root, checked_models)
-        if problem:raise ValueError(root.name + ': ' + problem)
         old = wire.parse(base64.b64decode(root['ruster_record'], validate=True))
         position, rotation, scale = prefab_transform(old)
         relative = root.matrix_world.copy();relative.translation -= origin

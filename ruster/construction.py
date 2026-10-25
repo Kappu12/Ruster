@@ -26,9 +26,11 @@ def symmetry_transaction(context):
         context.view_layer.update()
         yield
     finally:
-        context.view_layer.update()
-        remember_symmetry(context.scene)
-        _syncing = previous
+        try:
+            context.view_layer.update()
+            remember_symmetry(context.scene)
+        finally:
+            _syncing = previous
 
 
 def update_snapping(settings, context):
@@ -70,8 +72,9 @@ class RUSTER_PG_construction(bpy.types.PropertyGroup):
         items=[('VERTEX', 'Vertices', 'Snap to model corners'),
                ('EDGE', 'Edges', 'Snap to model edges'), ('FACE', 'Faces', 'Snap to model surfaces')])
     angle_snap: EnumProperty(name='Rotation Step', default='OFF', update=update_snapping,
-        items=[('OFF', 'Off', 'Free rotation')] +
-              [(str(angle), str(angle)+'°', f'Rotate in {angle} degree steps') for angle in (15, 30, 45, 60, 90, 180)])
+        items=[('OFF', 'Off', 'Free rotation', 0)] +
+              [(str(angle), str(angle)+'°', f'Rotate in {angle} degree steps', value)
+               for angle, value in ((15, 3), (30, 4), (45, 1), (60, 5), (90, 2), (180, 6))])
     symmetry: BoolProperty(name='Radial Symmetry', default=False, update=update_symmetry,
         description='Repeat new prefabs around the center; editing or deleting any member affects its set while enabled')
     sides: IntProperty(name='Sides', default=4, min=2, max=16,
@@ -113,11 +116,15 @@ def member_matrix(matrix, companion, angle):
                          bool(companion.get('ruster_symmetry_rotate', True)))
 
 
-def check_sources(sources, context):
+def check_sources(sources, context, new_count=None):
     from . import scene
     if not sources:raise ValueError('Select whole prefab placements first')
-    if len(sources) * (context.scene.ruster_construction.sides - 1) > 2000:
+    if new_count is None:new_count = len(sources) * (context.scene.ruster_construction.sides - 1)
+    if new_count > 2000:
         raise ValueError('Symmetry is limited to 2,000 new placements per operation')
+    from .map_prefabs import validate_placements
+    errors, _notes = validate_placements(sources)
+    if errors:raise ValueError('; '.join(errors[:5]))
     for source in sources:
         if source.get('ruster_linked_extensions') or source.get('ruster_has_io'):
             raise ValueError('Imported IO/linked metadata cannot be copied into symmetry sets')
@@ -128,8 +135,6 @@ def check_sources(sources, context):
             lengths = parent.to_scale()
             if scene.matrix_has_shear(parent) or max(lengths)-min(lengths) > 1e-5:
                 raise ValueError('Use uniform parent group scale before applying symmetry')
-        from .studio import prefab_records
-        prefab_records([source], Vector())
 
 
 def add_symmetry(source, context):
@@ -359,7 +364,8 @@ class RUSTER_OT_symmetry_apply(bpy.types.Operator):
                 if not chosen:raise ValueError('Select a member of an existing symmetry set')
                 if any(key not in members for key, members in chosen.items()):
                     raise ValueError('A set has no original; make it independent and create a new set')
-                check_sources([obj for members in chosen.values() for obj in members.values()], context)
+                check_sources([obj for members in chosen.values() for obj in members.values()], context,
+                              sum(max(0, settings.sides-len(members)) for members in chosen.values()))
                 for members in chosen.values():
                     for obj in members.values():
                         saved[obj] = (obj.matrix_basis.copy(), {key: list(obj[key]) if hasattr(obj[key], 'to_list') else obj[key]

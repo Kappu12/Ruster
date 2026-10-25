@@ -11,6 +11,7 @@ document before building; MCP exposes this dedicated resource file at
 | --- | --- |
 | Move and rotate | Allowed on whole placements and groups. Ruster uses world XYZ metres, Z up, and XYZ Euler degrees; interchange converts to Rust's coordinate system. Free angles are allowed, including tilt; 45/90 degree snapping is optional. |
 | Duplicate, group, array, align and snap | Allowed using whole original instances. Groups are editor organization; exports flatten their world transforms into prefab placements. |
+| Editor names | Spaces are allowed in placement/group labels. Exported Rust placement identity comes from the numeric prefab ID; renaming a Blender object does not change the asset path or create a game prefab. |
 | Scale | Rust's map data stores scale. Static decorations can use placement scaling, including nonuniform factors where representable without shear. **Networked entities such as doors, IO and deployables ignore scaling in Rust**; keep those at unit scale for game designs. Ruster does not yet classify every ID as networked, so preview scaling is not proof of support. Mirrored/negative scale and extreme proportions require in-game verification. |
 | Make a triangle | **Do not create a new triangle mesh**, extrude/edit vertices, or cut another model into a triangle. An existing triangular Rust prefab, or a triangular arrangement made from original parts, is allowed. The same rule applies to cubes and every other custom primitive. |
 | Modify models/materials | Do not sculpt, boolean, bevel, remesh, deform, replace textures/materials, make linked models local, or add library overrides. Native model export makes disposable copies; it does not make custom geometry usable in Rust. |
@@ -40,7 +41,7 @@ no terrain or paths and is not a complete playable world.
 
 ### Verified references and scope
 
-Checked on 2026-10-23 against Facepunch's documentation and this repository's
+Checked on 2026-10-25 against Facepunch's documentation and this repository's
 export/protection code:
 
 - [Facepunch Map Data](https://wiki.facepunch.com/rust/Map_Data) documents prefab
@@ -55,3 +56,11 @@ export/protection code:
   Blender controls while keeping Rust prefab compositions within the rules above.
 - [Native prefab compatibility](rustedit-prefabs.md) describes the verified
   interchange contract; [FEATURES.md](../FEATURES.md) records active product scope.
+
+The shared placement validator runs for `.map`, `.prefab` and `.rusterprefab`
+exports, including unchanged source-record preservation. Invalid metadata,
+unsupported parents/constraints/animation, zero scale and shear stop export.
+Composition diagnostics also flag overlapping copies, mirrored transforms and
+scaled placements known to have imported IO metadata. These are advisory;
+unclassified IDs are not certified as static or safe to scale. No models or
+materials are rewritten by these checks.

@@ -57,7 +57,7 @@ projection (also **Numpad 5**); its pressed state indicates perspective. The
 
 The **left toolbar** includes **Object Snap** (magnet) and **Radial Symmetry**
 (array) toggles, each with a settings popover below it. Snap Settings offers
-vertex, edge or face snapping to loaded original models and **45° / 90°** steps
+vertex, edge or face snapping to loaded original models and **15°–180°** steps
 for native `R` rotation. **Align Rotation to Step** rounds an existing selection
 to the chosen world angles. `Ctrl` temporarily toggles native snapping.
 
@@ -77,6 +77,23 @@ Turn symmetry off to edit or delete individual placements, or use **Make
 Symmetry Set Independent** to unlink them permanently. Settings apply to new
 sets; existing sets retain their center and side count. Placement is one undo
 step, and saved `.ruster` projects retain the symmetry sets.
+
+The sidebar's **Prefab Layout** panel offers **Linear Array**, **Radial Array**,
+**Align Bounds**, **Distribute**, **Snap to Grid** and **Place on Plane**. Arrays
+create independent copies of whole selections (including groups), capped at
+2,000 new placements. Bounds operations require loaded original models. Align
+uses the active selected object as its reference; Distribute orders selections
+by their current position on the chosen axis. Grid snapping supports individual
+axes and an optional cursor origin. Each layout operation is one undo step.
+Turn live symmetry off before independently arranging members of a linked set.
+
+**Check Composition** reports export errors and flags overlapping copies,
+mirrored transforms and scaled imported IO. Selection buttons locate these
+placements without changing them. The IO check only identifies imported IO
+metadata; it does not classify every networked asset. Editor labels may contain
+spaces: Rust receives the original prefab ID, not the Blender object name.
+All placement export formats validate IDs, original model integrity, parents,
+constraints, finite transforms, zero scale and shear before writing files.
 
 Original mesh and material data remain protected linked libraries. Transform
 whole placements or groups; model exports use temporary realized copies. A

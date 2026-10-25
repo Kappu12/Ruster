@@ -255,6 +255,8 @@ def dispatch(server,kind,p,bridge):
             with preserved_selection():roots,n=clone_arrays(objects,count,offset,rotation,bridge)
             result={'objects':[o.name for o in roots[:200]],'root_count':len(roots),'new_prefab_count':n,'objects_truncated':len(roots)>200}
         elif kind in {'align_objects','snap_objects_to_plane'}:
+            from .mcp_blender import editable_roots
+            objects=editable_roots(p['names'],bridge)
             target=align(objects,p.get('axis','Z'),p.get('mode','MIN'),p.get('target',0) if kind=='snap_objects_to_plane' else p.get('target'),bridge)
             result={'objects':mcp_building.object_infos(server,objects,bridge,False),'target':target}
         else:raise ValueError('Unsupported prefab operation')

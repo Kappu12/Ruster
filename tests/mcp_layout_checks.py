@@ -131,6 +131,9 @@ def run(server, call, uid):
     peer_names = [obj.name for obj in peers]
     before = {obj.name: obj.matrix_world.copy() for obj in [bpy.data.objects[third], *peers]}
     assert 'Radial Symmetry' in fail('transform_objects_relative', names=[third], offset=[1, 0, 0])
+    assert 'Radial Symmetry' in fail('transform_objects', transforms=[{'name': third, 'position': [8, 1, 2]}])
+    assert 'Radial Symmetry' in fail('align_objects', names=[third], target=0)
+    assert 'Radial Symmetry' in fail('snap_objects_to_plane', names=[third], target=0)
     assert all(bpy.data.objects[name].matrix_world == matrix for name, matrix in before.items())
     settings.symmetry = False
     call('delete_objects', names=[group, third, *peer_names])

@@ -16,6 +16,9 @@ Blender's runtime; users do not install an add-on manually.
 | `ruster/painting.py` | Native continuous prefab placement tool, palettes, stroke undo/cancel |
 | `ruster/core/palettes.py` | Validated persistent favorite IDs |
 | `ruster/placement.py` | Groups, prefab assemblies, scatter, snap and replacement |
+| `ruster/construction.py` | Live radial sets, frame-aware group transforms and snapping |
+| `ruster/layout.py` | Native array, alignment, distribution, grid and composition-check UI |
+| `ruster/map_prefabs.py` | Prefab-only map interchange and shared placement export validation |
 | `ruster/core/terrain.py` | Terrain algorithms, layer snapshots, normalization and sampling |
 | `ruster/core/paths.py` | Lossless path records and polyline sampling |
 | `ruster/core/wire.py` | Lossless protobuf fields |

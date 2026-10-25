@@ -114,6 +114,32 @@ def loaded_bounds(objects):
     return boxes
 
 
+def distribution_matrices(objects, matrices, axis, mode, spacing):
+    if len(objects) < 2:raise ValueError('Choose at least two objects in the desired spacing order')
+    if axis not in {'X', 'Y', 'Z'} or mode not in {'ORIGIN', 'BOUNDS_GAP'}:raise ValueError('Use axis X/Y/Z and mode ORIGIN/BOUNDS_GAP')
+    spacing = number(spacing, 'Spacing'); index = 'XYZ'.index(axis)
+    boxes = loaded_bounds(objects) if mode == 'BOUNDS_GAP' else None
+    edge = boxes[0]['max'][index] if boxes else matrices[0].translation[index]
+    for i in range(1, len(objects)):
+        position = matrices[i].translation.copy()
+        position[index] += edge+spacing-(boxes[i]['min'][index] if boxes else position[index])
+        matrices[i].translation = position
+        edge = position[index]+boxes[i]['max'][index]-objects[i].matrix_world.translation[index] if boxes else position[index]
+    return matrices
+
+
+def grid_matrices(matrices, step, origin, axes):
+    step = number(step, 'Grid step', 1e-5, 1e7)
+    if not isinstance(axes, str) or not axes or set(axes)-set('XYZ') or len(set(axes)) != len(axes):raise ValueError('Axes must contain unique X/Y/Z letters')
+    for matrix in matrices:
+        position = matrix.translation.copy()
+        for axis in axes:
+            i = 'XYZ'.index(axis); value = (position[i]-origin[i])/step
+            position[i] = origin[i]+math.copysign(math.floor(abs(value)+.5), value)*step
+        matrix.translation = position
+    return matrices
+
+
 def dispatch(server, kind, p, bridge):
     if kind == 'get_blender_context':
         context = bpy.context; current = context.scene; tools = current.tool_settings
@@ -174,31 +200,14 @@ def dispatch(server, kind, p, bridge):
             result = {'objects': [obj.name for obj in roots[:200]], 'root_count': len(roots),
                       'new_prefab_count': n, 'objects_truncated': len(roots) > 200, 'center': list(center)}
         elif kind == 'distribute_objects':
-            if len(objects) < 2:raise ValueError('Choose at least two objects in the desired spacing order')
             axis = p.get('axis', 'X'); mode = p.get('mode', 'ORIGIN')
-            if axis not in {'X', 'Y', 'Z'} or mode not in {'ORIGIN', 'BOUNDS_GAP'}:raise ValueError('Use axis X/Y/Z and mode ORIGIN/BOUNDS_GAP')
-            spacing = number(p['spacing'], 'Spacing'); index = 'XYZ'.index(axis)
-            boxes = loaded_bounds(objects) if mode == 'BOUNDS_GAP' else None
-            edge = boxes[0]['max'][index] if boxes else matrices[0].translation[index]
-            for i in range(1, len(objects)):
-                position = matrices[i].translation.copy()
-                position[index] += edge+spacing-(boxes[i]['min'][index] if boxes else position[index])
-                matrices[i].translation = position
-                edge = position[index]+boxes[i]['max'][index]-objects[i].matrix_world.translation[index] if boxes else position[index]
-            apply_matrices(objects, matrices, bridge)
+            apply_matrices(objects, distribution_matrices(objects, matrices, axis, mode, p['spacing']), bridge)
             result = {'objects': mcp_building.object_infos(server, objects, bridge, False), 'mode': mode}
         elif kind == 'snap_objects_to_grid':
-            step = number(p['step'], 'Grid step', 1e-5, 1e7)
+            step = p['step']
             origin = bridge.vector(p.get('origin', [0, 0, 0]), 'Grid origin')
             axes = p.get('axes', 'XYZ')
-            if not isinstance(axes, str) or not axes or set(axes)-set('XYZ') or len(set(axes)) != len(axes):raise ValueError('Axes must contain unique X/Y/Z letters')
-            for matrix in matrices:
-                position = matrix.translation.copy()
-                for axis in axes:
-                    i = 'XYZ'.index(axis); value = (position[i]-origin[i])/step
-                    position[i] = origin[i]+math.copysign(math.floor(abs(value)+.5), value)*step
-                matrix.translation = position
-            apply_matrices(objects, matrices, bridge)
+            apply_matrices(objects, grid_matrices(matrices, step, origin, axes), bridge)
             result = {'objects': mcp_building.object_infos(server, objects, bridge, False)}
         else:raise ValueError('Unsupported Blender layout command')
     if bpy.context.preferences.edit.use_global_undo:bpy.ops.ed.undo_push(message='MCP: '+kind.replace('_', ' ').title())

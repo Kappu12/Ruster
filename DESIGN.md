@@ -70,6 +70,15 @@ Use Z-up metres in the editor. The authoring plane is Z=0. View projection and
 overlays are adjacent header controls; Shift+F enters native Walk Navigation.
 Object Snap and Radial Symmetry have toolbar toggles and settings popovers.
 Explain when editing or deleting a symmetry member affects its complete set.
+Symmetry settings support world axes, copy orientation and centers from the
+cursor or selection. Editing existing sets requires an explicit Apply Settings
+action. Keep the original and surviving copy identities when changing side
+counts. Complete group transforms carry the symmetry frame with them.
+
+Expose whole-prefab layout actions in a collapsible Prefab Layout panel. Reuse
+the typed layout backend and native undo. Diagnostics may select placements for
+inspection; never silently delete overlapping copies or normalize transforms.
+Editor labels may contain spaces; game identity remains the original prefab ID.
 
 Pending models use wireframe placement boxes. Geometry-free sounds, terrain
 stamps and other helpers have explicit markers and descriptions. Their placement

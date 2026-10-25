@@ -233,6 +233,25 @@ def perform():
     elif stage == 30:
         assert_matrices(state['disabled_others'])
         assert_matrices({state['disabled_peer']: state['disabled_desired']})
+    elif stage == 31:
+        studio.new_prefab()
+        settings = bpy.context.scene.ruster_construction
+        settings.symmetry, settings.sides, settings.axis = True, 4, 'X'
+        settings.rotate_copies = False
+        bpy.context.scene.cursor.location = (0, 4, 0)
+        with at_view():bpy.ops.ruster.place(uid='123456')
+        assert len(scene.prefab_roots()) == 4
+    elif stage == 32:
+        bpy.context.scene.ruster_construction.sides = 6
+        with at_view():bpy.ops.ruster.symmetry_apply()
+        assert len(scene.prefab_roots()) == 6
+    elif stage == 33:
+        with at_view():bpy.ops.ed.undo()
+        assert len(scene.prefab_roots()) == 4, 'Symmetry resize must undo in one step'
+    elif stage == 34:
+        with at_view():bpy.ops.ed.redo()
+        assert len(scene.prefab_roots()) == 6
+        assert all(tuple(obj.get('ruster_symmetry_axis', (1,0,0))) == (1,0,0) for obj in scene.prefab_roots())
     else:
         print('Graphical construction controls, native snapping, any-member symmetry and undo/redo passed', flush=True)
         bpy.ops.wm.quit_blender()
