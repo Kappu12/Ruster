@@ -50,6 +50,11 @@ callback and during the session. It does not disable, stop, patch, hide from, or
 bypass EAC. If the original launcher cannot be verified, restart Rust with the
 panel's direct-executable button.
 
+When inspection is incomplete, the panel names the missing launch command line,
+original launcher or loaded-module evidence. This means EAC could not be verified;
+it is not a positive detection of EAC. Injection stays disabled until every check
+passes.
+
 The module applies placements only when the client's current world URL matches
 the random loopback map URL and the companion reports a connected local player.
 All game object operations run through a callback on the Unity window thread.
@@ -62,6 +67,12 @@ checks `Network.Net.sv.secure` before advertising readiness and on every update.
 Ruster validates a fresh heartbeat with the matching server PID and session
 identity before injection. A secure or non-loopback server is refused and
 stopped; no EAC setting is bypassed or patched.
+
+Status reads allow the companion to replace its heartbeat file concurrently using
+[Windows file-sharing flags](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
+A brief locked or missing heartbeat is retried while the previous verified report
+remains fresh. A failed read never extends that report's 15-second lease, and
+injection still requires a fresh read. A prolonged failure stops the owned server.
 
 The editor checks for scene changes about twice per second; capture batches yield
 to keep editing responsive. The server and client poll at 4 Hz. The intended edit

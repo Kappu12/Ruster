@@ -6,6 +6,7 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import os
 import re
 from pathlib import Path, PurePosixPath
 import secrets
@@ -60,8 +61,31 @@ def steam_progress(text):
     return 'Starting SteamCMD', .05, None
 
 
+def open_status(path):
+    """Allow the companion to atomically replace a status file during a read."""
+    if sys.platform != 'win32':return Path(path).open('rb')
+    import ctypes
+    from ctypes import wintypes as W
+    import msvcrt
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [W.LPCWSTR, W.DWORD, W.DWORD, ctypes.c_void_p,
+        W.DWORD, W.DWORD, W.HANDLE]
+    kernel.CreateFileW.restype = W.HANDLE
+    kernel.CloseHandle.argtypes = [W.HANDLE];kernel.CloseHandle.restype = W.BOOL
+    # GENERIC_READ, FILE_SHARE_READ|WRITE|DELETE, OPEN_EXISTING. Python's
+    # ordinary file open does not share delete access on Windows.
+    handle = kernel.CreateFileW(str(Path(path)), 0x80000000, 7, None, 3, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:raise ctypes.WinError(ctypes.get_last_error())
+    try:descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except Exception:
+        kernel.CloseHandle(handle);raise
+    try:return os.fdopen(descriptor, 'rb')
+    except Exception:
+        os.close(descriptor);raise
+
+
 def read_bounded(path, limit=4096):
-    with Path(path).open('rb') as handle:data = handle.read(limit+1)
+    with open_status(path) as handle:data = handle.read(limit+1)
     if len(data) > limit:raise ValueError('Preview status exceeds size limits')
     return data.decode('utf8')
 
@@ -206,6 +230,7 @@ class PreviewSession:
         self._map = preview_map(self._initial);self.token = secrets.token_hex(32)
         self.process_lock = threading.Lock();self.owned_job = None
         self.pending = None
+        self._ready_until = 0.
         write_snapshot(self.directory, self.revision, self._initial)
         shutil.copyfile(self.directory/'scene.bin', self.directory/'initial.bin')
         atomic_write(self.directory/'initial.json', (self.directory/'scene.json').read_bytes())
@@ -318,6 +343,19 @@ class PreviewSession:
             if self.cancel.wait(.2):raise InterruptedError()
             if time.monotonic() > deadline:raise TimeoutError('Preview process timed out')
 
+    def _check_readiness(self):
+        try:
+            report = verify_server_ready(self.directory/'server.ready', expected_pid=self.process.pid, expected_token=self.token)
+        except (FileNotFoundError, PermissionError) as error:
+            # Replacement can briefly leave the old Windows file delete-pending.
+            # A missed read must not renew the last verified heartbeat lease.
+            # Injection always reads and verifies the current report separately.
+            if self.status != 'RUNNING' or time.monotonic() < self._ready_until:return False
+            raise RuntimeError('Cannot read the local server heartbeat; its last verified report expired. Restart Live Preview.') from error
+        self._ready_until = time.monotonic()+max(0., SERVER_LEASE_SECONDS-(time.time()-report['timestamp']))
+        if self.status != 'RUNNING':self.note('RUNNING', 'Local server ready · EAC disabled')
+        return True
+
     def _run(self):
         final_status, final_message = 'STOPPED', 'Local preview stopped'
         lease = installation_lease(self.root);leased = False
@@ -333,7 +371,6 @@ class PreviewSession:
             self._serve_map()
             atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url, 'token': self.token, 'origin': self.origin}).encode())
             atomic_write(self.directory/'active.flag', b'Ruster local preview\n')
-            import os
             env = {**os.environ, 'RUSTER_PREVIEW_DIR': str(self.directory)}
             self.note('STARTING', 'Starting the private Rust server; waiting for the preview plugin')
             self._spawn(command(binary, self.identity, self.port, self.url, self.log),
@@ -350,10 +387,9 @@ class PreviewSession:
                     pending, self.pending = self.pending, None
                 if pending is not None:
                     self.revision += 1;write_snapshot(self.directory, self.revision, pending)
-                if time.monotonic() >= next_lease and (self.status == 'RUNNING' or (self.directory/'server.ready').is_file()):
-                    verify_server_ready(self.directory/'server.ready', expected_pid=self.process.pid, expected_token=self.token)
-                    if self.status != 'RUNNING':self.note('RUNNING', 'Local server ready · EAC disabled')
-                    next_lease = time.monotonic()+1.
+                if time.monotonic() >= next_lease:
+                    verified = self._check_readiness()
+                    next_lease = time.monotonic()+(1. if verified else .2)
                 if self.status != 'RUNNING' and time.monotonic() > deadline:
                     raise TimeoutError('The preview plugin did not become ready within 15 minutes. See server.log')
                 if self.status != 'RUNNING' and any('PlayerPrefsException' in line for line in self.log_tail(12)):

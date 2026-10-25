@@ -11,7 +11,7 @@ os.environ['RUSTER_PREVIEW_TEST_NO_DISCOVERY'] = '1'
 import bpy
 import ruster
 from ruster import app, live_preview, ui
-from ruster.core.preview_client import ClientProbe
+from ruster.core.preview_client import ClientProbe, verify_probe
 
 temporary = tempfile.TemporaryDirectory(prefix='ruster-preview-ui-')
 root = Path(temporary.name);os.environ['RUSTER_USER_DIR'] = str(root/'user')
@@ -84,8 +84,17 @@ def tick():
             live_preview._job.message = 'Updating SteamCMD · 50%' if phase == 4 else 'Downloading Rust server · 50%'
             live_preview._job.progress = .075 if phase == 4 else .46
             live_preview.refresh_status()
+        elif phase == 6:
+            live_preview._job.status = 'RUNNING';live_preview._job.progress = None
+            live_preview._job.message = 'Local server ready · EAC disabled'
+            live_preview._clients = [ClientProbe(pid=1, created=1, executable=str(root/'RustClient.exe'),
+                parent_name='explorer.exe', modules=['GameAssembly.dll', 'UnityPlayer.dll'])]
+            try:verify_probe(live_preview._clients[0], root)
+            except ValueError as error:live_preview._probe_message = str(error)
+            else:raise AssertionError('Incomplete inspection was accepted')
+            live_preview.refresh_status()
         else:
-            assert state['draws'] >= {0, 1, 2, 3, 4, 5}
+            assert state['draws'] >= {0, 1, 2, 3, 4, 5, 6}
             live_preview._job = None
             ruster.unregister()
             print('RUSTER_LIVE_PREVIEW_DRAW_STATES_OK', flush=True)

@@ -41,8 +41,10 @@ def verify_probe(probe, installation):
     expected = (Path(installation)/'RustClient.exe').resolve()
     if not probe.pid or not probe.created or Path(probe.executable).resolve() != expected:
         raise ValueError('The detected process is not this installation\'s RustClient.exe')
-    if not probe.command_line or not probe.parent_name or not probe.modules:
-        raise ValueError('Cannot verify EAC is off: incomplete process inspection')
+    missing = [name for name, value in (('launch command line', probe.command_line),
+        ('original launcher', probe.parent_name), ('loaded modules', probe.modules)) if not value]
+    if missing:
+        raise ValueError('Cannot verify EAC is off: missing '+', '.join(missing)+'. Close Rust and use Launch Rust Without EAC.')
     if (is_eac_name(probe.parent_name) or Path(probe.parent_name).name.casefold() == 'rust.exe'
             or re.search(r'(?i)(?:^|\s)[-/](?:eac|easyanticheat)', probe.command_line)):
         raise ValueError('Rust was launched through an EAC wrapper; close it and use Launch Rust Without EAC')

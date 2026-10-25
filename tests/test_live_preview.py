@@ -61,6 +61,30 @@ def test_no_eac_requires_multiple_independent_observations(tmp_path):
         with pytest.raises(ValueError):client.verify_probe(replace(probe, **changes), tmp_path)
 
 
+@pytest.mark.parametrize('changes,missing', [({'command_line': ''}, 'launch command line'),
+    ({'parent_name': ''}, 'original launcher'), ({'modules': []}, 'loaded modules')])
+def test_incomplete_client_checks_identify_the_missing_evidence(tmp_path, changes, missing):
+    with pytest.raises(ValueError, match='missing '+missing) as failure:
+        client.verify_probe(replace(safe_probe(tmp_path), **changes), tmp_path)
+    assert 'Close Rust and use Launch Rust Without EAC' in str(failure.value)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only synthetic process inspection')
+def test_inspector_reads_owned_python_child_without_touching_rust():
+    import subprocess
+    process = subprocess.Popen([getattr(sys, '_base_executable', sys.executable), '-u', '-c',
+        "import sys;print('ready',flush=True);sys.stdin.readline()"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout.readline().strip() == 'ready'
+        probe = client.WindowsInspector().inspect(process.pid)
+        assert not probe.error, probe.error
+        assert probe.created and probe.parent_name and probe.modules
+        assert 'sys.stdin.readline()' in probe.command_line
+    finally:
+        process.communicate('\n', timeout=5)
+
+
 @pytest.mark.parametrize('name', ['EasyAntiCheat_EOS.sys', 'C:\\Games\\EasyAntiCheat_x64.dll', 'EAC_Client.dll',
     'easyanticheat_eos', 'EACDriver.sys', 'start_protected_game.exe'])
 def test_eac_names_include_drivers_and_case(name):
@@ -219,6 +243,12 @@ while (session/'active.flag').exists():time.sleep(.02)
         kwargs.pop('creationflags', None);kwargs['cwd'] = tmp_path
         return real_popen([getattr(sys, '_base_executable', sys.executable), str(script)], **kwargs)
     monkeypatch.setattr(server.subprocess, 'Popen', popen)
+    real_verify = server.verify_server_ready;missed = []
+    def intermittent_read(*args, **kwargs):
+        if job.status == 'RUNNING' and not missed:
+            missed.append(True);raise PermissionError('Synthetic heartbeat replacement')
+        return real_verify(*args, **kwargs)
+    monkeypatch.setattr(server, 'verify_server_ready', intermittent_read)
     untouched = tmp_path/'other-server.sav';untouched.write_bytes(b'keep')
     job.start()
     deadline = time.monotonic()+5
@@ -227,8 +257,8 @@ while (session/'active.flag').exists():time.sleep(.02)
         assert job.status == 'RUNNING', job.info()
         job.update([placement()])
         deadline = time.monotonic()+3
-        while job.revision < 2 and time.monotonic() < deadline:time.sleep(.03)
-        assert job.revision == 2
+        while (job.revision < 2 or not missed) and time.monotonic() < deadline:time.sleep(.03)
+        assert job.revision == 2 and missed and job.status == 'RUNNING' and job.active
     finally:job.close()
     assert job.status == 'STOPPED' and job.process.poll() is not None
     assert untouched.read_bytes() == b'keep' and not (job.directory/'active.flag').exists()
@@ -244,6 +274,65 @@ def test_server_runtime_report_must_confirm_inactive_eac(tmp_path):
                    {'protocol': 1, 'ip': '127.0.0.1'}):
         path.write_text(json.dumps(report))
         with pytest.raises(ValueError):server.verify_server_ready(path)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows file sharing regression')
+def test_status_reader_allows_atomic_replacement_while_open(tmp_path):
+    import ctypes
+    from ctypes import wintypes as W
+    path = tmp_path/'server.ready';path.write_bytes(b'old heartbeat')
+    replacement = tmp_path/'server.ready.server.tmp';replacement.write_bytes(b'new heartbeat')
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.ReplaceFileW.argtypes = [W.LPCWSTR, W.LPCWSTR, W.LPCWSTR, W.DWORD, ctypes.c_void_p, ctypes.c_void_p]
+    kernel.ReplaceFileW.restype = W.BOOL
+    with server.open_status(path) as reader:
+        # Same Windows replacement primitive as the C# companion's File.Replace.
+        if not kernel.ReplaceFileW(str(path), str(replacement), None, 0, None, None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        assert reader.read() == b'old heartbeat'
+    assert server.read_bounded(path) == 'new heartbeat'
+    with pytest.raises(ValueError, match='size limits'):server.read_bounded(path, 3)
+    with pytest.raises(FileNotFoundError):server.read_bounded(tmp_path/'missing')
+
+
+def test_busy_heartbeat_uses_only_the_unexpired_verified_lease(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    job = object.__new__(server.PreviewSession)
+    job.directory = tmp_path;job.process = SimpleNamespace(pid=123);job.token = 'a'*64
+    job.status = 'RUNNING';job._ready_until = 0.
+    ready_session(tmp_path)
+    clock = [100.]
+    monkeypatch.setattr(server.time, 'monotonic', lambda: clock[0])
+    assert job._check_readiness()
+    valid_until = job._ready_until
+    real_verify = server.verify_server_ready
+    def busy(*args, **kwargs):raise PermissionError('Synthetic Windows sharing violation')
+    monkeypatch.setattr(server, 'verify_server_ready', busy)
+    clock[0] += 1
+    assert not job._check_readiness() and job._ready_until == valid_until
+    clock[0] = valid_until+.01
+    with pytest.raises(RuntimeError, match='last verified report expired'):job._check_readiness()
+    monkeypatch.setattr(server, 'verify_server_ready', real_verify)
+    ready_session(tmp_path, secure=True)
+    with pytest.raises(ValueError, match='inactive EAC'):job._check_readiness()
+
+
+def test_missing_first_heartbeat_waits_for_server_startup(tmp_path):
+    from types import SimpleNamespace
+    job = object.__new__(server.PreviewSession)
+    job.directory = tmp_path;job.process = SimpleNamespace(pid=123);job.token = 'a'*64
+    job.status = 'STARTING';job._ready_until = 0.
+    assert not job._check_readiness() and job.status == 'STARTING'
+
+
+def test_unreadable_current_heartbeat_still_blocks_injection(tmp_path, monkeypatch):
+    ready_session(tmp_path);(tmp_path/'RusterPreview.dll').touch()
+    inspector = Mock();inspector.inspect.return_value = safe_probe(tmp_path)
+    monkeypatch.setattr(client, '_windows', lambda: inspector)
+    def busy(*args, **kwargs):raise PermissionError('Synthetic Windows sharing violation')
+    monkeypatch.setattr(server, 'verify_server_ready', busy)
+    with pytest.raises(PermissionError):client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
+    inspector.k.OpenProcess.assert_not_called();inspector.k.WriteProcessMemory.assert_not_called()
 
 
 def test_stop_marker_survives_windows_delete_pending_error(tmp_path, monkeypatch):
