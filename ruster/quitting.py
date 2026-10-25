@@ -207,13 +207,8 @@ class RUSTER_OT_save_changes(bpy.types.Operator):
         if _dialog_open:return {'CANCELLED'}
         _dialog_open = True
         title = 'Save changes before starting a new prefab?' if self.action == 'NEW' else 'Save changes before opening?'
-        window=context.window
-        original=(event.mouse_x,event.mouse_y)
-        try:
-            window.cursor_warp(window.width//2,window.height//2)
-            return context.window_manager.invoke_props_dialog(self, width=440,
-                title=title, confirm_text='Save')
-        finally:window.cursor_warp(*original)
+        return context.window_manager.invoke_props_dialog(self, width=440,
+            title=title, confirm_text='Save')
 
     def draw(self, context):
         state = context.scene.ruster
@@ -275,14 +270,8 @@ class RUSTER_OT_quit(bpy.types.Operator):
             schedule_quit()
             return {'FINISHED'}
         _dialog_open = True
-        window = context.window
-        original = (event.mouse_x, event.mouse_y)
-        try:
-            window.cursor_warp(window.width//2, window.height//2)
-            return context.window_manager.invoke_props_dialog(self, width=410,
-                title='Save changes before closing?', confirm_text='Save')
-        finally:
-            window.cursor_warp(*original)
+        return context.window_manager.invoke_props_dialog(self, width=410,
+            title='Save changes before closing?', confirm_text='Save')
 
     def draw(self, context):
         state = context.scene.ruster

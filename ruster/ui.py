@@ -405,12 +405,9 @@ def view_header(self,context):
     layout.menu('RUSTER_MT_object',text='Object')
     if context.mode=='EDIT_CURVE':
         layout.operator('object.mode_set',text='Finish Path',icon=I['finish_path']).mode='OBJECT'
-    layout.separator()
-    row=layout.row(align=True)
-    for name,label,icon in [('builtin.select_box','','select'),('builtin.move','','move'),
-                            ('builtin.rotate','','rotate'),('builtin.scale','','scale')]:
-        tool_button(row,context,name,label,icon).name=name
-    layout.separator()
+    # Keep Blender's menus / centered transforms / right viewport controls.
+    # Active tools already have their native toolbar and tool-settings header.
+    layout.separator_spacer()
     layout.prop_with_popover(context.scene.transform_orientation_slots[0], 'type', text='',
                              panel='VIEW3D_PT_transform_orientations')
     layout.prop(context.scene.tool_settings, 'transform_pivot_point', text='', icon_only=True)
@@ -461,7 +458,9 @@ def outliner_header(self,context):
 def topbar(self,context):
     layout=self.layout
     if context.region.alignment=='RIGHT':
-        layout.template_reports_banner();layout.template_running_jobs()
+        # Blender only moves reports here when its bottom status bar is hidden.
+        if not context.screen.show_statusbar:
+            layout.template_reports_banner();layout.template_running_jobs()
         from .loading import cached_model_summary,header_label
         counts=cached_model_summary()
         layout.popover(panel='RUSTER_PT_asset_status',text=header_label(context.scene.ruster,counts),
