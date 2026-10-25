@@ -6,7 +6,7 @@ The editor works with whole prefab placements: choose assets, arrange them in th
 
 ## Start with a packaged build
 
-Open [Build Ruster App](https://github.com/Kappu12/Ruster/actions/workflows/package.yml) and select a recent successful run. Download `Ruster-Windows` or `Ruster-Linux` from its artifacts. Extract the download, then extract the Ruster ZIP inside it.
+Open [Releases](https://github.com/Kappu12/Ruster/releases) and download the Windows or Linux ZIP from the version you want. Extract the ZIP into its own application folder.
 
 - **Windows x64:** open `Ruster.exe`.
 - **Linux x64:** run `./Ruster.sh` from the extracted application folder. If needed, run `chmod +x Ruster.sh` first.
@@ -126,7 +126,16 @@ python tools/package.py --archive
 
 The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, runs the package checks, and writes the application and ZIP into `dist/`. Use `--output-name` to choose a different distribution folder name.
 
-GitHub Actions keeps up to two successful builds with both Windows and Linux downloads. Cleanup runs after each packaging workflow finishes, including failed builds. Artifacts also expire after 14 days.
+### Publish a version
+
+Ordinary branch pushes and pull requests run the unit, native Blender, and graphical tests without uploading application artifacts. To publish a version, update the application version in `ruster/__init__.py`, commit the changes, then push a new version tag such as `v1.2.3`:
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The tag workflow runs the same tests, creates a draft GitHub Release, and builds and tests the Windows and Linux packages. Each ZIP uploads directly to the draft release, without intermediate Actions artifacts. The workflow publishes only after both downloads are complete, then removes the old Ruster Actions artifacts. A failed test or build leaves existing downloads intact. Tags such as `v1.2.3-rc.1` create prereleases.
 
 ## Local files
 

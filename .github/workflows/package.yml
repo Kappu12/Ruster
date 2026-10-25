@@ -1,25 +1,76 @@
-name: Build Ruster App
+name: Release Ruster App
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
     tags: ['v*']
 permissions:
   contents: read
+concurrency:
+  group: ruster-release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
 jobs:
-  package:
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+  tests:
+    uses: ./.github/workflows/check.yml
+  prepare:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: python tools/package.py --archive
-      - uses: actions/upload-artifact@v4
+      - name: Prepare draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/release.py prepare
+  package:
+    needs: prepare
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+          - os: ubuntu-latest
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGE_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          name: Ruster-${{ runner.os }}
-          path: dist/*.zip
-          retention-days: 14
+          python-version: '3.13'
+      - name: Build and test application package
+        run: python tools/package.py --archive --output-name "Ruster-${PACKAGE_TARGET}-${RELEASE_TAG}"
+      - name: Upload package directly to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/release.py upload --platform "$PACKAGE_TARGET"
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify both downloads and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/release.py publish
+      - name: Remove old Actions packages after verifying the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/prune_artifacts.py --released-tag "$RELEASE_TAG" --apply
