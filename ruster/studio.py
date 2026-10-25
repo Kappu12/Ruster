@@ -195,7 +195,6 @@ def import_prefab(path):
             obj['ruster_prefab_index'] = index
             obj['ruster_has_io'] = tuple(round(v,3) for v in prefab_transform(fields)[0]) in io_positions
             obj['ruster_linked_extensions'] = linked_extensions
-            scene.attach_visual(obj)
             created.append(obj)
         root = placement.group(created, path.stem)
         # RustEdit's pivot is the file's origin, not the mean placement position.

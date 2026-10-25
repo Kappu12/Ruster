@@ -1,6 +1,11 @@
 from contextlib import closing
 from ruster.assets import catalog
 from ruster.core.asset_names import display_name,menu_label,IO_NAMES
+
+
+def test_concrete_impact_is_distinguished_from_concrete_cube():
+    assert display_name('assets/bundled/prefabs/fx/impacts/stab/concrete/concrete1.prefab')=='concrete1 (Stab impact effect)'
+    assert display_name('assets/bundled/prefabs/modding/cubes/concrete_cube.prefab')=='concrete cube'
 import pytest
 
 

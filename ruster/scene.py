@@ -144,10 +144,10 @@ def name_prefab(obj, source):
         # existing labels while recovering/reloading their model instances.
         return
     base=display_name(source)
-    name=base;number=2
-    while (existing:=bpy.data.objects.get(name)) is not None and existing!=obj:
-        name=f'{base} {number}';number+=1
-    obj.name=name
+    if generated and re.fullmatch(re.escape(base)+r'(?:\.\d{3,})?',obj.name):return
+    # Blender's native name allocator avoids rescanning every prior copy for
+    # each repeated placement (quadratic work on large prefab compositions).
+    obj.name=base
     obj['ruster_generated_name']=obj.name
 
 
@@ -165,6 +165,11 @@ def model_attached(obj):
     """Remove the loading box once the original linked model is visible."""
     obj['ruster_visual'] = True
     obj['ruster_model_status'] = 'Model loaded'
+    preview=obj.instance_collection.get('ruster_preview') if obj.instance_collection else None
+    if preview:
+        obj['ruster_spawner_preview']=preview
+        obj['ruster_model_status']='Spawner · crate preview'
+    elif 'ruster_spawner_preview' in obj:del obj['ruster_spawner_preview']
     for field in ('ruster_marker', 'ruster_helper_bounds'):
         if field in obj:
             del obj[field]
@@ -273,9 +278,9 @@ def attach_visual(root,force=False):
     # existing packed originals remain valid for offline projects.
     asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view4'
     collection_name = 'RusterAsset:' + asset_key
-    matches=[c for c in bpy.data.collections if c.name==collection_name]
+    match=bpy.data.collections.get(collection_name)
     from .protection import VERSION
-    existing=next((c for c in matches if c.library and c.get('ruster_model_verified') and c.get('ruster_model_version')==VERSION),None)
+    existing=match if match and match.library and match.get('ruster_model_verified') and match.get('ruster_model_version')==VERSION else None
     if existing:
         root.instance_type = 'COLLECTION'
         asset_name=existing.get('ruster_asset_name',root.name)
@@ -298,17 +303,25 @@ def attach_visual(root,force=False):
         asset = json.load(stream)
     if asset.get('schema') != 1:
         return False
+    if asset.get('marker')=='VOLUME':
+        from . import volumes
+        volumes.attach(root,asset,path.parent)
+        if 'ruster_model_error' in root:del root['ruster_model_error']
+        return True
     if asset.get('marker') and not asset['meshes']:
         marker=asset['marker']
+        from .core.asset_names import effect_path
+        if marker in {'HELPER','SOUND'} and effect_path(asset['path']):marker='EFFECT'
         suffix={'TERRAIN':' (Terrain Stamp)','HELPER':' (Helper)'}
         name_prefab(root,display_name(asset['path'])+suffix.get(marker,''))
         root.instance_type='NONE';root.instance_collection=None
         root['ruster_visual']=False
         root['ruster_marker']=marker
         root['ruster_model_status']={'SOUND':'Sound effect · this prefab has no visible mesh',
+            'EFFECT':'Runtime effect · particles or audio play in Rust; this prefab has no static building mesh',
             'TERRAIN':'Terrain stamp · modifies map terrain; this prefab has no static model',
             'HELPER':'Rust helper · this prefab contains no static model'}[marker]
-        root.empty_display_type='CUBE' if marker=='TERRAIN' else 'SPHERE'
+        root.empty_display_type={'TERRAIN':'CUBE','SOUND':'SINGLE_ARROW','EFFECT':'ARROWS','HELPER':'PLAIN_AXES'}[marker]
         root.empty_display_size=.5 if marker=='TERRAIN' else .25
         root.show_name=True
         if asset.get('helper_bounds'):root['ruster_helper_bounds']=asset['helper_bounds']
@@ -462,6 +475,7 @@ def attach_visual(root,force=False):
         objects.append(obj)
     name_prefab(root,asset['path'])
     collection['ruster_asset_name'] = display_name(asset['path'])
+    if asset.get('preview'):collection['ruster_preview']=json.dumps(asset['preview'])
     root.instance_type = 'COLLECTION'
     from .protection import freeze
     root.instance_collection = freeze(collection,root['ruster_uid'],asset_key,verified=True)

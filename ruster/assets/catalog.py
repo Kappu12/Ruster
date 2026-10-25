@@ -60,7 +60,7 @@ def filters(query='',category='',favorites=None,available_only=False,include_hel
         conditions.append('n.uid IN ('+','.join('?' for _ in ids)+')' if ids else '0')
         args.extend(ids)
     if available_only:conditions.append(AVAILABLE)
-    if not include_helpers and category not in ('@EFFECTS','@GAMEPLAY','@HIDDEN','@ALL_ASSETS'):
+    if not include_helpers and category not in ('@EFFECTS','@GAMEPLAY','@VOLUMES','@HIDDEN','@ALL_ASSETS'):
         conditions.append('NOT ('+' OR '.join('n.path LIKE ?' for _ in HELPER_PATTERNS)+')')
         args.extend(HELPER_PATTERNS)
     return ' AND '.join(conditions),args

@@ -51,6 +51,18 @@ def run():
         bpy.context.view_layer.update()
         assert root.matrix_world == matrix and root['ruster_record'] == record
         assert base64.b64decode(record) == wire.serialize(fields)
+        # Spawner previews use a crate model while retaining the spawner record.
+        spawned=triangle_asset(uid+50)
+        spawned['preview']={'kind':'SPAWNER','path':'assets/radtown/crate_elite.prefab'}
+        (cache/f'{uid+50}.json.gz').write_bytes(gzip.compress(json.dumps(spawned).encode()))
+        spawn=scene.root_object([wire.encode(2,0,uid+50)],bpy.context.scene.collection)
+        assert scene.attach_visual(spawn) and spawn.get('ruster_spawner_preview')
+        spawn.location=(7,8,9);spawn.rotation_euler=(0,0,.7)
+        bpy.context.view_layer.update()
+        result=studio.prefab_records([spawn],scene.to_blender((0,0,0)))[0]
+        assert wire.get(result,2)==uid+50
+        peer=scene.root_object([wire.encode(2,0,uid+50)],bpy.context.scene.collection)
+        assert scene.attach_visual(peer) and peer['ruster_spawner_preview']==spawn['ruster_spawner_preview']
         # A second placement exercises the already-linked collection path.
         second = scene.root_object(fields, bpy.context.scene.collection)
         assert scene.attach_visual(second) and second.instance_collection == collection

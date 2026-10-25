@@ -1,5 +1,21 @@
 """One model-loading summary and set of recovery actions for native UI surfaces."""
 from . import scene
+import time
+
+_summary_cache=None
+_summary_deadline=0.
+_summary_key=None
+
+
+def cached_model_summary():
+    """Viewport redraws must not walk a large scene for every frame."""
+    global _summary_cache,_summary_deadline,_summary_key
+    context_scene=scene.bpy.context.scene
+    key=(context_scene.as_pointer(),len(context_scene.objects))
+    now=time.monotonic()
+    if _summary_cache is None or key!=_summary_key or now>=_summary_deadline:
+        _summary_cache=model_summary();_summary_key=key;_summary_deadline=now+.5
+    return _summary_cache
 
 
 def model_state(obj,pending):
@@ -27,7 +43,7 @@ def header_label(state,counts):
 def draw_status(layout,context,*,installation=True):
     from .ui_style import ICONS as I,action,wrapped
     state=context.scene.ruster
-    counts=model_summary()
+    counts=cached_model_summary()
     wrapped(layout,context,state.asset_status,icon='busy' if state.busy else 'info')
     if state.busy and state.asset_progress_known:
         layout.progress(factor=state.asset_progress,type='BAR',text='Loading Assets')

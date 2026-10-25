@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 import bpy
 from bpy.app.handlers import persistent
@@ -23,6 +24,11 @@ _job = None
 _job_log = None
 _job_action = None
 _visual_queue = []
+_visual_iterator = None
+_visual_uid = None
+_visual_scene = None
+VISUALS_PER_TICK = 32
+VISUAL_TIME_BUDGET = .008
 _session_dirs = []
 _pending_project = None
 _job_cancelled = False
@@ -241,28 +247,41 @@ def poll_job():
 
 
 def load_visuals():
-    # Link one unique model per tick. Repeated placements share that model, and
-    # a user rename/delete during extraction cannot lose the completion update.
+    # Bound repeated placements too: one UID can represent thousands of copies.
+    # A single library link is indivisible, but no further copies block that tick.
+    global _visual_iterator,_visual_uid,_visual_scene
     if _visual_queue:
-        uid=_visual_queue.pop(0)
-        for obj in scene.prefab_roots():
-            if int(obj['ruster_uid'])!=uid:continue
+        uid=_visual_queue[0]
+        current_scene=bpy.context.scene.as_pointer()
+        if _visual_iterator is None or _visual_uid!=uid or _visual_scene!=current_scene:
+            _visual_iterator=iter([obj for obj in scene.prefab_roots() if int(obj['ruster_uid'])==uid])
+            _visual_uid=uid;_visual_scene=current_scene
+        deadline=time.perf_counter()+VISUAL_TIME_BUDGET
+        for _index in range(VISUALS_PER_TICK):
+            obj=next(_visual_iterator,None)
+            if obj is None:
+                _visual_queue.pop(0);_visual_iterator=None;_visual_uid=None
+                break
             try:
                 loaded=scene.attach_visual(obj,force=True)
                 if loaded and not obj.get('ruster_marker'):
-                    obj['ruster_model_status']='Model loaded'
+                    if not obj.get('ruster_spawner_preview'):obj['ruster_model_status']='Model loaded'
                     frame_first_model(obj)
                 elif not loaded:
                     if not obj.get('ruster_model_error'):obj['ruster_model_status']='Model unavailable — retry loading'
                     bpy.context.scene.ruster.asset_status=obj.get('ruster_model_error',obj['ruster_model_status'])
+            except ReferenceError:continue  # Deleted while the previous tick yielded.
             except Exception as error:
                 obj['ruster_model_status']='Model loading failed'
                 obj['ruster_model_error']=str(error)
                 bpy.context.scene.ruster.asset_status = f'Could not load {obj.name}: {error}'
+            if time.perf_counter()>=deadline:break
+    else:
+        _visual_iterator=None;_visual_uid=None
     bpy.context.scene.ruster.busy=bool(_visual_queue or _pending_asset_ids or (_job is not None and _job.poll() is None))
     state=bpy.context.scene.ruster
     if _visual_queue and _job is None:
-        state.asset_status=f'Linking original models · {len(_visual_queue):,} remaining'
+        state.asset_status=f'Linking original models · {len(_visual_queue):,} asset types remaining'
         state.asset_progress_known=False
     elif not state.busy:
         from .loading import model_summary
@@ -291,12 +310,14 @@ def restore_cached_visuals(objects=None):
 def request_missing_visuals(objects):
     objects=list(objects)
     ids={int(obj['ruster_uid']) for obj in objects if not obj.get('ruster_visual') and not obj.get('ruster_marker')}
+    # Cached models can always recover incrementally, even when uncached unique
+    # IDs exceed the conversion batch limit.
+    restore_cached_visuals(objects)
+    ids.difference_update(_visual_queue)
     if len(ids)>100:
         bpy.context.scene.ruster.asset_status=(f'{len(objects):,} prefab placements imported. '
             'Select placements to load up to 100 different models at a time.')
         return False
-    restore_cached_visuals(objects)
-    ids.difference_update(_visual_queue)
     if ids:request_assets(ids)
 
 
@@ -712,9 +733,10 @@ class RUSTER_OT_cancel_assets(bpy.types.Operator):
     bl_idname='ruster.cancel_assets'
     bl_label='Cancel Asset Loading'
     def execute(self,context):
-        global _job_cancelled
+        global _job_cancelled,_visual_iterator,_visual_uid
         cancelled=_pending_asset_ids|_job_ids|set(_visual_queue)
         _pending_asset_ids.clear();_visual_queue.clear()
+        _visual_iterator=None;_visual_uid=None
         _job_cancelled=True
         for obj in scene.prefab_roots():
             if int(obj['ruster_uid']) in cancelled and not obj.get('ruster_visual'):
@@ -926,6 +948,8 @@ class RUSTER_OT_select_model_status(bpy.types.Operator):
 
 @persistent
 def after_load(_dummy):
+    global _visual_iterator,_visual_uid
+    _visual_iterator=None;_visual_uid=None
     from . import editing
     editing.clear_cache()
     if hasattr(bpy.context.scene, 'ruster'):
@@ -994,6 +1018,8 @@ def register():
     move = RUSTER_OT_duplicate_move.define('TRANSFORM_OT_translate')
     move.properties.use_proportional_edit = False
     bpy.types.Scene.ruster = PointerProperty(type=RUSTER_PG_project)
+    from . import volumes
+    volumes.register()
     from . import editing
     editing.register()
     from . import placement
@@ -1028,7 +1054,7 @@ def register():
 
 
 def unregister():
-    global _job,_job_log,_job_action,_job_cancelled
+    global _job,_job_log,_job_action,_job_cancelled,_visual_iterator,_visual_uid
     from . import ui,preferences,studio
     from . import quitting
     quitting.unregister()
@@ -1053,6 +1079,7 @@ def unregister():
     _keymaps.clear()
     _pending_asset_ids.clear()
     _visual_queue.clear()
+    _visual_iterator=None;_visual_uid=None
     from . import mcp_bridge
     mcp_bridge.unregister()
     ui.unregister()
@@ -1063,6 +1090,8 @@ def unregister():
     placement.unregister()
     from . import editing
     editing.unregister()
+    from . import volumes
+    volumes.unregister()
     if hasattr(bpy.types.Scene, 'ruster'):
         del bpy.types.Scene.ruster
     for cls in reversed(_classes):

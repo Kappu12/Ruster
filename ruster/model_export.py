@@ -46,7 +46,7 @@ def realized_scene(roots, local_dependencies=False, pack_images=False):
     for root in roots:
         problem = model_error(root)
         if problem:raise ValueError(root.name + ': ' + problem)
-        if root.get('ruster_marker')=='SOUND':continue
+        if root.get('ruster_marker') in {'SOUND','EFFECT','VOLUME'}:continue
         collection = root.instance_collection
         if not collection:raise ValueError(root.name + ': load its original Rust model before model export')
         matrix = root.matrix_world @ Matrix.Translation(-collection.instance_offset)

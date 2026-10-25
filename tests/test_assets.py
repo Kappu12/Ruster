@@ -92,6 +92,45 @@ def test_sound_only_prefab_is_a_marker_not_a_failed_mesh(tmp_path):
     assert asset['marker']=='SOUND' and not asset['meshes']
 
 
+def test_volume_extracts_active_source_colliders_and_effects_get_distinct_marker(tmp_path):
+    transform=Reader('Transform',S(m_LocalPosition=S(x=0,y=0,z=0),m_LocalRotation=S(w=1,x=0,y=0,z=0),
+        m_LocalScale=S(x=1,y=1,z=1),m_Children=[]))
+    sphere=Reader('SphereCollider',S(m_Enabled=True,m_Center=S(x=1,y=2,z=3),m_Radius=2))
+    disabled=Reader('BoxCollider',S(m_Enabled=False))
+    root=Reader('GameObject',S(m_Name='Volume',m_IsActive=True,
+        m_Component=[ComponentPair(component=Pointer(c)) for c in (transform,sphere,disabled)]))
+    output=tmp_path/'volume.json.gz'
+    export_prefab(None,root,output,42,'assets/modding/volumes_and_triggers/safezonesphere.prefab')
+    data=json.loads(gzip.decompress(output.read_bytes()))
+    assert data['marker']=='VOLUME'
+    assert data['colliders']==[{'node':0,'type':'SphereCollider','center':[1,2,3],'radius':2}]
+    # Ordinary assets' collision bodies do not become volume overlays.
+    export_prefab(None,root,output,42,'assets/props/crate.prefab')
+    assert not json.loads(gzip.decompress(output.read_bytes()))['colliders']
+    root.data.m_Component.append(ComponentPair(component=Pointer(Reader('ParticleSystem',S()))))
+    export_prefab(None,root,output,42,'assets/fx/impact.prefab')
+    assert json.loads(gzip.decompress(output.read_bytes()))['marker']=='EFFECT'
+
+
+def test_known_crate_spawner_uses_original_crate_at_placement_origin(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    transform=Reader('Transform',S(m_LocalPosition=S(x=4,y=5,z=6),m_LocalRotation=S(w=1,x=0,y=0,z=0),
+        m_LocalScale=S(x=2,y=3,z=4),m_Children=[]))
+    root=Reader('GameObject',S(m_Name='Spawner',m_IsActive=True,
+        m_Component=[ComponentPair(component=Pointer(transform))]))
+    crate=graph();crate.read().m_Component[0].component.read().m_LocalPosition.x=999
+    resolved=[]
+    env=S(resolve_asset_path=lambda path:resolved.append(path) or crate)
+    output=tmp_path/'spawner.json.gz'
+    export_prefab(env,root,output,1428457674,'assets/bundled/prefabs/modding/lootables/elite_crate_spawner.prefab')
+    data=json.loads(gzip.decompress(output.read_bytes()))
+    assert data['uid']==1428457674 and data['meshes'] and not data['marker']
+    assert resolved==['assets/bundled/prefabs/radtown/crate_elite.prefab']
+    assert data['nodes'][1]['parent']==0 and data['nodes'][1]['position']==[0,0,0]
+    assert data['nodes'][1]['rotation']==[1,0,0,0] and data['nodes'][1]['scale']==[1,1,1]
+    assert data['preview']['kind']=='SPAWNER'
+
+
 def first_material(root):
     transform=root.read().m_Component[0].component.read()
     renderer=transform.m_Children[0].read().m_GameObject.read().m_Component[2].component.read()

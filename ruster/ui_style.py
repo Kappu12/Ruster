@@ -22,7 +22,7 @@ ICONS={
     'move':'EMPTY_ARROWS','rotate':'ORIENTATION_GIMBAL','scale':'FULLSCREEN_ENTER',
     'select':'RESTRICT_SELECT_OFF','water':'MOD_OCEAN','splat':'TEXTURE','biome':'WORLD',
     'topology':'GROUP_VERTEX','alpha':'IMAGE_ALPHA','blank':'BLANK1','snapping':'SNAP_ON',
-    'perspective':'VIEW_PERSPECTIVE',
+    'perspective':'VIEW_PERSPECTIVE','volume':'MESH_UVSPHERE',
     'array':'MOD_ARRAY','radial':'FORCE_VORTEX','align':'ALIGN_JUSTIFY',
 }
 

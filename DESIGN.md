@@ -78,6 +78,15 @@ in the Object menu and right-click menu as well as the sidebar.
 
 Use Z-up metres in the editor. The authoring plane is Z=0. View projection and
 overlays are adjacent header controls; Shift+F enters native Walk Navigation.
+The adjacent Volumes toggle controls only viewport collider previews. Keep
+volumes in one browser category and preserve their placement records when hidden.
+Use source collider data, persist it for offline projects, and draw selectable
+translucent bounds with native theme/selection colors. Unknown bounds get an
+explicit origin marker. Effects use arrows and descriptive labels, not volume
+spheres. Crate previews retain their spawner identity and explain runtime limits.
+Large native prefab imports create placements before loading models; repeated
+placements must yield within a bounded linking batch. Never rescan every prior
+copy to allocate a display name or recompute model counts on every viewport draw.
 Object Snap and Radial Symmetry have toolbar toggles and settings popovers.
 Explain when editing or deleting a symmetry member affects its complete set.
 Symmetry settings support world axes, copy orientation and centers from the

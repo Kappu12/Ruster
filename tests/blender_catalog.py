@@ -157,11 +157,11 @@ def run():
             'path':'assets/test/sound/trigger.prefab'}).encode()))
         assert bpy.ops.ruster.place(uid='42')=={'FINISHED'}
         sound=bpy.context.active_object
-        assert sound.get('ruster_marker')=='SOUND' and sound.empty_display_type=='SPHERE'
+        assert sound.get('ruster_marker')=='SOUND' and sound.empty_display_type=='SINGLE_ARROW'
         assert sound.name.endswith('(Sound effect)') and app._job is None
         assert bpy.ops.ruster.place(uid='42')=={'FINISHED'}
-        assert bpy.context.active_object.name==sound.name+' 2'
-        assert '.' not in bpy.context.active_object.name and '_' not in bpy.context.active_object.name
+        assert bpy.context.active_object.name==sound.name+'.001'
+        assert '.' not in sound.name and '_' not in sound.name
         (cache/'44.json.gz').write_bytes(gzip.compress(json.dumps({'schema':1,'marker':'TERRAIN','meshes':{},
             'path':'assets/bundled/prefabs/autospawn/canyon/canyon_1.prefab','helper_bounds':[1000,75,1000]}).encode()))
         assert bpy.ops.ruster.place(uid='44')=={'FINISHED'}

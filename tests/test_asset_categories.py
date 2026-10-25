@@ -3,6 +3,22 @@ import pytest
 from ruster.assets import catalog
 
 
+def test_volumes_are_one_category_and_visible_without_hidden_filter(tmp_path):
+    from ruster.core.asset_categories import is_volume
+    paths=['assets/bundled/prefabs/modding/volumes_and_triggers/prevent_building_cube.prefab',
+           'assets/bundled/prefabs/modding/volumes_and_triggers/safezonesphere.prefab',
+           'assets/monuments/volumes/water.prefab','assets/rust.ai/npcpreventbuildingvolume.prefab']
+    with closing(catalog.connect(tmp_path)) as db:
+        db.executemany('INSERT INTO names VALUES(?,?)',enumerate(paths,1));db.commit()
+    assert all(is_volume(p) for p in paths)
+    assert not is_volume('assets/prefabs/ui/menuui2_component_popup_safezonewarning.prefab')
+    assert not is_volume('assets/bundled/prefabs/fx/impacts/stab/concrete/concrete1.prefab')
+    assert not is_volume('assets/prefabs/tea/radiationremovetea/radiationremovetea.item.prefab')
+    assert len(catalog.search(tmp_path,category='@VOLUMES',include_helpers=False))==4
+    assert not catalog.search(tmp_path,category='@DEVELOPMENT')
+    assert not catalog.search(tmp_path,category='@MONUMENTS')
+
+
 def test_broad_categories_partition_catalog_and_keep_filters(tmp_path):
     rows=[(1,'assets/bundled/prefabs/autospawn/monument/harbor.prefab'),
           (2,'assets/bundled/prefabs/autospawn/resource/trees/oak.prefab'),

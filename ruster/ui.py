@@ -192,6 +192,8 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
         wrapped(layout,context,obj.name,icon='group' if obj.get('ruster_kind')=='GROUP' else 'prefab')
         if obj.get('ruster_kind')=='PREFAB':
             layout.label(text='Prefab ID: '+obj.get('ruster_uid','?'))
+            if obj.get('ruster_spawner_preview'):
+                wrapped(layout,context,'Spawner preview: move and rotate the crate to place its spawner. Rust controls runtime spawn variations.',icon='info')
             if obj.get('ruster_has_io'):
                 action(layout,'ruster.io_settings')
             from .protection import model_error
@@ -420,6 +422,7 @@ def view_header(self,context):
     view_controls=layout.row(align=True)
     action(view_controls,'view3d.view_persportho',text='',depress=space.region_3d.view_perspective=='PERSP')
     view_controls.prop(space.overlay,'show_overlays',text='Overlays',icon=I['overlay'],toggle=True)
+    view_controls.prop(context.scene,'ruster_show_volumes',text='Volumes',icon=I['volume'],toggle=True)
     layout.prop(space.shading,'type',text='',expand=True)
 
 
@@ -459,8 +462,8 @@ def topbar(self,context):
     layout=self.layout
     if context.region.alignment=='RIGHT':
         layout.template_reports_banner();layout.template_running_jobs()
-        from .loading import model_summary,header_label
-        counts=model_summary()
+        from .loading import cached_model_summary,header_label
+        counts=cached_model_summary()
         layout.popover(panel='RUSTER_PT_asset_status',text=header_label(context.scene.ruster,counts),
             icon=I['busy' if context.scene.ruster.busy else 'error' if counts['ISSUE'] else 'import'])
         from .quitting import save_status

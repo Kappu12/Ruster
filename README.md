@@ -51,6 +51,25 @@ Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placement
 can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
 Navigation. The authoring plane is Z=0.
 
+**Volumes** collects building restrictions, safe zones, radiation, environment
+and terrain/water triggers. The viewport's **Volumes** button shows or hides
+selectable translucent collider previews. Boxes, spheres, capsules and supported
+mesh colliders use the local game's source data; missing bounds remain labeled
+origin markers. The switch never removes volumes from saves or native exports.
+
+Effects have explicit search labels and arrow markers. For example, `Concrete1`
+under `fx/impacts` is a particle/audio impact effect; **Concrete Cube** is a
+construction model. Standard crate spawners preview original crate models at
+their placement origin, so moving/rotating the crate edits its spawner. The
+export keeps the spawner ID. These illustrate placement; Rust still chooses
+runtime variants and any randomized spawn offsets/rotations.
+
+Large imports create placements first and attach cached previews in short,
+cancelable batches. Repeated copies share their model library. Asset counts are
+cached between redraws, and native Blender naming avoids repeated scene scans.
+Object labels may contain spaces: native Rust exports use prefab IDs and
+transforms, not editor object names.
+
 **F3** opens Blender's native search popup for prefab commands, including Layout
 and Symmetry. **Space** keeps the user's Blender Spacebar Action preference.
 The viewport header includes native transform orientation and pivot controls;

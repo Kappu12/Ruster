@@ -37,14 +37,23 @@ def alias_paths(token):
             if token in (name+' '+aliases).casefold()]
 
 
+def effect_path(path):
+    return any(part in path.lower() for part in ('/fx/','/effects/','/effect/'))
+
+
 def display_name(path):
+    from .spawn_previews import PREVIEWS
+    if path.lower() in PREVIEWS:return PREVIEWS[path.lower()][1]
     stem=re.sub(r'\.prefab$','',PurePosixPath(path).name,flags=re.IGNORECASE)
     if '/ioslothandles/' in path.lower() and stem.lower() in IO_NAMES:
         return IO_NAMES[stem.lower()][0]
     match=re.fullmatch(r'cube_(.+)_dev_(\d+)',stem,re.IGNORECASE)
     if match:return f'Dev Cube {re.sub(r"[._-]+", " ", match[1]).title()} {match[2]}'
     name=re.sub(r'[._-]+',' ',stem).strip()
-    if '/sound/' in path.lower():name+=' (Sound effect)'
+    if any(part in path.lower() for part in ('/sound/','/sounds/','/sfx/')):name+=' (Sound effect)'
+    elif effect_path(path):
+        match=re.search(r'/impacts/([^/]+)/',path,re.IGNORECASE)
+        name+=f' ({match[1].capitalize()} impact effect)' if match else ' (Effect)'
     return name
 
 

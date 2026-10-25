@@ -118,6 +118,9 @@ class RUSTER_OT_prefab_details(bpy.types.Operator):
                 'Not found in local Rust bundles. Check your Rust installation or refresh the catalog.',
                 icon='info' if found[1] else 'error',width=400)
             layout.label(text='Conversion cache available' if cached else 'Model loads on demand',icon=I['import'])
+            from .core.asset_names import effect_path
+            if effect_path(found[0]):
+                wrapped(layout,draw_context,'Rust effect asset: may contain runtime particles or audio instead of a static building model.',icon='info',width=400)
             row=layout.row(align=True)
             row.operator('ruster.copy_prefab',text='Copy ID',icon=I['duplicate']).uid=str(uid)
             copy=row.operator('ruster.copy_prefab',text='Copy Path',icon=I['duplicate'])

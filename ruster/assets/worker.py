@@ -191,9 +191,14 @@ def deref(pointer):
 
 def export_prefab(env, root_reader, output, uid, asset_path, cache_signature=''):
     from UnityPy.helpers.MeshHelper import MeshHandler
+    from ruster.core.asset_categories import is_volume
+    volume = is_volume(asset_path)
+    colliders = []
+    preview_info = None
     meshes, materials, nodes, warnings = {}, {}, [], []
     excluded_renderers=set()
     sound_effect=False
+    particle_effect=False
     seen = set()
     sound_components=[]
     base = Path(output).parent
@@ -274,8 +279,8 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
             meshes[ident]=spec
         return ident
 
-    def walk(reader, parent=None, depth=0,lod_managed=False,prefab_root=False):
-        nonlocal sound_effect
+    def walk(reader, parent=None, depth=0,lod_managed=False,prefab_root=False,placement_root=False):
+        nonlocal sound_effect,particle_effect
         if depth > 128 or len(nodes) > 20000:
             raise ValueError('Prefab hierarchy exceeds the supported limit')
         ident = key(reader)
@@ -290,16 +295,21 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         seen.add(ident)
         components = {}
         component_keys={}
+        node_colliders=[]
         for pointer in component_pointers(go):
             if not pointer or not pointer.path_id:continue
             component_reader = pointer.deref()
             if component_reader:
                 kind=component_reader.type.name
                 if kind=='AudioSource':sound_effect=True
+                elif kind in ('ParticleSystem','ParticleSystemRenderer'):particle_effect=True
                 elif kind=='MonoBehaviour':sound_components.append(component_reader)
                 elif kind in ('Transform','RectTransform','MeshRenderer','MeshFilter','SkinnedMeshRenderer','LODGroup'):
                     components[kind]=component_reader.read()
                     component_keys[kind]=key(component_reader)
+                elif volume and kind in ('BoxCollider','SphereCollider','CapsuleCollider','MeshCollider'):
+                    data=component_reader.read()
+                    if getattr(data,'m_Enabled',True):node_colliders.append((kind,data))
         lods=getattr(components.get('LODGroup'),'m_LODs',None)
         if lods:
             first=set()
@@ -319,7 +329,23 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
                 'position': xyz(transform.m_LocalPosition),
                 'rotation': quaternion(transform.m_LocalRotation),
                 'scale': xyz(transform.m_LocalScale), 'mesh': None, 'materials': []}
+        if placement_root:node.update(position=[0.,0.,0.],rotation=[1.,0.,0.,0.],scale=[1.,1.,1.])
         nodes.append(node)
+        for kind,data in node_colliders:
+            try:
+                spec={'node':index,'type':kind,'center':xyz(data.m_Center) if hasattr(data,'m_Center') else [0.,0.,0.]}
+                if kind=='BoxCollider':spec['size']=xyz(data.m_Size)
+                elif kind in ('SphereCollider','CapsuleCollider'):
+                    spec['radius']=float(data.m_Radius)
+                    if kind=='CapsuleCollider':
+                        spec.update(height=float(data.m_Height),direction=int(data.m_Direction))
+                elif kind=='MeshCollider':
+                    if not data.m_Mesh or not data.m_Mesh.path_id:continue
+                    spec['mesh']=mesh(data.m_Mesh)
+                    if not spec['mesh']:continue
+                colliders.append(spec)
+            except Exception as error:
+                warnings.append(f'{go.m_Name}: volume collider unavailable: {error}')
         renderer = components.get('MeshRenderer') or components.get('SkinnedMeshRenderer')
         filter_ = components.get('MeshFilter') or components.get('SkinnedMeshRenderer')
         renderer_key=component_keys.get('MeshRenderer',component_keys.get('SkinnedMeshRenderer'))
@@ -369,12 +395,23 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
             if meshes:break
     if not meshes and not warnings and sound_effect:
         marker='SOUND'
+    if not meshes and not warnings and particle_effect:marker='EFFECT'
+    if not meshes and not volume:
+        from ruster.core.spawn_previews import preview
+        candidate=preview(asset_path)
+        if candidate and hasattr(env,'resolve_asset_path'):
+            target=env.resolve_asset_path(candidate['path'])
+            if target:
+                walk(target,parent=0,depth=1,prefab_root=True,placement_root=True)
+                if meshes:preview_info=candidate;marker=''
+            if not meshes:warnings.append('Spawner crate preview unavailable in the local game assets')
+    if volume:marker='VOLUME'
     if not meshes and not marker and not warnings:marker='HELPER'
     if not meshes and not marker:
         raise ValueError('Prefab geometry could not be read; ' + '; '.join(warnings[:3]))
     result = {'schema': 1, 'uid': uid, 'path': asset_path, 'nodes': nodes,
               'meshes': meshes, 'materials': materials, 'warnings': warnings, 'marker':marker,
-              'helper_bounds':helper_bounds}
+              'helper_bounds':helper_bounds, 'colliders':colliders, 'preview':preview_info}
     # Geometry lives in bounded per-mesh buffers; don't allocate another giant
     # JSON string/UTF-8 copy of a whole monument during cache serialization.
     from tempfile import mkstemp
@@ -422,6 +459,10 @@ def extract_batch(UnityPy, install, cache, ids):
             from contextlib import closing
             asset_path=guid_path(self,cache,root,guid)
             if not asset_path:return None
+            return self.resolve_asset_path(asset_path)
+
+        def resolve_asset_path(self,asset_path):
+            from contextlib import closing
             with closing(connect(cache)) as db:
                 entry=db.execute('SELECT bundle,file,path_id FROM assets WHERE path=? COLLATE NOCASE',(asset_path,)).fetchone()
             if not entry:return None
@@ -487,6 +528,10 @@ def extract_batch(UnityPy, install, cache, ids):
             path = root / bundle
             stat = path.stat()
             signature = f'{CONVERTER_VERSION}:{stat.st_size}:{stat.st_mtime_ns}:{catalog_signature}'
+            from ruster.core.asset_categories import is_volume
+            if is_volume(asset_path):signature+=':volumes-1'
+            from ruster.core.spawn_previews import preview
+            if preview(asset_path):signature+=':spawner-preview-1'
             stamp = target / f'{uid}.stamp'
             output = target / f'{uid}.json.gz'
             if not (output.exists() and stamp.exists() and stamp.read_text() == signature):
