@@ -1,15 +1,17 @@
 # Local live preview (experimental, Windows x64)
 
-The **Live Preview** panel sits immediately below **Placement** in the Ruster
-sidebar. The preview uses the actual Rust client and a separate local dedicated
-server. It does not emulate Rust or bundle the game/server in Ruster's executable.
+The **Live Preview** panel has its own editor below **Placements** on the right,
+outside the viewport extension sidebar. The preview uses the actual Rust client
+and a separate local dedicated server. It does not emulate Rust or bundle the
+game/server in Ruster's executable.
 
 1. Set **Game Port** (28015 by default). The server also reserves the next two
-   ports for local RCON and queries. Enter an optional 17-digit **Owner Steam ID**.
+   ports for local RCON and queries. Enter an optional 17-digit **Steam ID**.
 2. Click **Start Live Preview**. First use downloads official SteamCMD, installs
    Rust dedicated server app 258550 anonymously, and installs Carbon and Ruster's
    companion plugin. Allow several GB for the server. Later starts reuse this
-   separate installation.
+   separate installation. After a Rust update or server version mismatch, enable
+   **Update Server on Start** under **Setup and EAC Checks** before starting.
 3. Close any running Rust client. Click **Launch Rust Without EAC**, or run
    `RustClient.exe` directly from your Rust installation. Keep Steam running, but
    do not use Steam's Play button or `Rust.exe` to start this preview session.
@@ -27,7 +29,9 @@ server. It does not emulate Rust or bundle the game/server in Ruster's executabl
    ID** applies the Steam ID field; reconnect if an already connected player
    needs its new administrator level.
 7. **Stop Live Preview** stops the owned server and disables the client bridge.
-   Close Rust completely before starting an ordinary EAC-protected session.
+   **After injecting, restart your computer before launching Rust again.** This
+   notice remains visible in the panel. Stopping preview leaves the DLL mapped
+   in the current client until that process exits; it does not unload the module.
 
 ## EAC checks
 
@@ -51,8 +55,15 @@ are no guessed offsets or fallback game-code patches.
 
 The dedicated server starts with its native `-insecure` switch. The companion
 checks `Network.Net.sv.secure` before advertising readiness and on every update.
-Ruster validates that report before enabling Inject. A secure or non-loopback
-server is refused and stopped; no EAC setting is bypassed or patched.
+Ruster validates a fresh heartbeat with the matching server PID and session
+identity before injection. A secure or non-loopback server is refused and
+stopped; no EAC setting is bypassed or patched.
+
+The editor checks for scene changes about twice per second; capture batches yield
+to keep editing responsive. The server and client poll at 4 Hz. The intended edit
+delay is roughly 0.5–1 second, depending on scene size and server load. This is
+placement synchronization, independent of Rust's rendering frame rate; the delay
+has not been measured in a running Rust client.
 
 ## Current limits and validation
 
@@ -68,15 +79,20 @@ The initial composition is baked into a small flat preview map so Rust loads its
 original asset scenes. Both companions claim those placements instead of adding
 duplicates. A newly introduced asset that Rust cannot load dynamically reports
 an error; restart preview with that asset in the initial composition. There is a
-2,000 placement limit. Terrain, paths, navmesh rebuilding, puzzle serialization,
-and full monument gameplay configuration are outside this placement preview.
+2,000 placement limit. Updates stage replacements before removing previous
+objects; a failed creation preserves the previous scene. Both readers use the
+same bounded binary snapshot format. Terrain, paths, navmesh rebuilding, puzzle
+serialization and full monument gameplay configuration are outside this preview.
 Rust's instanced rendering and special prefabs still need in-game validation.
 
 Sessions, downloads, logs, and the managed server live under Ruster's user-data
 `live-preview` folder. Existing Rust installations, maps, server profiles and saves
 are not changed. The client DLL is loaded in memory only after the explicit
 action. The server, map HTTP service, RCON and query listeners use loopback.
-Only owned child processes are stopped.
+Only owned child processes are stopped. Server processes have their own cleanup
+job and do not share the editor's 8 GB memory cap. Multiple Ruster instances
+cannot use or update the same managed server installation concurrently. Opening
+or creating another composition stops its current preview.
 
 ## Build from source
 
@@ -87,3 +103,9 @@ or downloads the pinned official Zig 0.15.2 portable compiler and checks its SHA
 and includes this DLL from the checked-in C++ source. Rust, SteamCMD and Carbon
 remain first-run downloads. The server plugin source is shipped and compiled by
 Carbon against the installed server.
+
+For offline server validation, run
+`python tools/check_preview_server.py --server PATH_TO_DEDICATED_SERVER`.
+This compiles the companion against the downloaded server and Carbon assemblies
+and tests the managed decoder against the native decoder's valid and malformed
+snapshot fixtures. It does not start a game or inspect a client process.

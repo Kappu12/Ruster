@@ -74,6 +74,16 @@ bool eacOff() {
 
 std::wstring file(const wchar_t* name){return directory+L"/"+name;}
 bool exists(const wchar_t* name){return GetFileAttributesW(file(name).c_str())!=INVALID_FILE_ATTRIBUTES;}
+bool serverFresh() {
+    WIN32_FILE_ATTRIBUTE_DATA data{};FILETIME now;
+    if(!GetFileAttributesExW(file(L"server.ready").c_str(),GetFileExInfoStandard,&data)
+            ||data.nFileSizeHigh||data.nFileSizeLow>4096)return false;
+    GetSystemTimeAsFileTime(&now);
+    ULARGE_INTEGER current{},written{};current.LowPart=now.dwLowDateTime;current.HighPart=now.dwHighDateTime;
+    written.LowPart=data.ftLastWriteTime.dwLowDateTime;written.HighPart=data.ftLastWriteTime.dwHighDateTime;
+    auto age=int64_t(current.QuadPart)-int64_t(written.QuadPart);
+    return age>=-20000000&&age<=150000000;
+}
 void status(const char* state,const std::string& message) noexcept {try {
     auto path=file(L"client.status");auto temp=path+L".tmp";
     HANDLE out=CreateFileW(temp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -83,11 +93,16 @@ void status(const char* state,const std::string& message) noexcept {try {
     MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
 }catch(...) {}}
 std::vector<uint8_t> readBytes(const wchar_t* name,size_t maximum) {
-    std::ifstream input(std::filesystem::path(file(name)),std::ios::binary|std::ios::ate);
-    if(!input)throw std::runtime_error("Preview file is unavailable");
-    auto length=input.tellg();if(length<0||length>std::streamoff(maximum))throw std::runtime_error("Preview file exceeds size limits");
-    std::vector<uint8_t> data(static_cast<size_t>(length));input.seekg(0);
-    if(length&&!input.read(reinterpret_cast<char*>(data.data()),length))throw std::runtime_error("Incomplete preview file");
+    // CRT ifstreams omit FILE_SHARE_DELETE on Windows and can make an atomic
+    // editor snapshot replacement fail while the game is reading its old file.
+    struct File {HANDLE handle;~File(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}} input{
+        CreateFileW(file(name).c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+            nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+    if(input.handle==INVALID_HANDLE_VALUE)throw std::runtime_error("Preview file is unavailable");
+    LARGE_INTEGER length{};
+    if(!GetFileSizeEx(input.handle,&length)||length.QuadPart<0||uint64_t(length.QuadPart)>maximum)throw std::runtime_error("Preview file exceeds size limits");
+    std::vector<uint8_t> data(static_cast<size_t>(length.QuadPart));DWORD read=0;
+    if(length.QuadPart&&(!ReadFile(input.handle,data.data(),DWORD(data.size()),&read,nullptr)||read!=data.size()))throw std::runtime_error("Incomplete preview file");
     return data;
 }
 std::string readText(const wchar_t* name){auto data=readBytes(name,4096);return {data.begin(),data.end()};}
@@ -368,11 +383,12 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
                 if(!baseline)claimInitial();
                 std::vector<uint8_t> data;{std::lock_guard<std::mutex> lock(pendingMutex);data=pending;}
                 if(!data.empty()) {
-                    uint64_t revision;auto rows=decode(data,revision);
+                    size_t offset=8;uint64_t revision=take<uint64_t>(data,offset);
                     uint64_t serverRevision=0;
                     try {serverRevision=std::stoull(readText(L"server.revision"));} catch(...) {}
                     if(revision>applied && revision!=attempted && serverRevision==revision) {
                         attempted=revision;
+                        auto rows=decode(data,revision);
                         apply(rows);
                         applied=revision;status("READY","Live scene revision "+std::to_string(revision)+" applied ("+std::to_string(rows.size())+" placements).");
                     }
@@ -380,7 +396,7 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
             }
             }
         }catch(const std::exception& error){status("ERROR",error.what());}
-        catch(...){status("ERROR","Unexpected preview error; restart Rust before retrying.");}
+        catch(...){status("ERROR","Unexpected preview error. Restart your computer before launching Rust again after injection.");}
         callbackActive.clear();
     }
     return CallNextHookEx(hook,code,wp,lp);
@@ -399,12 +415,11 @@ DWORD WINAPI run(void*) {try {
     if(!hook){status("ERROR","Could not register the local main-thread preview callback.");return 3;}
     status("STARTING","Waiting for the Unity main thread and local preview map.");
     while(exists(L"active.flag")&&!exists(L"stop.flag")&&!exists(L"server.blocked")) {
+        if(!serverFresh()){status("ERROR","Local server heartbeat expired. Preview stopped. Restart your computer before launching Rust again after injection.");break;}
         if(!eacOff()){status("BLOCKED","EAC became active or unreadable. Preview has stopped.");UnhookWindowsHookEx(hook);return 4;}
-        std::ifstream input(std::filesystem::path(file(L"scene.bin")),std::ios::binary|std::ios::ate);
-        if(input){auto length=input.tellg();if(length>=20&&length<=16*1024*1024){
-            std::vector<uint8_t> value(static_cast<size_t>(length));input.seekg(0);input.read(reinterpret_cast<char*>(value.data()),length);
-            if(input){std::lock_guard<std::mutex> lock(pendingMutex);pending.swap(value);}
-        }}
+        auto value=readBytes(L"scene.bin",16*1024*1024);
+        if(value.size()<20)throw std::runtime_error("Incomplete preview snapshot");
+        {std::lock_guard<std::mutex> lock(pendingMutex);pending.swap(value);}
         PostMessageW(window,PREVIEW_MESSAGE,0,0);Sleep(250);
     }
     stopping=true;PostMessageW(window,PREVIEW_MESSAGE,0,0);

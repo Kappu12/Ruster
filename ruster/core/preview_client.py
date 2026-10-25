@@ -13,6 +13,8 @@ import re
 import subprocess
 import sys
 
+RESTART_NOTICE = 'After injecting, restart your computer before launching Rust again.'
+
 
 def is_eac_name(value):
     name = str(value).replace('\\', '/').rsplit('/', 1)[-1].casefold()
@@ -243,7 +245,7 @@ def inject(installation, dll, session, pid):
     check()
     verify_module(dll)
     if any(Path(name).name.casefold() == 'rusterpreview.dll' for name in first.modules):
-        raise ValueError('A preview module is already loaded. Restart Rust before injecting another session or build')
+        raise ValueError('A preview module is already loaded. '+RESTART_NOTICE)
     # Validate the export before the first remote write. DONT_RESOLVE_DLL_REFERENCES
     # maps our DLL locally without running its entry point or initializers.
     local = inspector.k.LoadLibraryExW(str(dll), None, 1)
@@ -275,7 +277,7 @@ def inject(installation, dll, session, pid):
                     # A timed-out thread might still read its parameter. Retain
                     # that tiny allocation until the game exits; never free it.
                     allocations.remove(memory)
-                    raise ValueError('Preview load did not finish; restart Rust before retrying')
+                    raise ValueError('Preview load did not finish. '+RESTART_NOTICE)
                 code = W.DWORD();inspector.require(inspector.k.GetExitCodeThread(thread, ctypes.byref(code)), 'Could not read loader result')
                 return code.value
             finally:inspector.k.CloseHandle(thread)
@@ -283,7 +285,7 @@ def inject(installation, dll, session, pid):
         # produced the same base address in Blender and Rust.
         modules = inspector.modules(pid)
         if any(Path(name).name.casefold() == 'rusterpreview.dll' for name, _ in modules):
-            raise ValueError('A preview module was loaded during verification; restart Rust')
+            raise ValueError('A preview module was loaded during verification. '+RESTART_NOTICE)
         local = inspector.k.LoadLibraryExW('kernel32.dll', None, 0)
         inspector.require(local, 'Cannot inspect the Windows loader')
         try:

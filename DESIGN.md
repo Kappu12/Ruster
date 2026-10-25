@@ -28,6 +28,11 @@ and light themes must work. New Prefab preserves user preferences. Ruster uses a
 isolated configuration and never changes an ordinary Blender installation's
 preferences.
 
+Live Preview occupies its own native editor below Placements on the right,
+outside the viewport's extension sidebar. Keep that editor when removing the
+timeline and restore it for older projects whose saved layouts lack it. Its
+status, no-EAC launch/injection controls and console use the shared UI vocabulary.
+
 ## Entry and discovery
 
 Start with an empty Prefab Studio workspace. The centered **New / Open** popup

@@ -24,6 +24,7 @@ ICONS={
     'topology':'GROUP_VERTEX','alpha':'IMAGE_ALPHA','blank':'BLANK1','snapping':'SNAP_ON',
     'perspective':'VIEW_PERSPECTIVE','volume':'MESH_UVSPHERE',
     'array':'MOD_ARRAY','radial':'FORCE_VORTEX','align':'ALIGN_JUSTIFY',
+    'play':'PLAY','stop':'CANCEL','plugin':'PLUGIN','console':'CONSOLE','owner':'USER',
 }
 
 TOOL_ICONS={
@@ -49,6 +50,14 @@ ACTIONS={
     'ruster.mcp_config':('Copy MCP Client Configuration','duplicate'),
     'ruster.mcp_retry':('Retry MCP Connection','refresh'),
     'ruster.quit':('Quit Ruster','quit'),
+    'ruster.start_live_preview':('Start Live Preview','play'),
+    'ruster.stop_live_preview':('Stop Live Preview','stop'),
+    'ruster.launch_preview_rust':('Launch Rust Without EAC','play'),
+    'ruster.inject_preview':('Inject','plugin'),
+    'ruster.preview_copy_ip':('Copy IP','duplicate'),
+    'ruster.preview_command':('Send Command','console'),
+    'ruster.preview_owner':('Grant Owner ID','owner'),
+    'ruster.preview_logs':('Open Preview Logs','open'),
     'ed.undo':('Undo','undo'),'ed.redo':('Redo','redo'),
     'ruster.duplicate':('Duplicate Prefabs','duplicate'),
     'ruster.duplicate_move':('Duplicate Prefabs','duplicate'),

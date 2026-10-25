@@ -57,8 +57,14 @@ def new_collection(name, parent=None):
 
 
 def clear_scene():
-    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    from . import live_preview
+    live_preview.document_replaced()
+    active = bpy.context.view_layer.objects.active
+    if active and active.mode != 'OBJECT':
+        # Properties may be pinned to the preview Scene and expose no object
+        # context. New/Open still acts on the actual view-layer edit object.
+        with bpy.context.temp_override(object=active, active_object=active):
+            bpy.ops.object.mode_set(mode='OBJECT')
     for obj in list(bpy.context.scene.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
     for collection in list(bpy.data.collections):

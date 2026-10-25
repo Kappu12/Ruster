@@ -35,7 +35,7 @@ Rust-engine parity.
 | MCP guidance | `ruster://guide/building`, `ruster://guide/design` (dedicated docs/design.md resource file), `build_rust_composition` and `audit_rust_composition`; sourced Rust building rules, no arbitrary Python or mesh editing API. |
 | Validation | Shared `.map`/`.prefab`/assembly guards for finite/nonzero transforms, original identity, parents, constraints and grouped shear. Composition checks and selection of overlapping copies, mirrors and scaled imported IO. Selection/batch limits, safe destinations and bounded model-export copies. Long thin native IO placements retain exact unchanged records. |
 | Packaging | Windows/Linux x64 runtime bundles, pinned archive checksum verification and prefab-product/MCP integration checks; macOS source launch with a compatible Blender, standalone package pending. |
-| Local live preview (experimental) | Windows x64 local server download and lifecycle, configurable game port, owner Steam ID, console/logs, direct no-EAC Rust launch, and explicit fail-closed client injection. Native client DLL and Carbon companion apply placement snapshots. Offline/Blender checks pass; injected Rust gameplay compatibility remains untested at the user's request. |
+| Local live preview (experimental) | Dedicated editor below Placements on the right. Windows x64 server download/update and lifecycle, configurable game port, owner Steam ID, console/logs, direct no-EAC Rust launch, and explicit fail-closed injection with a restart-computer notice. Native client DLL and Carbon companion apply placement snapshots. Offline/Blender checks pass; injected Rust gameplay compatibility remains untested at the user's request. |
 
 ## Verification and limits
 

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import traceback
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,12 +56,83 @@ def run():
             duplicate = obj.copy();bpy.context.scene.collection.objects.link(duplicate)
             rows = live_preview.placements();assert len({r['key'] for r in rows}) == 2
             bpy.data.objects.remove(duplicate, do_unlink=True);bpy.data.objects.remove(obj, do_unlink=True)
-            assert bpy.types.RUSTER_PT_live_preview.bl_category == 'Ruster'
+            assert bpy.types.RUSTER_PT_live_preview.bl_space_type == 'PROPERTIES'
+            assert bpy.types.RUSTER_PT_live_preview.bl_region_type == 'WINDOW'
             from types import SimpleNamespace
             synthetic = SimpleNamespace(window_manager=SimpleNamespace(ruster_live_preview=state, clipboard=''))
             operator = SimpleNamespace(report=lambda *args: None)
             assert live_preview.RUSTER_OT_preview_copy_ip.execute(operator, synthetic) == {'FINISHED'}
             assert synthetic.window_manager.clipboard == '127.0.0.1:29100'
+            from concurrent.futures import Future
+            # Background discovery must never erase an injection failure or
+            # silently replace an unconsumed completed operation.
+            future = Future();future.set_exception(ValueError('synthetic injection failure'))
+            live_preview._future = future;live_preview._future_kind = 'inject'
+            live_preview._next_probe = time.monotonic()+60
+            live_preview.tick()
+            assert live_preview._error == 'synthetic injection failure'
+            future = Future();future.set_result(([], False, False, 'synthetic Rust is not running'))
+            live_preview._future = future;live_preview._future_kind = 'probe'
+            try:live_preview.submit('launch', lambda: None)
+            except ValueError:pass
+            else:raise AssertionError('Unconsumed result was overwritten')
+            live_preview.tick()
+            assert live_preview._error == 'synthetic injection failure'
+            assert live_preview._probe_message == 'synthetic Rust is not running'
+            class FakeJob:
+                active = True;status = 'RUNNING';port = 29100;directory = root
+                stopped = False
+                def info(self):return {'status': self.status, 'message': 'Synthetic preview'}
+                def log_tail(self, count):return ['synthetic log']
+                def update(self, rows):raise ValueError('synthetic snapshot rejection')
+                def request_stop(self):self.stopped = True;self.status = 'STOPPING'
+                def close(self):self.active = False
+            job = FakeJob();live_preview._job = job;live_preview._last_snapshot = None
+            live_preview.scene_changed(None)
+            live_preview.capture_snapshot()
+            assert live_preview._snapshot_error == 'synthetic snapshot rejection'
+            job.update = lambda rows: None;live_preview.scene_changed(None)
+            live_preview.capture_snapshot()
+            assert not live_preview._snapshot_error
+            # Draw only cached data. Any filesystem/probe/status call during
+            # draw fails this fixture; a real UI draw is tested separately.
+            class Layout:
+                def __init__(self):self.labels = []
+                def column(self, **kwargs):return self
+                row = box = column
+                def separator(self):pass
+                def label(self, **kwargs):self.labels.append(kwargs.get('text', ''))
+                def prop(self, *args, **kwargs):pass
+                def operator(self, *args, **kwargs):return SimpleNamespace()
+                def panel(self, *args, **kwargs):return self, self
+            layout = Layout();live_preview.refresh_status()
+            saved_install, saved_read = live_preview.installation, live_preview.backend.read_bounded
+            def no_io(*args, **kwargs):raise AssertionError('Preview draw performed I/O')
+            live_preview.installation = live_preview.backend.read_bounded = no_io
+            job.info = job.log_tail = no_io
+            draw_context = SimpleNamespace(window_manager=SimpleNamespace(ruster_live_preview=state),
+                preferences=bpy.context.preferences, region=SimpleNamespace(width=320))
+            try:
+                for clients, allowed, loaded in (([], False, False), ([SimpleNamespace()], True, False), ([SimpleNamespace()], False, True)):
+                    live_preview._clients = clients;live_preview._client_allowed = allowed;live_preview._module_loaded = loaded
+                    live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
+            finally:
+                live_preview.installation, live_preview.backend.read_bounded = saved_install, saved_read
+            assert 'restart your computer' in ' '.join(layout.labels)
+            live_preview.document_replaced();assert job.stopped
+            assert live_preview._last_snapshot is None and live_preview._capture is None
+            job.active = False;state.port = 29200
+            live_preview.RUSTER_OT_preview_copy_ip.execute(operator, synthetic)
+            assert synthetic.window_manager.clipboard == '127.0.0.1:29200', 'Stopped preview copied an obsolete port'
+            # Timers/handlers survive document loading and reset on unregister.
+            assert live_preview.after_load in bpy.app.handlers.load_post
+            assert live_preview.scene_changed in bpy.app.handlers.depsgraph_update_post
+            live_preview._job = None;live_preview._clients = []
+            project = root/'preview-lifecycle.blend'
+            bpy.ops.wm.save_as_mainfile(filepath=str(project), check_existing=False)
+            bpy.ops.wm.open_mainfile(filepath=str(project), load_ui=False, use_scripts=False)
+            assert bpy.app.timers.is_registered(live_preview.tick), 'Preview timer was lost on document load'
+            assert bpy.context.window_manager.ruster_live_preview.port == 29100
             # The action is present independently from its disabled UI state,
             # so execute must also reject requests before any remote operation.
             try:bpy.ops.ruster.inject_preview()
@@ -70,6 +142,9 @@ def run():
             ruster.unregister()
             assert not hasattr(bpy.types.WindowManager, 'ruster_live_preview')
             assert not bpy.app.timers.is_registered(live_preview.tick)
+            assert live_preview.after_load not in bpy.app.handlers.load_post
+            assert live_preview.scene_changed not in bpy.app.handlers.depsgraph_update_post
+            assert not live_preview._error and not live_preview._logs
         finally:preview_client.discover = original
     print('RUSTER_LIVE_PREVIEW_UI_OK', flush=True)
 

@@ -8,6 +8,7 @@ _classes=[]
 _draws=[]
 _polls=[]
 _refreshed_panels=[]
+_preview_splits={}
 
 
 def is_map(context):
@@ -444,7 +445,7 @@ def readonly_source_menu(self,context):
     action(self.layout,'ruster.restore_models')
 
 
-def properties_header(self,context):self.layout.label(text='Prefab Editor',icon=I['prefab'])
+def properties_header(self,context):self.layout.label(text='Live Preview',icon=I['play'])
 
 
 def outliner_header(self,context):
@@ -477,10 +478,12 @@ def topbar(self,context):
 def close_map_timeline():
     from . import editing,painting
     if editing.stroke_active or painting.stroke_active:return .5
+    for window in bpy.context.window_manager.windows:
+        if not ensure_preview_area(window):return .2
     # Joining areas rebuilds region state. Focus the sidebar on a later tick.
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
-            if area.type=='PROPERTIES' or (area.type=='DOPESHEET_EDITOR' and area.ui_type=='TIMELINE'):
+            if area.type=='DOPESHEET_EDITOR' and area.ui_type=='TIMELINE':
                 with bpy.context.temp_override(window=window,area=area):bpy.ops.screen.area_close()
                 return .2
     retry=False
@@ -497,9 +500,48 @@ def close_map_timeline():
     return .2 if retry else None
 
 
+def ensure_preview_area(window):
+    """Keep preview in a native editor below Placements, including old projects."""
+    areas = list(window.screen.areas)
+    key=window.as_pointer()
+    pending=_preview_splits.get(key)
+    if pending:
+        candidates=[area for area in areas if area.as_pointer() in pending]
+        if len(candidates)==2 and all(area.height>1 for area in candidates):
+            min(candidates,key=lambda area:area.y).type='PROPERTIES'
+            _preview_splits.pop(key,None)
+        elif len(candidates)!=2:_preview_splits.pop(key,None)
+        else:return False
+    if not any(area.type=='PROPERTIES' for area in window.screen.areas):
+        outliners = [area for area in areas if area.type=='OUTLINER']
+        if outliners:
+            outliner = max(outliners, key=lambda area: (area.x, area.height))
+            if outliner.height >= 120:
+                previous={area.as_pointer() for area in areas}
+                with bpy.context.temp_override(window=window, area=outliner):
+                    bpy.ops.screen.area_split(direction='HORIZONTAL', factor=.72)
+                created=[area.as_pointer() for area in window.screen.areas if area.as_pointer() not in previous]
+                if created:
+                    # Area rectangles become valid on the next UI tick. Match
+                    # identities first; geometry immediately after split is stale.
+                    _preview_splits[key]={outliner.as_pointer(),created[0]}
+                    return False
+    for area in window.screen.areas:
+        if area.type=='PROPERTIES':
+            area.spaces.active.context='SCENE'
+            area.spaces.active.pin_id=window.scene
+            area.spaces.active.use_pin_id=True
+            navigation=next((region for region in area.regions if region.type=='NAVIGATION_BAR'),None)
+            if navigation and navigation.width>1:
+                with bpy.context.temp_override(window=window,area=area):
+                    bpy.ops.screen.region_toggle(region_type='NAVIGATION_BAR')
+    return True
+
+
 def start_workspace():
     for window in bpy.context.window_manager.windows:
         with bpy.context.temp_override(window=window):
+            ensure_preview_area(window)
             if not is_map(bpy.context):
                 window.workspace.name='Prefab Studio'
                 window.workspace['ruster_workspace']='PREFAB'
@@ -604,6 +646,7 @@ def register():
 
 
 def unregister():
+    _preview_splits.clear()
     if bpy.app.timers.is_registered(start_workspace):bpy.app.timers.unregister(start_workspace)
     if bpy.app.timers.is_registered(close_map_timeline):bpy.app.timers.unregister(close_map_timeline)
     for cls,poll in reversed(_polls):

@@ -85,7 +85,7 @@ def step():
                 assert not window.scene.objects, 'Startup did not create an empty prefab composition'
                 window.event_simulate(type='ESC', value='PRESS')
             elif stage == 1:
-                if any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas):
+                if any(a.ui_type=='TIMELINE' for a in window.screen.areas):
                     state['workspace_waits']=state.get('workspace_waits',0)+1
                     assert state['workspace_waits']<30,'Workspace cleanup did not finish'
                     return .6  # Material Preview can delay the first area-close tick.
@@ -97,7 +97,8 @@ def step():
                 assert not window.scene.objects
                 assert area.spaces.active.show_region_toolbar
                 assert not area.spaces.active.overlay.show_relationship_lines
-                assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
+                assert any(a.type=='PROPERTIES' for a in window.screen.areas), 'Dedicated live-preview editor is missing'
+                assert not any(a.ui_type=='TIMELINE' for a in window.screen.areas)
                 area.spaces.active.show_region_toolbar=True
                 with bpy.context.temp_override(area=area):bpy.ops.wm.call_menu(name='VIEW3D_MT_add')
             elif stage == 2:
@@ -112,20 +113,22 @@ def step():
                 assert len(app.scene.prefab_roots()) == 2
                 assert len(window.scene.objects) == 2, '.map opening created objects other than prefab placements'
                 if bpy.app.timers.is_registered(ui.close_map_timeline):bpy.app.timers.unregister(ui.close_map_timeline)
-                props=next(a for a in window.screen.areas if a.type=='OUTLINER')
-                props.type='PROPERTIES';props.spaces.active.context='SCENE'
+                props=next(a for a in window.screen.areas if a.type=='PROPERTIES')
+                props.spaces.active.context='SCENE'
             elif 4 <= stage <= 8:
-                # Explicitly recreate Properties to regression-test Scene context
-                # callbacks even though the pared-down workspace removes it.
+                # Only Ruster's preview belongs in Properties; native Scene,
+                # World and Render panels must remain hidden in every context.
                 props=next(a for a in window.screen.areas if a.type=='PROPERTIES')
                 props.spaces.active.context=('SCENE','WORLD','VIEW_LAYER','RENDER','OUTPUT')[stage-4]
             elif stage==9:
-                next(a for a in window.screen.areas if a.type=='PROPERTIES').type='OUTLINER'
+                props=next(a for a in window.screen.areas if a.type=='PROPERTIES')
+                with bpy.context.temp_override(area=props):bpy.ops.screen.area_close()
                 bpy.ops.ruster.new('EXEC_DEFAULT')
             elif stage==10:
                 prefab_workspace(window)
                 assert not window.scene.objects
-                assert not any(a.type=='PROPERTIES' or a.ui_type=='TIMELINE' for a in window.screen.areas)
+                assert any(a.type=='PROPERTIES' for a in window.screen.areas), 'New Prefab did not restore the preview editor'
+                assert not any(a.ui_type=='TIMELINE' for a in window.screen.areas)
                 assert not state['scene'], 'Unrelated native Scene panels leaked into the prefab editor'
                 labels = {item[0]:item[1] for item in preferences.SECTIONS if item}
                 assert labels['RUSTER_ASSETS'] == 'Assets' and labels['RUSTER_MCP'] == 'MCP'

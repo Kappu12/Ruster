@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1];sys.path.insert(0, str(ROOT))
 os.environ['RUSTER_PREVIEW_TEST_NO_DISCOVERY'] = '1'
 import bpy
 import ruster
-from ruster import app, live_preview
+from ruster import app, live_preview, ui
 from ruster.core.preview_client import ClientProbe
 
 temporary = tempfile.TemporaryDirectory(prefix='ruster-preview-ui-')
@@ -28,29 +28,28 @@ class FakeJob:
     def close(self):pass
 
 
-class RUSTER_PT_preview_draw_check(bpy.types.Panel):
-    bl_label = 'Live Preview'
-    bl_space_type = 'VIEW_3D';bl_region_type = 'UI';bl_category = 'Preview Test';bl_order = -100
-    def draw(self, context):
-        try:
-            live_preview.RUSTER_PT_live_preview.draw(self, context)
-            state['draws'].add(state['phase'])
-        except Exception:traceback.print_exc();os._exit(1)
+original_draw = live_preview.RUSTER_PT_live_preview.draw
+def checked_draw(self, context):
+    try:
+        original_draw(self, context);state['draws'].add(state['phase'])
+    except Exception:traceback.print_exc();os._exit(1)
+live_preview.RUSTER_PT_live_preview.draw = checked_draw
 
 
-ruster.register();bpy.utils.register_class(RUSTER_PT_preview_draw_check)
+ruster.register();ui.start_workspace()
+if os.environ.get('RUSTER_PREVIEW_LIGHT_THEME'):
+    theme=next(Path(path)/'Blender_Light.xml' for path in bpy.utils.preset_paths('interface_theme') if (Path(path)/'Blender_Light.xml').exists())
+    bpy.ops.script.execute_preset(filepath=str(theme),menu_idname='USERPREF_MT_interface_theme_presets')
 
 
 def tick():
     try:
         if time.monotonic()-state['started'] > 30:raise AssertionError('Preview draw check timed out')
         window = bpy.context.window_manager.windows[0]
-        area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
-        area.spaces.active.show_region_ui = True
-        region = next((r for r in area.regions if r.type == 'UI'), None)
-        if region:
-            try:region.active_panel_category = 'Preview Test'
-            except (AttributeError, TypeError):pass
+        area = next(a for a in window.screen.areas if a.type == 'PROPERTIES')
+        outliner = next(a for a in window.screen.areas if a.type == 'OUTLINER')
+        assert area.y < outliner.y and area.x == outliner.x, 'Live Preview is not below Placements'
+        assert next(r for r in area.regions if r.type=='NAVIGATION_BAR').width<=1
         if not state.get('configured'):
             window.event_simulate(type='ESC', value='PRESS')
             window.event_simulate(type='ESC', value='RELEASE')
@@ -66,14 +65,21 @@ def tick():
             live_preview._job = FakeJob()
             live_preview._clients = [ClientProbe(pid=1, created=1, executable=str(root/'RustClient.exe'),
                 command_line='RustClient.exe', parent_name='explorer.exe', modules=['GameAssembly.dll', 'UnityPlayer.dll'])]
-            live_preview._probe_message = 'Process checks passed; EAC will be checked again on Inject'
+            live_preview._probe_message = 'EAC checks passed; rechecked on Inject'
+            live_preview._client_allowed = True
+            live_preview.refresh_status()
         elif phase == 2:
             live_preview._clients[0].eac_services = ['EasyAntiCheat_EOS']
             live_preview._probe_message = 'EAC is active: EasyAntiCheat_EOS'
+            live_preview._client_allowed = False
+        elif phase == 3:
+            live_preview._module_loaded = True
+            live_preview._probe_message = 'Preview module is loaded'
+            live_preview._client_status = 'READY · Live scene revision 8 applied (24 placements).'
         else:
-            assert state['draws'] >= {0, 1, 2}
+            assert state['draws'] >= {0, 1, 2, 3}
             live_preview._job = None
-            bpy.utils.unregister_class(RUSTER_PT_preview_draw_check);ruster.unregister()
+            ruster.unregister()
             print('RUSTER_LIVE_PREVIEW_DRAW_STATES_OK', flush=True)
             bpy.ops.wm.quit_blender();return None
         area.tag_redraw();return .5

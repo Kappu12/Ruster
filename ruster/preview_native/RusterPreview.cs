@@ -89,7 +89,8 @@ namespace Oxide.Plugins
                 if(now>=nextHeartbeat)
                 {
                     Write("server.ready",JsonConvert.SerializeObject(new{protocol=1,secure=Network.Net.sv.secure,ip=ConVar.Server.ip,timestamp=now,pid=Process.GetCurrentProcess().Id,token=config.token}));
-                    if(BasePlayer.activePlayerList.Any(p=>p!=null&&p.IsConnected&&p.net!=null&&p.net.connection!=null&&p.net.connection.ipaddress.StartsWith("127.0.0.1:",StringComparison.Ordinal)))
+                    if(BasePlayer.activePlayerList.Any(p=>p!=null&&p.IsConnected&&p.net!=null&&p.net.connection!=null
+                        &&(p.net.connection.ipaddress=="127.0.0.1"||p.net.connection.ipaddress.StartsWith("127.0.0.1:",StringComparison.Ordinal))))
                         Write("client.connected","loopback player connected");
                     else Delete("client.connected");
                     nextHeartbeat=now+1;
@@ -162,8 +163,16 @@ namespace Oxide.Plugins
             }
             catch
             {
-                foreach(var state in restored){state.Restore();if(state.obj!=null)foreach(var entity in state.obj.GetComponentsInChildren<BaseEntity>(true))entity.SendNetworkUpdateImmediate();}
-                foreach(var obj in staged.Values)Destroy(obj);Physics.SyncTransforms();throw;
+                foreach(var state in restored)try
+                {
+                    state.Restore();
+                    if(state.obj!=null)foreach(var entity in state.obj.GetComponentsInChildren<BaseEntity>(true))
+                    {entity.UpdateNetworkGroup();entity.SendNetworkUpdateImmediate();}
+                }
+                catch(Exception error){PrintError("Preview transform rollback: "+error.Message);}
+                foreach(var obj in staged.Values)Destroy(obj);
+                try{Physics.SyncTransforms();}catch(Exception error){PrintError(error.Message);}
+                throw;
             }
             var retired=objects.Where(e=>!next.ContainsKey(e.Key)||next[e.Key]!=e.Value).Select(e=>e.Value).ToArray();
             objects.Clear();foreach(var entry in next)objects.Add(entry.Key,entry.Value);
@@ -175,8 +184,12 @@ namespace Oxide.Plugins
         void Destroy(GameObject obj)
         {
             if(obj==null)return;
-            foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))if(entity!=null&&!entity.IsDestroyed)entity.Kill();
-            if(obj!=null)UnityEngine.Object.Destroy(obj);
+            try
+            {
+                foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))
+                    if(entity!=null&&!entity.IsDestroyed)try{entity.Kill();}catch(Exception error){PrintError(error.Message);}
+            }
+            finally{if(obj!=null)UnityEngine.Object.Destroy(obj);}
         }
         void Cleanup()
         {

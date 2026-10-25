@@ -292,6 +292,22 @@ def test_module_integrity_and_build_source_must_match(tmp_path):
     with pytest.raises(ValueError, match='integrity'):client.verify_module(dll)
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only server installation')
+def test_reused_server_can_be_explicitly_updated(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'check_ports', lambda port: None)
+    job = server.PreviewSession(tmp_path)
+    binary = job.install/'RustDedicated.exe';binary.touch()
+    (job.install/'ruster-preview-install.json').touch()
+    carbon = job.install/'carbon/managed/Carbon.dll';carbon.parent.mkdir(parents=True);carbon.touch()
+    assert job._install() == binary
+    job.update_server = True
+    steam = job.root/'steamcmd';steam.mkdir();(steam/'steamcmd.exe').touch()
+    def stop_before_launch(*args, **kwargs):raise InterruptedError('synthetic updater reached')
+    job._spawn = stop_before_launch
+    with pytest.raises(InterruptedError, match='synthetic updater reached'):job._install()
+    assert job.status == 'DOWNLOADING'
+
+
 def test_loaded_old_module_is_rejected_before_any_remote_operation(tmp_path, monkeypatch):
     ready_session(tmp_path);(tmp_path/'RusterPreview.dll').touch()
     inspector = Mock();probe = safe_probe(tmp_path);probe.modules.append(str(tmp_path/'RusterPreview.dll'))

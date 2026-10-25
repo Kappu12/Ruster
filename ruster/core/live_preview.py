@@ -152,12 +152,13 @@ def command(binary, identity, port, url, log):
 
 
 class PreviewSession:
-    def __init__(self, root, port=28015, owner='', placements=()):
+    def __init__(self, root, port=28015, owner='', placements=(), *, update_server=False):
         if sys.platform != 'win32':raise ValueError('Live client preview currently requires Windows x64')
         self.port = port_number(port);self.owner = owner_id(owner);check_ports(port)
         self.root = Path(root).resolve();self.root.mkdir(parents=True, exist_ok=True)
         self.install = self.root/'server';self.install.mkdir(exist_ok=True)
         self.identity = 'ruster_preview_'+uuid.uuid4().hex
+        self.update_server = bool(update_server)
         self.directory = self.root/'sessions'/self.identity;self.directory.mkdir(parents=True)
         self.log = self.directory/'server.log'
         self.status = 'STARTING';self.message = 'Preparing local preview'
@@ -201,8 +202,8 @@ class PreviewSession:
     def _install(self):
         binary = self.install/'RustDedicated.exe'
         stamp = self.install/'ruster-preview-install.json'
-        if binary.is_file() and stamp.is_file() and (self.install/'carbon/managed/Carbon.dll').is_file():return binary
-        self.note('DOWNLOADING', 'Downloading SteamCMD and the official Rust dedicated server (several GB)')
+        if not self.update_server and binary.is_file() and stamp.is_file() and (self.install/'carbon/managed/Carbon.dll').is_file():return binary
+        self.note('DOWNLOADING', 'Updating the local Rust server with SteamCMD' if binary.is_file() else 'Downloading SteamCMD and the official Rust dedicated server (several GB)')
         steam = self.root/'steamcmd';steam.mkdir(exist_ok=True)
         if not (steam/'steamcmd.exe').is_file():
             archive = self.root/'steamcmd.zip';download(STEAMCMD_URL, archive, self.cancel, maximum=16*1024*1024)
