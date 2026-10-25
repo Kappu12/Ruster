@@ -221,7 +221,9 @@ def poll_job():
             uid=int(obj['ruster_uid'])
             if uid not in completed_ids:continue
             obj['ruster_model_status']='Model loading cancelled' if _job_cancelled else 'Model unavailable'
-            if uid in errors:obj['ruster_model_error']=errors[uid]
+            if uid in errors:
+                obj['ruster_model_error']=errors[uid]
+                if obj.get('ruster_model_error_kind') in {'PREVIEW','PREVIEW_UPGRADE'}:del obj['ruster_model_error_kind']
             elif code:obj['ruster_model_error']=state.asset_status
     if action=='extract' and not _job_cancelled:
         waiting=set(_visual_queue)
@@ -252,6 +254,25 @@ def load_visuals():
     global _visual_iterator,_visual_uid,_visual_scene
     if _visual_queue:
         uid=_visual_queue[0]
+        from . import preview_jobs
+        try:preparation,error=preview_jobs.prepare(uid)
+        except Exception as failure:preparation,error='ERROR',str(failure)
+        if preparation=='WAIT':
+            state=bpy.context.scene.ruster
+            state.busy=True;state.asset_progress_known=False
+            state.asset_status='Preparing original model preview in the background…'
+            redraw();return .1
+        if preparation=='ERROR':
+            preview_jobs.cancel()
+            _visual_queue.pop(0);_visual_iterator=None;_visual_uid=None
+            for obj in scene.prefab_roots():
+                if int(obj['ruster_uid'])==uid:
+                    obj['ruster_model_status']='Preview preparation failed'
+                    obj['ruster_model_error']=error
+                    obj['ruster_model_error_kind']='PREVIEW'
+            bpy.context.scene.ruster.asset_status=error
+            bpy.context.scene.ruster.busy=bool(_visual_queue or _pending_asset_ids or _job)
+            redraw();return .05 if _visual_queue else None
         current_scene=bpy.context.scene.as_pointer()
         if _visual_iterator is None or _visual_uid!=uid or _visual_scene!=current_scene:
             _visual_iterator=iter([obj for obj in scene.prefab_roots() if int(obj['ruster_uid'])==uid])
@@ -268,7 +289,14 @@ def load_visuals():
                     if not obj.get('ruster_spawner_preview'):obj['ruster_model_status']='Model loaded'
                     frame_first_model(obj)
                 elif not loaded:
-                    if not obj.get('ruster_model_error'):obj['ruster_model_status']='Model unavailable — retry loading'
+                    active_ids=_job_ids if _job is not None and _job_action=='extract' else set()
+                    upgrading=obj.get('ruster_model_error_kind')=='PREVIEW_UPGRADE'
+                    waiting=uid in active_ids|_pending_asset_ids
+                    if upgrading and not obj.get('ruster_model_error') and not waiting:
+                        waiting=bool(request_assets([uid]))
+                    if not obj.get('ruster_model_error'):
+                        obj['ruster_model_status']=('Loading updated volume or spawner preview…' if upgrading and waiting
+                            else 'Model unavailable — retry loading')
                     bpy.context.scene.ruster.asset_status=obj.get('ruster_model_error',obj['ruster_model_status'])
             except ReferenceError:continue  # Deleted while the previous tick yielded.
             except Exception as error:
@@ -298,7 +326,8 @@ def restore_cached_visuals(objects=None):
     waiting=set(_visual_queue)|_pending_asset_ids|_job_ids
     cache=scene.cache_dir()/'prefabs'
     ids={int(obj['ruster_uid']) for obj in (scene.prefab_roots() if objects is None else objects)
-         if not obj.get('ruster_visual') and not obj.get('ruster_marker')}
+         if not obj.get('ruster_visual') and (not obj.get('ruster_marker') or
+             (obj.get('ruster_marker') in {'HELPER','SOUND','TERRAIN'} and not obj.get('ruster_helper_preview_version')))}
     ready=sorted(uid for uid in ids-waiting if (cache/f'{uid}.json.gz').is_file())
     if not ready:return
     _visual_queue.extend(ready)
@@ -737,6 +766,8 @@ class RUSTER_OT_cancel_assets(bpy.types.Operator):
         cancelled=_pending_asset_ids|_job_ids|set(_visual_queue)
         _pending_asset_ids.clear();_visual_queue.clear()
         _visual_iterator=None;_visual_uid=None
+        from . import preview_jobs
+        preview_jobs.cancel()
         _job_cancelled=True
         for obj in scene.prefab_roots():
             if int(obj['ruster_uid']) in cancelled and not obj.get('ruster_visual'):
@@ -950,6 +981,8 @@ class RUSTER_OT_select_model_status(bpy.types.Operator):
 def after_load(_dummy):
     global _visual_iterator,_visual_uid
     _visual_iterator=None;_visual_uid=None
+    from . import preview_jobs
+    preview_jobs.cancel()
     from . import editing
     editing.clear_cache()
     if hasattr(bpy.context.scene, 'ruster'):
@@ -1057,6 +1090,8 @@ def unregister():
     global _job,_job_log,_job_action,_job_cancelled,_visual_iterator,_visual_uid
     from . import ui,preferences,studio
     from . import quitting
+    from . import preview_jobs
+    preview_jobs.cancel()
     quitting.unregister()
     studio.unregister()
     preferences.unregister()

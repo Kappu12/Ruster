@@ -121,6 +121,9 @@ class RUSTER_OT_io_settings(bpy.types.Operator):
 
 def new_prefab():
     from . import quitting
+    from . import preview_jobs
+    preview_jobs.cancel()
+    app._visual_queue.clear();app._visual_iterator=None;app._visual_uid=None
     quitting.reset()
     scene.clear_scene()
     state = bpy.context.scene.ruster

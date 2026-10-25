@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 if '--' in sys.argv:sys.path.insert(0,sys.argv[sys.argv.index('--')+1])
 import bpy,ruster
 from mathutils import Vector
-from ruster import scene,studio,volumes,quitting
+from ruster import scene,studio,volumes,quitting,app
 from ruster.core import wire
 
 
@@ -62,6 +62,24 @@ def run():
         root=scene.root_object([wire.encode(2,0,4)],bpy.context.scene.collection)
         assert scene.attach_visual(root) and root['ruster_marker']=='EFFECT'
         assert root.empty_display_type=='ARROWS' and 'impact effect' in root.name
+        # Saved projects with old helper markers schedule the targeted upgrade.
+        legacy=asset(5,'BoxCollider');legacy.update(marker='HELPER',colliders=[])
+        (cache/'5.json.gz').write_bytes(gzip.compress(json.dumps(legacy).encode()))
+        root=scene.root_object([wire.encode(2,0,5)],bpy.context.scene.collection)
+        root['ruster_marker']='HELPER';root.empty_display_type='SPHERE'
+        app.restore_cached_visuals([root])
+        assert 5 in app._visual_queue
+        native_request=app.request_assets;requests=[]
+        app.request_assets=lambda ids:requests.append(ids) or True
+        try:
+            while app._visual_queue:app.load_visuals()
+            assert requests==[[5]] and root['ruster_model_error_kind']=='PREVIEW_UPGRADE'
+            assert root['ruster_model_status'].startswith('Loading updated')
+            assert not root.get('ruster_marker') and root.empty_display_type=='CUBE'
+            root['ruster_model_error']='Source asset unavailable'
+            app._visual_queue=[5];app.load_visuals()
+            assert requests==[[5]],'Failed cache upgrades must not retry forever'
+        finally:app.request_assets=native_request
         ruster.unregister()
     print('RUSTER_VOLUMES_OK',flush=True)
 

@@ -161,7 +161,7 @@ class RUSTER_GT_volume(bpy.types.Gizmo):
                 self.signature=key
             theme=context.preferences.themes[0].view_3d
             self.color=theme.object_active if obj==context.view_layer.objects.active else (
-                theme.object_selected if obj.select_get() else theme.empty)
+                theme.object_selected if obj.select_get() else theme.space.text)
             self.color_highlight=theme.object_active
             return self.surface is not None
         except ReferenceError:return False

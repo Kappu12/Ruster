@@ -189,6 +189,8 @@ class RUSTER_OT_discard_changes(bpy.types.Operator):
 
 def finish_quit():
     # EXEC bypasses the native .blend confirmation after our own decision.
+    from . import preview_jobs
+    preview_jobs.cancel()
     bpy.ops.wm.quit_blender('EXEC_DEFAULT')
 
 

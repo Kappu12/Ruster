@@ -87,6 +87,10 @@ spheres. Crate previews retain their spawner identity and explain runtime limits
 Large native prefab imports create placements before loading models; repeated
 placements must yield within a bounded linking batch. Never rescan every prior
 copy to allocate a display name or recompute model counts on every viewport draw.
+Build missing Blender preview libraries in a hidden, owned background process;
+cancel that process with asset loading and on shutdown. Its native profile is
+isolated from the user's normal Blender preferences. Keep failures retryable and
+retain placement records even when a preview cannot be prepared.
 Object Snap and Radial Symmetry have toolbar toggles and settings popovers.
 Explain when editing or deleting a symmetry member affects its complete set.
 Symmetry settings support world axes, copy orientation and centers from the

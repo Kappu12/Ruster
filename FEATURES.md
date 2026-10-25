@@ -1,4 +1,4 @@
-# Ruster 0.9.0 feature coverage
+# Ruster 0.10.0 feature coverage
 
 Ruster is a **prefab composition editor** built on Blender 5.2 LTS. This checklist
 covers the active product and its verification limits, not complete RustEdit or
@@ -23,7 +23,7 @@ Rust-engine parity.
 | Hidden IO assets | All eight real hose/wire slot variants verified, including cyan pending hose. The source is a Cube renderer scaled by placements, not generated replacement geometry. Geometry-free sounds, terrain stamps and runtime IO lines remain explicit helpers. |
 | Volumes | Dedicated category; selectable translucent source box/sphere/capsule/mesh collider previews; viewport visibility toggle independent of native export; offline persistence. Unknown bounds are labeled origin markers. Sphere previews use the largest scale, not an ellipsoid. |
 | Effects and spawners | Impact/effect search labels and distinct arrow markers. Explicit standard crate-spawner mappings preview original crates at the spawner origin, preserving the spawner ID and placement rotation. Server spawn choices and random offsets/rotations are not simulated. |
-| Large imports | Empty placements first; model attachment yields after 32 placements or an 8 ms budget, excluding the indivisible first library build/link. Repeated assets share libraries and native Blender naming; header counts are cached between redraws. |
+| Large imports | Empty placements first; uncached Blender preview libraries prepare in a separate owned process. Model attachment yields after 32 placements or an 8 ms budget, excluding an indivisible native library link. Repeated assets share libraries and native Blender naming; header counts are cached between redraws. |
 | LOD and meshes | First nonempty authored LOD; compact binary mesh buffers and streamed metadata; one requested model at a time; bounded preview textures. |
 | Projects | `.ruster` atomic saves and packed linked model previews; reopening without the original conversion cache; two-minute idle recovery; visible save state; project-aware New/Open, Quit/Ctrl+Q and Windows titlebar close, with Save/Don't Save/Cancel for unsaved changes. |
 | Native `.prefab` | RustEdit version-1 format and installed 1.2.19 checksum; unknown-field retention; byte-exact unchanged imports; metadata-preserving group export. |
@@ -48,7 +48,9 @@ checks; Solid and native shader renders verified their converted colors/emission
 These checks used bounded, targeted local asset reads, not a full Rust scan.
 
 Windows asset workers have a 768 MiB private-memory ceiling, their supervisor tree
-1 GiB, and the editor tree 8 GiB including shader/driver headroom. Requested-model
+1 GiB, and the editor tree 8 GiB including shader/driver headroom. Background
+Blender preview builders have their own 2 GiB ceiling and are canceled
+with asset loading or editor shutdown. Requested-model
 batches allow at most 100 unique IDs. Geometry export and MCP batch/import limits
 also bound work; see [README.md](README.md). GPU/shared allocations are separate.
 Unsupported models remain reported placeholders and retain placement records.

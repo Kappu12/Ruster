@@ -1,6 +1,6 @@
 # Ruster
 
-Ruster **0.9.0** is a Blender-based desktop editor for custom Rust prefab
+Ruster **0.10.0** is a Blender-based desktop editor for custom Rust prefab
 compositions. Build with whole original models from your installed game, then
 save a `.ruster` project or export a native `.prefab`, model file, or prefab-only
 `.map`. Blender 5.2 LTS supplies the viewport, native controls, selection,
@@ -65,7 +65,8 @@ export keeps the spawner ID. These illustrate placement; Rust still chooses
 runtime variants and any randomized spawn offsets/rotations.
 
 Large imports create placements first and attach cached previews in short,
-cancelable batches. Repeated copies share their model library. Asset counts are
+cancelable batches. First-use Blender libraries prepare in a separate background
+process, with cancellation and error reporting. Repeated copies share their model library. Asset counts are
 cached between redraws, and native Blender naming avoids repeated scene scans.
 Object labels may contain spaces: native Rust exports use prefab IDs and
 transforms, not editor object names.

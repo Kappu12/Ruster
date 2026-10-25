@@ -164,6 +164,9 @@ def model_placeholder(obj):
 def model_attached(obj):
     """Remove the loading box once the original linked model is visible."""
     obj['ruster_visual'] = True
+    if obj.get('ruster_model_error_kind') in {'PREVIEW','PREVIEW_UPGRADE'}:
+        del obj['ruster_model_error_kind']
+        if 'ruster_model_error' in obj:del obj['ruster_model_error']
     obj['ruster_model_status'] = 'Model loaded'
     preview=obj.instance_collection.get('ruster_preview') if obj.instance_collection else None
     if preview:
@@ -249,6 +252,14 @@ def restore_map_tools():
     editing.refresh()
 
 
+def model_asset_key(uid,signature=None):
+    if signature is None:
+        stamp=cache_dir()/'prefabs'/f'{uid}.stamp'
+        signature=stamp.read_text() if stamp.exists() else ''
+    token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
+    return str(uid)+(':'+token if token else '')+':view4'
+
+
 def attach_visual(root,force=False):
     if root.get('ruster_visual') and not force:
         return True
@@ -273,10 +284,9 @@ def attach_visual(root,force=False):
     if root.get('ruster_model_error_kind')=='CACHE_VERSION':
         del root['ruster_model_error_kind']
         if 'ruster_model_error' in root:del root['ruster_model_error']
-    token=hashlib.sha256(signature.encode()).hexdigest()[:12] if signature else ''
     # Display-only changes rebuild the small Blender preview from cached data;
     # existing packed originals remain valid for offline projects.
-    asset_key=str(root['ruster_uid'])+(':'+token if token else '')+':view4'
+    asset_key=model_asset_key(root['ruster_uid'],signature)
     collection_name = 'RusterAsset:' + asset_key
     match=bpy.data.collections.get(collection_name)
     from .protection import VERSION
@@ -303,10 +313,22 @@ def attach_visual(root,force=False):
         asset = json.load(stream)
     if asset.get('schema') != 1:
         return False
+    from .core.asset_categories import is_volume
+    from .core.spawn_previews import preview
+    if (asset.get('marker') in {'HELPER','SOUND'} and not asset.get('meshes') and
+        ((is_volume(asset['path']) and asset.get('marker')!='VOLUME') or preview(asset['path']))):
+        # Old caches contain only a generic marker for these assets. Queue a
+        # targeted conversion instead of silently retaining the old sphere.
+        if 'ruster_marker' in root:del root['ruster_marker']
+        root['ruster_model_error_kind']='PREVIEW_UPGRADE'
+        root['ruster_model_status']='Loading updated volume or spawner preview…'
+        model_placeholder(root)
+        return False
     if asset.get('marker')=='VOLUME':
         from . import volumes
         volumes.attach(root,asset,path.parent)
         if 'ruster_model_error' in root:del root['ruster_model_error']
+        if 'ruster_model_error_kind' in root:del root['ruster_model_error_kind']
         return True
     if asset.get('marker') and not asset['meshes']:
         marker=asset['marker']
@@ -317,6 +339,7 @@ def attach_visual(root,force=False):
         root.instance_type='NONE';root.instance_collection=None
         root['ruster_visual']=False
         root['ruster_marker']=marker
+        root['ruster_helper_preview_version']=1
         root['ruster_model_status']={'SOUND':'Sound effect · this prefab has no visible mesh',
             'EFFECT':'Runtime effect · particles or audio play in Rust; this prefab has no static building mesh',
             'TERRAIN':'Terrain stamp · modifies map terrain; this prefab has no static model',
