@@ -66,6 +66,16 @@ a protected linked library. Transform, group, duplicate, replace or remove whole
 placements. Never present mesh editing, sculpting, make-local or library
 overrides as Rust prefab authoring. Model exports operate on disposable copies.
 
+Keep Blender's interaction conventions: F3 opens searchable prefab commands,
+Space retains the user's native Spacebar Action, and F9 adjusts the last
+operation. Shift+D (and Alt+D for the shared originals) duplicates in place and
+starts native Move with axis constraints, numeric input and snapping. Escape
+cancels movement while keeping the duplicate; undo removes the complete action.
+Outliner and top-bar duplication stays in place without invoking a viewport
+transform. X confirms deletion; Delete acts immediately. Orientation and pivot
+controls use Blender's own scene settings. Layout and symmetry actions belong
+in the Object menu and right-click menu as well as the sidebar.
+
 Use Z-up metres in the editor. The authoring plane is Z=0. View projection and
 overlays are adjacent header controls; Shift+F enters native Walk Navigation.
 Object Snap and Radial Symmetry have toolbar toggles and settings popovers.

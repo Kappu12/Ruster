@@ -254,11 +254,11 @@ class RUSTER_OT_replace(bpy.types.Operator):
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 
 
-def duplicate_selected():
+def duplicate_selected(offset=(2,0,0)):
     from . import mcp_prefab_ops, mcp_bridge
     roots=selected_roots()
     if not roots:raise ValueError('Select prefab placements or groups first')
-    created,_count=mcp_prefab_ops.clone_arrays(roots,1,(2,0,0),(0,0,0),mcp_bridge)
+    created,_count=mcp_prefab_ops.clone_arrays(roots,1,offset,(0,0,0),mcp_bridge)
     return created
 
 

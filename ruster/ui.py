@@ -2,7 +2,7 @@
 import bpy
 from . import scene,browser
 from .assets import catalog
-from .ui_style import ICONS as I,action,properties,section,wrapped,tool_button
+from .ui_style import ICONS as I,action,properties,section,wrapped,tool_button,duplicate_button
 
 _classes=[]
 _draws=[]
@@ -75,7 +75,7 @@ class RUSTER_MT_edit(bpy.types.Menu):
         layout=self.layout
         action(layout,'ed.undo');action(layout,'ed.redo')
         layout.separator()
-        action(layout,'ruster.duplicate');action(layout,'ruster.delete')
+        duplicate_button(layout,context);action(layout,'ruster.delete')
         layout.separator()
         action(layout,'ruster.group');action(layout,'ruster.ungroup')
         if is_map(context):action(layout,'ruster.surface_snap')
@@ -226,7 +226,7 @@ class RUSTER_PT_selection(MapPanel,bpy.types.Panel):
         fields.prop(obj,rotation,text='Rotation')
         fields.prop(obj,'scale')
         row=layout.row(align=True)
-        action(row,'ruster.duplicate',text='Duplicate');action(row,'ruster.delete',text='Delete')
+        action(row,'ruster.duplicate_move',text='Duplicate');action(row,'ruster.delete',text='Delete')
         if is_map(context):action(layout,'ruster.surface_snap')
         body=section(layout,'ruster_placement_more','Placement Tools','settings')
         if body is not None:
@@ -400,6 +400,7 @@ def view_header(self,context):
     layout.menu('VIEW3D_MT_view',text='View')
     layout.menu('VIEW3D_MT_select_edit_curve' if context.mode=='EDIT_CURVE' else 'VIEW3D_MT_select_object',text='Select')
     layout.menu('RUSTER_MT_add',text='Add Prefab')
+    layout.menu('RUSTER_MT_object',text='Object')
     if context.mode=='EDIT_CURVE':
         layout.operator('object.mode_set',text='Finish Path',icon=I['finish_path']).mode='OBJECT'
     layout.separator()
@@ -408,6 +409,9 @@ def view_header(self,context):
                             ('builtin.rotate','','rotate'),('builtin.scale','','scale')]:
         tool_button(row,context,name,label,icon).name=name
     layout.separator()
+    layout.prop_with_popover(context.scene.transform_orientation_slots[0], 'type', text='',
+                             panel='VIEW3D_PT_transform_orientations')
+    layout.prop(context.scene.tool_settings, 'transform_pivot_point', text='', icon_only=True)
     construction=context.scene.ruster_construction
     layout.prop(construction,'object_snap',text='',icon=I['snapping'])
     layout.popover(panel='RUSTER_PT_snapping',text='Snapping')
@@ -422,7 +426,17 @@ def view_header(self,context):
 def context_menu(self,context):
     for op in ('transform.translate','transform.rotate','transform.resize'):action(self.layout,op)
     self.layout.separator()
-    for op in ('ruster.duplicate','ruster.delete','ruster.restore_models'):action(self.layout,op)
+    duplicate_button(self.layout,context);action(self.layout,'ruster.delete')
+    self.layout.separator()
+    for op in ('ruster.group','ruster.ungroup'):action(self.layout,op)
+    self.layout.menu('RUSTER_MT_layout');self.layout.menu('RUSTER_MT_symmetry')
+    self.layout.separator()
+    action(self.layout,'ruster.restore_models')
+
+
+class RUSTER_MT_object(bpy.types.Menu):
+    bl_label='Object'
+    def draw(self,context):context_menu(self,context)
 
 
 def readonly_source_menu(self,context):
@@ -547,7 +561,7 @@ def map_workspace():
 
 
 def register():
-    classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_assets,RUSTER_PT_welcome,
+    classes=[RUSTER_MT_file,RUSTER_MT_edit,RUSTER_MT_assets,RUSTER_MT_object,RUSTER_PT_welcome,
              RUSTER_PT_start,RUSTER_PT_prefabs,RUSTER_PT_selection,RUSTER_PT_assets,RUSTER_PT_asset_status]
     for cls in classes:bpy.utils.register_class(cls);_classes.append(cls)
     for cls in (bpy.types.WM_MT_splash,bpy.types.WM_MT_splash_quick_setup):

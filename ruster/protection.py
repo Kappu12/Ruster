@@ -200,12 +200,15 @@ class RUSTER_MT_commands(bpy.types.Menu):
         action(layout,'ruster.prefab_import');action(layout,'ruster.prefab_export');action(layout,'ruster.blend_export');action(layout,'ruster.model_export')
         if context.scene.ruster.mode=='MAP':action(layout,'ruster.validate');action(layout,'ruster.export_map')
         layout.separator()
-        action(layout,'ruster.duplicate');action(layout,'ruster.delete')
+        action(layout,'ruster.duplicate_move');action(layout,'ruster.delete')
         action(layout,'ruster.group');action(layout,'ruster.ungroup')
+        layout.menu('RUSTER_MT_layout')
+        layout.menu('RUSTER_MT_symmetry')
+        action(layout,'ruster.composition_check')
         if context.scene.ruster.mode=='MAP':action(layout,'ruster.surface_snap')
         action(layout,'ruster.restore_models')
         layout.separator()
-        layout.menu('RUSTER_MT_add')
+        action(layout,'wm.search_single_menu').menu_idname='RUSTER_MT_add'
         if context.scene.ruster.mode=='MAP':
             layout.operator_menu_enum('ruster.path_add','kind',text='Add Path',icon=I['path'])
             tool_button(layout,context,'ruster.terrain_brush','Paint Terrain in Viewport','terrain_brush').name='ruster.terrain_brush'
@@ -219,7 +222,8 @@ class RUSTER_OT_commands(bpy.types.Operator):
     def poll(cls,context):
         return bool(context.scene and context.scene.ruster.mode in {'MAP','PREFAB'})
     def execute(self,context):
-        bpy.ops.wm.call_menu(name='RUSTER_MT_commands');return {'FINISHED'}
+        bpy.ops.wm.search_single_menu('INVOKE_DEFAULT', menu_idname='RUSTER_MT_commands')
+        return {'FINISHED'}
 
 
 def register():
@@ -227,7 +231,7 @@ def register():
         bpy.utils.register_class(cls);_classes.append(cls)
     config=bpy.context.window_manager.keyconfigs.addon
     if config:
-        km=config.keymaps.new(name='Window',space_type='EMPTY')
+        km=config.keymaps.new(name='3D View',space_type='VIEW_3D')
         for key,shift,ctrl in [('F3',False,False)]:
             item=km.keymap_items.new('ruster.commands',key,'PRESS',shift=shift,ctrl=ctrl)
             _keymaps.append((km,item))

@@ -13,6 +13,25 @@ OPERATIONS = [('LINEAR', 'Linear Array', 'Repeat selected placements or groups w
               ('DISTRIBUTE', 'Distribute', 'Space placements in their current axis order'),
               ('GRID', 'Snap to Grid', 'Snap origins to a world grid'),
               ('PLANE', 'Place on Plane', 'Place the bottom bound of each selected model on a plane')]
+OPERATION_ICONS = {'LINEAR':'array', 'RADIAL':'radial', 'ALIGN':'align',
+                   'DISTRIBUTE':'move', 'GRID':'detail', 'PLANE':'snap'}
+
+
+def draw_layout_actions(layout):
+    for operation, label, _description in OPERATIONS:
+        action(layout, 'ruster.layout', text=label+'…', icon=OPERATION_ICONS[operation]).operation = operation
+
+
+class RUSTER_MT_layout(bpy.types.Menu):
+    bl_label = 'Layout'
+    def draw(self, context):draw_layout_actions(self.layout)
+
+
+class RUSTER_MT_symmetry(bpy.types.Menu):
+    bl_label = 'Symmetry'
+    def draw(self, context):
+        for operator in ('create', 'apply', 'select', 'original', 'release'):
+            self.layout.operator('ruster.symmetry_'+operator)
 
 
 class RUSTER_OT_layout(bpy.types.Operator):
@@ -141,16 +160,26 @@ class RUSTER_PT_layout(bpy.types.Panel):
     bl_order = 20
 
     def draw(self, context):
-        for operation, label, _description in OPERATIONS:
-            action(self.layout, 'ruster.layout', text=label+'…').operation = operation
-        self.layout.separator()
+        draw_layout_actions(self.layout)
+
+
+class RUSTER_PT_composition_checks(bpy.types.Panel):
+    bl_label = 'Composition Checks'
+    bl_parent_id = 'RUSTER_PT_layout'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Ruster'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
         action(self.layout, 'ruster.composition_check')
         for code, label in [('DUPLICATES', 'Select Overlapping Copies'), ('MIRRORED', 'Select Mirrored'), ('SCALED_IO', 'Select Scaled Imported IO')]:
             action(self.layout, 'ruster.select_composition_issue', text=label).issue = code
 
 
 def register():
-    for cls in (RUSTER_OT_layout, RUSTER_OT_composition_check, RUSTER_OT_select_composition_issue, RUSTER_PT_layout):
+    for cls in (RUSTER_OT_layout, RUSTER_OT_composition_check, RUSTER_OT_select_composition_issue,
+                RUSTER_MT_layout, RUSTER_MT_symmetry, RUSTER_PT_layout, RUSTER_PT_composition_checks):
         bpy.utils.register_class(cls);_classes.append(cls)
 
 

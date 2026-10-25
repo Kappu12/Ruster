@@ -51,6 +51,17 @@ Use Blender's navigation, selection, `G`, `R`, `S`, snapping and undo. Placement
 can be grouped, duplicated, replaced and removed. **Shift+F** enters Walk
 Navigation. The authoring plane is Z=0.
 
+**F3** opens Blender's native search popup for prefab commands, including Layout
+and Symmetry. **Space** keeps the user's Blender Spacebar Action preference.
+The viewport header includes native transform orientation and pivot controls;
+the **Object** and right-click menus expose grouping, layout and symmetry.
+**Shift+D** duplicates at the original position and starts native Move: use
+X/Y/Z, numeric input and snapping, then Enter or click to confirm. Esc cancels
+the move and keeps the duplicate in place. **Alt+D** uses the same protected,
+shared-original workflow. Duplication outside the viewport stays in place.
+**X** asks before deleting; **Delete** deletes directly. **F9** opens Adjust Last
+Operation for layout tools. Duplication and movement undo together with Ctrl+Z.
+
 The viewport header's **Perspective** icon toggles perspective/orthographic
 projection (also **Numpad 5**); its pressed state indicates perspective. The
 **Overlays** toggle sits immediately beside it and controls viewport guides.

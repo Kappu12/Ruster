@@ -23,6 +23,7 @@ ICONS={
     'select':'RESTRICT_SELECT_OFF','water':'MOD_OCEAN','splat':'TEXTURE','biome':'WORLD',
     'topology':'GROUP_VERTEX','alpha':'IMAGE_ALPHA','blank':'BLANK1','snapping':'SNAP_ON',
     'perspective':'VIEW_PERSPECTIVE',
+    'array':'MOD_ARRAY','radial':'FORCE_VORTEX','align':'ALIGN_JUSTIFY',
 }
 
 TOOL_ICONS={
@@ -50,6 +51,7 @@ ACTIONS={
     'ruster.quit':('Quit Ruster','quit'),
     'ed.undo':('Undo','undo'),'ed.redo':('Redo','redo'),
     'ruster.duplicate':('Duplicate Prefabs','duplicate'),
+    'ruster.duplicate_move':('Duplicate Prefabs','duplicate'),
     'ruster.delete':('Delete Prefabs','delete'),
     'ruster.group':('Group Prefabs','group'),
     'ruster.ungroup':('Ungroup Prefabs','ungroup'),
@@ -82,6 +84,14 @@ def properties(layout):
     layout.use_property_split=True
     layout.use_property_decorate=False
     return layout
+
+
+def duplicate_button(layout, context):
+    """Interactive movement belongs to a viewport; other editors copy in place."""
+    in_view = context.area and context.area.type == 'VIEW_3D'
+    props = action(layout, 'ruster.duplicate_move' if in_view else 'ruster.duplicate')
+    if not in_view:props.offset = (0, 0, 0)
+    return props
 
 
 def section(layout,identifier,title,icon,*,closed=True):

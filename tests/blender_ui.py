@@ -50,9 +50,16 @@ def run():
             ruster.register()
             assert bpy.types.VIEW3D_PT_tools_active.draw==old_toolbar
             keymap=bpy.context.window_manager.keyconfigs.addon.keymaps['Object Mode']
-            assert any(k.type=='SPACE' and k.idname=='ruster.commands' for k in keymap.keymap_items)
+            assert not any(k.type=='SPACE' for k in keymap.keymap_items), 'Preserve native Spacebar Action'
+            assert any(k.type=='D' and k.shift and k.idname=='ruster.duplicate_move' for k in keymap.keymap_items)
+            assert any(k.type=='D' and k.alt and k.idname=='ruster.duplicate_move' for k in keymap.keymap_items)
+            assert any(k.type=='X' and k.idname=='ruster.delete' and k.properties.confirm for k in keymap.keymap_items)
+            assert any(k.type=='DEL' and k.idname=='ruster.delete' and not k.properties.confirm for k in keymap.keymap_items)
             assert any(k.type=='A' and k.shift and k.properties.name=='RUSTER_MT_add' for k in keymap.keymap_items if k.idname=='wm.call_menu')
             navigation=bpy.context.window_manager.keyconfigs.addon.keymaps['3D View']
+            assert any(k.type=='F3' and k.idname=='ruster.commands' for k in navigation.keymap_items)
+            assert not any(k.type=='F3' and k.idname=='ruster.commands'
+                           for k in bpy.context.window_manager.keyconfigs.addon.keymaps['Window'].keymap_items)
             assert any(k.idname=='view3d.walk' and k.type=='F' and k.value=='PRESS' and k.shift
                        and not k.ctrl and not k.alt for k in navigation.keymap_items)
             pref_state=bpy.context.window_manager.ruster_preferences

@@ -9,7 +9,7 @@ import tempfile
 
 import bpy
 from bpy.app.handlers import persistent
-from bpy.props import StringProperty, IntProperty, EnumProperty, PointerProperty, BoolProperty, FloatProperty
+from bpy.props import StringProperty, IntProperty, EnumProperty, PointerProperty, BoolProperty, FloatProperty, FloatVectorProperty
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
 from . import scene
@@ -801,19 +801,44 @@ class RUSTER_OT_duplicate(bpy.types.Operator):
     bl_idname = 'ruster.duplicate'
     bl_label = 'Duplicate Prefabs'
     bl_options = {'REGISTER', 'UNDO'}
+    offset: FloatVectorProperty(name='Offset', size=3, default=(2, 0, 0), subtype='TRANSLATION')
+
+    @classmethod
+    def poll(cls, context):
+        from .placement import selected_roots
+        return context.mode == 'OBJECT' and bool(selected_roots())
 
     def execute(self, context):
         from .placement import duplicate_selected
-        if not duplicate_selected():
-            self.report({'WARNING'}, 'Select prefab placements to duplicate')
-            return {'CANCELLED'}
-        return {'FINISHED'}
+        try:duplicate_selected(self.offset);return {'FINISHED'}
+        except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
+
+
+class RUSTER_OT_duplicate_move(bpy.types.Macro):
+    bl_idname = 'ruster.duplicate_move'
+    bl_label = 'Duplicate Prefabs'
+    bl_description = 'Duplicate whole prefabs, then move with native axis constraints and snapping; Esc keeps the copy in place'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.area and context.area.type == 'VIEW_3D' and RUSTER_OT_duplicate.poll(context))
 
 
 class RUSTER_OT_delete(bpy.types.Operator):
     bl_idname = 'ruster.delete'
     bl_label = 'Delete Prefabs'
     bl_options = {'REGISTER', 'UNDO'}
+    confirm: BoolProperty(default=True, options={'HIDDEN', 'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        from .placement import selected_roots
+        return context.mode == 'OBJECT' and bool(selected_roots())
+
+    def invoke(self, context, event):
+        if self.confirm:return context.window_manager.invoke_confirm(self, event)
+        return self.execute(context)
 
     def execute(self, context):
         from .placement import delete_selected
@@ -958,12 +983,16 @@ def register():
         return
     classes = [RUSTER_PG_project, RUSTER_OT_setup, RUSTER_OT_welcome, RUSTER_OT_new,
                RUSTER_OT_open, RUSTER_OT_save, RUSTER_OT_import_map, RUSTER_OT_export,
-               RUSTER_OT_assets, RUSTER_OT_place, RUSTER_OT_duplicate, RUSTER_OT_delete,
+               RUSTER_OT_assets, RUSTER_OT_place, RUSTER_OT_duplicate, RUSTER_OT_duplicate_move, RUSTER_OT_delete,
                RUSTER_OT_report,RUSTER_OT_copy_asset_report,RUSTER_OT_select_model_status,
                RUSTER_OT_cancel_assets,RUSTER_OT_catalog_page,RUSTER_FH_project]
     for cls in classes:
         bpy.utils.register_class(cls)
         _classes.append(cls)
+    duplicate = RUSTER_OT_duplicate_move.define('RUSTER_OT_duplicate')
+    duplicate.properties.offset = (0, 0, 0)
+    move = RUSTER_OT_duplicate_move.define('TRANSFORM_OT_translate')
+    move.properties.use_proportional_edit = False
     bpy.types.Scene.ruster = PointerProperty(type=RUSTER_PG_project)
     from . import editing
     editing.register()
