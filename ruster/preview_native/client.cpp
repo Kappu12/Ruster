@@ -29,9 +29,11 @@ DWORD windowThread;
 HANDLE worker;
 std::mutex pendingMutex;
 std::vector<uint8_t> pending;
-bool ready=false;
+bool ready=false,initializationFailed=false;
 std::atomic<bool> stopping{false}, stopped{false};
+std::atomic_flag callbackActive=ATOMIC_FLAG_INIT;
 uint64_t applied=0;
+uint64_t attempted=0;
 constexpr UINT PREVIEW_MESSAGE=WM_APP+0x531;
 
 bool eacName(std::wstring name) {
@@ -72,15 +74,23 @@ bool eacOff() {
 
 std::wstring file(const wchar_t* name){return directory+L"/"+name;}
 bool exists(const wchar_t* name){return GetFileAttributesW(file(name).c_str())!=INVALID_FILE_ATTRIBUTES;}
-void status(const char* state,const std::string& message) {
+void status(const char* state,const std::string& message) noexcept {try {
     auto path=file(L"client.status");auto temp=path+L".tmp";
     HANDLE out=CreateFileW(temp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(out==INVALID_HANDLE_VALUE)return;
     std::string value=std::string(state)+"\n"+message+"\n";DWORD written;
     WriteFile(out,value.data(),DWORD(value.size()),&written,nullptr);CloseHandle(out);
     MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
+}catch(...) {}}
+std::vector<uint8_t> readBytes(const wchar_t* name,size_t maximum) {
+    std::ifstream input(std::filesystem::path(file(name)),std::ios::binary|std::ios::ate);
+    if(!input)throw std::runtime_error("Preview file is unavailable");
+    auto length=input.tellg();if(length<0||length>std::streamoff(maximum))throw std::runtime_error("Preview file exceeds size limits");
+    std::vector<uint8_t> data(static_cast<size_t>(length));input.seekg(0);
+    if(length&&!input.read(reinterpret_cast<char*>(data.data()),length))throw std::runtime_error("Incomplete preview file");
+    return data;
 }
-std::string readText(const wchar_t* name){std::ifstream f{std::filesystem::path(file(name))};return {std::istreambuf_iterator<char>(f),{}};}
+std::string readText(const wchar_t* name){auto data=readBytes(name,4096);return {data.begin(),data.end()};}
 
 // Use the game's public IL2CPP reflection ABI. Signature matching tolerates
 // renamed game types, while ambiguous/missing methods fail without patching.
@@ -161,6 +171,8 @@ bool signature(const Method* method,const char* result,std::initializer_list<con
 void initialize() {
     api.load();if(!api.thread_current())throw std::runtime_error("The game window is not on an IL2CPP main thread");
     size_t count=0;auto assemblies=api.domain_get_assemblies(api.domain_get(),&count);
+    if(!assemblies||count>4096)throw std::runtime_error("IL2CPP assemblies are unavailable");
+    worldUrls.clear();
     int factories=0;
     for(size_t a=0;a<count;a++) {
         auto image=api.assembly_get_image(assemblies[a]);size_t total=api.image_get_class_count(image);
@@ -237,39 +249,43 @@ template<typename T>T take(const std::vector<uint8_t>& data,size_t& offset) {
 std::vector<Placement> decode(const std::vector<uint8_t>& data,uint64_t& revision) {
     if(data.size()<20||data.size()>16*1024*1024||memcmp(data.data(),"RUSLIVE1",8))throw std::runtime_error("Invalid preview snapshot");
     size_t offset=8;revision=take<uint64_t>(data,offset);uint32_t count=take<uint32_t>(data,offset);
-    if(count>2000)throw std::runtime_error("Too many preview placements");std::vector<Placement> rows;std::map<uint64_t,bool> keys;
+    if(!revision||revision>INT64_MAX||count>2000)throw std::runtime_error("Invalid preview revision or count");std::vector<Placement> rows;std::map<uint64_t,bool> keys;
     for(uint32_t i=0;i<count;i++) {
         Placement p;p.key=take<uint64_t>(data,offset);p.uid=take<uint32_t>(data,offset);auto length=take<uint32_t>(data,offset);
         if(!p.key||!p.uid||keys.count(p.key)||length>4096||offset+length>data.size())throw std::runtime_error("Invalid preview placement");
         keys[p.key]=true;p.path=std::string(reinterpret_cast<const char*>(data.data()+offset),length);offset+=length;
         if(p.path.rfind("assets/",0)!=0||p.path.find("..")!=std::string::npos||p.path.find('\0')!=std::string::npos
-                ||p.path.find('\\')!=std::string::npos||p.path.size()<7||p.path.substr(p.path.size()-7)!=".prefab")throw std::runtime_error("Invalid prefab path");
+                ||p.path.find('\\')!=std::string::npos||p.path.size()<7||p.path.substr(p.path.size()-7)!=".prefab"
+                ||!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,p.path.data(),int(p.path.size()),nullptr,0))throw std::runtime_error("Invalid prefab path");
         p.pos=take<Vec>(data,offset);p.rot=take<Quat>(data,offset);p.scale=take<Vec>(data,offset);
         float values[10];memcpy(values,&p.pos,12);memcpy(values+3,&p.rot,16);memcpy(values+7,&p.scale,12);
         for(float v:values)if(!std::isfinite(v)||fabs(v)>=1e7)throw std::runtime_error("Invalid preview transform");
-        float norm=p.rot.x*p.rot.x+p.rot.y*p.rot.y+p.rot.z*p.rot.z+p.rot.w*p.rot.w;
+        double norm=double(p.rot.x)*p.rot.x+double(p.rot.y)*p.rot.y+double(p.rot.z)*p.rot.z+double(p.rot.w)*p.rot.w;
         if(fabs(norm-1)>.001||fabs(p.scale.x)<1e-6||fabs(p.scale.y)<1e-6||fabs(p.scale.z)<1e-6)throw std::runtime_error("Invalid scale or rotation");
         rows.push_back(p);
     }
     if(offset!=data.size())throw std::runtime_error("Unexpected snapshot data");return rows;
 }
 void remove(Instance instance) {
-    Object* value=api.gchandle_get_target(instance.handle);if(value){void* args[]={value};api.call(destroyObject,nullptr,args);}api.gchandle_free(instance.handle);
+    try {Object* value=api.gchandle_get_target(instance.handle);if(value){void* args[]={value};api.call(destroyObject,nullptr,args);}}
+    catch(...){api.gchandle_free(instance.handle);throw;}
+    api.gchandle_free(instance.handle);
 }
-void clear() {for(auto& entry:objects)remove(entry.second);objects.clear();applied=0;}
+void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
+void clear() {discard(objects);applied=0;attempted=0;}
 bool isNetworked(Object* object) {void* args[]={networkableType};return api.call(getComponent,object,args)!=nullptr;}
 void claimInitial() {
-    std::ifstream input(std::filesystem::path(file(L"initial.bin")),std::ios::binary|std::ios::ate);
-    if(!input||input.tellg()>16*1024*1024)throw std::runtime_error("Initial preview snapshot is unavailable");
-    auto length=input.tellg();std::vector<uint8_t> data(static_cast<size_t>(length));input.seekg(0);
-    input.read(reinterpret_cast<char*>(data.data()),length);uint64_t revision;auto rows=decode(data,revision);
+    auto data=readBytes(L"initial.bin",16*1024*1024);uint64_t revision;auto rows=decode(data,revision);
     if(rows.empty()){baseline=true;return;}
-    void* args[]={gameObjectType};Object* all=api.call(findObjects,nullptr,args);auto count=api.array_length(all);
+    void* args[]={gameObjectType};Object* all=api.call(findObjects,nullptr,args);
+    if(!all)throw std::runtime_error("Game object lookup is unavailable");
+    auto count=api.array_length(all);
     if(count>1000000)throw std::runtime_error("Game object lookup exceeds preview limits");
     std::map<std::string,std::vector<Object*>> byPath;
     for(auto& p:rows)byPath[p.path];
     for(uintptr_t i=0;i<count;i++) {
         int index=int(i);void* indexArgs[]={&index};Object* obj=api.call(arrayGet,all,indexArgs);
+        if(!obj)continue;
         auto name=api.text(api.call(getName,obj));auto found=byPath.find(name);if(found==byPath.end())continue;
         Object* scene=api.call(getScene,obj);Object* valid=api.call(sceneValid,api.object_unbox(scene));
         if(valid&&*static_cast<bool*>(api.object_unbox(valid)))found->second.push_back(obj);
@@ -293,17 +309,59 @@ void claimInitial() {
     objects.swap(claimed);baseline=true;
 }
 
+void apply(const std::vector<Placement>& rows) {
+    std::map<uint64_t,Instance> staged;
+    std::map<uint64_t,bool> present;
+    try {
+        for(auto& p:rows) {
+            Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
+            Object* prefab=api.call(findPrefab,manager,lookup);
+            if(!prefab)throw std::runtime_error("Rust could not load "+p.path+". Restart preview with this asset in the initial scene.");
+            if(isNetworked(prefab))continue;
+            present[p.key]=true;auto found=objects.find(p.key);
+            if(found!=objects.end()) {
+                auto& old=found->second;
+                if(old.uid==p.uid&&!memcmp(&old.pos,&p.pos,sizeof(Vec))&&!memcmp(&old.rot,&p.rot,sizeof(Quat))
+                        &&!memcmp(&old.scale,&p.scale,sizeof(Vec)))continue;
+            }
+            // Stage replacements through the original lifecycle before retiring
+            // anything. A failed create preserves the complete previous scene.
+            bool active=true;void* args[]={path,const_cast<Vec*>(&p.pos),const_cast<Quat*>(&p.rot),const_cast<Vec*>(&p.scale),&active};
+            Object* obj=api.call(createPrefab,manager,args);
+            if(!obj)throw std::runtime_error("Rust could not create "+p.path);
+            auto handle=api.gchandle_new(obj,false);
+            if(!handle){void* destroy[]={obj};api.call(destroyObject,nullptr,destroy);throw std::runtime_error("Could not retain a preview object");}
+            staged[p.key]={handle,p.uid,p.pos,p.rot,p.scale};
+            Object* transform=api.call(getTransform,obj);
+            void* pos[]={const_cast<Vec*>(&p.pos)};void* rot[]={const_cast<Quat*>(&p.rot)};void* scale[]={const_cast<Vec*>(&p.scale)};
+            api.call(setPosition,transform,pos);api.call(setRotation,transform,rot);api.call(setScale,transform,scale);
+        }
+    }catch(...){discard(staged);throw;}
+    for(auto it=objects.begin();it!=objects.end();) {
+        if(!present.count(it->first)||staged.count(it->first)){
+            // A Unity destroy failure must not leak a retained handle or skip
+            // cleanup of the rest of this bounded transaction.
+            try{remove(it->second);}catch(...){}
+            it=objects.erase(it);
+        }else ++it;
+    }
+    objects.merge(staged);
+}
+
 LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
     if(code>=0&&wp==PM_REMOVE&&reinterpret_cast<MSG*>(lp)->message==PREVIEW_MESSAGE) {
+        if(callbackActive.test_and_set())return CallNextHookEx(hook,code,wp,lp);
         try {
             if(GetCurrentThreadId()!=windowThread)throw std::runtime_error("Wrong Unity window thread");
-            if(!ready)initialize();
-            if(stopping){clear();stopped=true;status("STOPPED","Preview stopped. Restart Rust before joining EAC servers.");}
-            else if(!inPreviewWorld()){
+            if(stopping){if(ready)clear();stopped=true;status("STOPPED","Preview stopped. Restart your computer before launching Rust again after injection.");}
+            else if(initializationFailed){}
+            else {
+            if(!ready)try{initialize();}catch(...){initializationFailed=true;throw;}
+            if(!inPreviewWorld()){
                 // Let Rust unload its own world on disconnect. Do not destroy
                 // new-scene objects through stale Unity references.
                 for(auto& entry:objects)api.gchandle_free(entry.second.handle);
-                objects.clear();applied=0;baseline=false;
+                objects.clear();applied=0;attempted=0;baseline=false;
                 status("WAITING","Join the local preview server using Copy IP.");
             }
             else {
@@ -313,40 +371,17 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
                     uint64_t revision;auto rows=decode(data,revision);
                     uint64_t serverRevision=0;
                     try {serverRevision=std::stoull(readText(L"server.revision"));} catch(...) {}
-                    if(revision!=applied && serverRevision==revision) {
-                        std::map<uint64_t,bool> present;
-                        // The transaction is bounded to 2000 placements. A user
-                        // edit snapshot is replaced only after complete parsing.
-                        for(auto& p:rows) {
-                            Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
-                            Object* prefab=api.call(findPrefab,manager,lookup);
-                            if(!prefab)throw std::runtime_error("Rust could not load "+p.path+". Restart preview with this asset in the initial scene.");
-                            if(isNetworked(prefab))continue; // Native network replication owns these.
-                            present[p.key]=true;auto found=objects.find(p.key);
-                            if(found!=objects.end()) {
-                                auto& old=found->second;
-                                if(old.uid==p.uid&&!memcmp(&old.pos,&p.pos,sizeof(Vec))&&!memcmp(&old.rot,&p.rot,sizeof(Quat))
-                                        &&!memcmp(&old.scale,&p.scale,sizeof(Vec)))continue;
-                                // Recreate changed static objects through their original
-                                // lifecycle so instanced renderers can register afresh.
-                                remove(old);objects.erase(found);found=objects.end();
-                            }
-                            Object* obj=nullptr;
-                            if(found==objects.end()) {
-                                bool active=true;void* args[]={path,&p.pos,&p.rot,&p.scale,&active};
-                                obj=api.call(createPrefab,manager,args);
-                                if(!obj)throw std::runtime_error("Rust could not load "+p.path+". Load this asset in the preview map first.");
-                                objects[p.key]={api.gchandle_new(obj,false),p.uid,p.pos,p.rot,p.scale};
-                            }else obj=api.gchandle_get_target(found->second.handle);
-                            Object* transform=api.call(getTransform,obj);void* pos[]={&p.pos};void* rot[]={&p.rot};void* scale[]={&p.scale};
-                            api.call(setPosition,transform,pos);api.call(setRotation,transform,rot);api.call(setScale,transform,scale);
-                        }
-                        for(auto it=objects.begin();it!=objects.end();)if(!present.count(it->first)){remove(it->second);it=objects.erase(it);}else ++it;
+                    if(revision>applied && revision!=attempted && serverRevision==revision) {
+                        attempted=revision;
+                        apply(rows);
                         applied=revision;status("READY","Live scene revision "+std::to_string(revision)+" applied ("+std::to_string(rows.size())+" placements).");
                     }
                 }
             }
+            }
         }catch(const std::exception& error){status("ERROR",error.what());}
+        catch(...){status("ERROR","Unexpected preview error; restart Rust before retrying.");}
+        callbackActive.clear();
     }
     return CallNextHookEx(hook,code,wp,lp);
 }
@@ -356,14 +391,14 @@ BOOL CALLBACK findWindow(HWND hwnd,LPARAM) {
         window=hwnd;windowThread=thread;return FALSE;
     }return TRUE;
 }
-DWORD WINAPI run(void*) {
+DWORD WINAPI run(void*) {try {
     if(!eacOff()){status("BLOCKED","EAC state failed verification inside the preview module.");return 1;}
     EnumWindows(findWindow,0);
     if(!window){status("ERROR","Rust has no Unity game window yet.");return 2;}
     hook=SetWindowsHookExW(WH_GETMESSAGE,onMessage,module,windowThread);
     if(!hook){status("ERROR","Could not register the local main-thread preview callback.");return 3;}
     status("STARTING","Waiting for the Unity main thread and local preview map.");
-    while(exists(L"active.flag")&&!exists(L"stop.flag")) {
+    while(exists(L"active.flag")&&!exists(L"stop.flag")&&!exists(L"server.blocked")) {
         if(!eacOff()){status("BLOCKED","EAC became active or unreadable. Preview has stopped.");UnhookWindowsHookEx(hook);return 4;}
         std::ifstream input(std::filesystem::path(file(L"scene.bin")),std::ios::binary|std::ios::ate);
         if(input){auto length=input.tellg();if(length>=20&&length<=16*1024*1024){
@@ -375,19 +410,22 @@ DWORD WINAPI run(void*) {
     stopping=true;PostMessageW(window,PREVIEW_MESSAGE,0,0);
     for(int i=0;i<40&&!stopped;i++)Sleep(50);
     UnhookWindowsHookEx(hook);return 0;
+}catch(const std::exception& error){status("ERROR",error.what());if(hook)UnhookWindowsHookEx(hook);return 6;}
+catch(...){status("ERROR","Unexpected preview worker error");if(hook)UnhookWindowsHookEx(hook);return 7;}
 }
 }
 
 extern "C" __declspec(dllexport) DWORD WINAPI RusterStart(void* argument) {
-    if(worker) {
-        if(WaitForSingleObject(worker,0)!=WAIT_OBJECT_0)return 5;
-        CloseHandle(worker);worker=nullptr;
-    }
+    // A DLL stays mapped until Rust exits. Reusing it could mix session state or
+    // an updated on-disk export with an older loaded build.
+    if(worker)return 5;
+    try {
     if(!argument||!eacOff())return 1;
     stopping=false;stopped=false;baseline=false;applied=0;
     directory=static_cast<const wchar_t*>(argument);
     if(directory.size()>30000||!exists(L"active.flag")||exists(L"stop.flag")||!exists(L"scene.bin")||!exists(L"map.url"))return 2;
     worker=CreateThread(nullptr,0,run,nullptr,0,nullptr);return worker?0:3;
+    }catch(...){return 6;}
 }
 BOOL WINAPI DllMain(HINSTANCE self,DWORD reason,LPVOID) {
     if(reason==DLL_PROCESS_ATTACH){module=self;DisableThreadLibraryCalls(self);}return TRUE;

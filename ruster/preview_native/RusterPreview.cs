@@ -1,141 +1,189 @@
 // Ruster's local Carbon/Oxide companion. GPL-3.0-or-later.
+// Installation appends PreviewProtocol.cs for Carbon's single-file compiler.
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using UnityEngine;
-
+using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.1.0")]
+    [Info("RusterPreview", "Ruster", "0.2.0")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
-        class SessionConfig { public string owner; public string url; }
-        class Snapshot { public long revision; public Placement[] placements; }
-        class Placement { public ulong key; public uint uid; public string path; public float[] position; public float[] rotation; public float[] scale; }
+        class SessionConfig { public string owner; public string url; public string token; }
         class Command { public string command; }
-        readonly Dictionary<ulong, GameObject> objects = new Dictionary<ulong, GameObject>();
-        string directory;
-        long revision;
-        bool initialized;
-
+        struct TransformState
+        {
+            public GameObject obj; public Vector3 position, scale; public Quaternion rotation;
+            public TransformState(GameObject value)
+            { obj=value; position=value.transform.position; rotation=value.transform.rotation; scale=value.transform.localScale; }
+            public void Restore() { if(obj!=null) { obj.transform.SetPositionAndRotation(position,rotation); obj.transform.localScale=scale; } }
+        }
+        readonly Dictionary<ulong,GameObject> objects=new Dictionary<ulong,GameObject>();
+        string directory; SessionConfig config;
+        long revision,attemptedStamp; double nextHeartbeat; bool initialized;
+        bool Active() { return File.Exists(Path.Combine(directory,"active.flag"))&&!File.Exists(Path.Combine(directory,"stop.flag")); }
+        static string ReadText(string path,long maximum)
+        {
+            using(var input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))
+            {
+                if(input.Length>maximum)throw new IOException("Preview file exceeds size limit");
+                using(var reader=new StreamReader(input))return reader.ReadToEnd();
+            }
+        }
+        void Write(string name,string value)
+        {
+            var path=Path.Combine(directory,name); var temporary=path+".server.tmp";
+            File.WriteAllText(temporary,value);
+            if(File.Exists(path))File.Replace(temporary,path,null); else File.Move(temporary,path);
+        }
+        void Delete(string name) { try { File.Delete(Path.Combine(directory,name)); } catch(IOException){} }
         void OnServerInitialized()
         {
-            directory = Environment.GetEnvironmentVariable("RUSTER_PREVIEW_DIR");
-            if (string.IsNullOrWhiteSpace(directory) || !File.Exists(Path.Combine(directory, "active.flag")))
-            { PrintError("No active Ruster-owned preview session. Plugin disabled."); return; }
-            if (ConVar.Server.ip != "127.0.0.1" || Network.Net.sv.secure)
-            { PrintError("RusterPreview requires a loopback-only insecure server. Plugin disabled."); return; }
-            var config = JsonConvert.DeserializeObject<SessionConfig>(File.ReadAllText(Path.Combine(directory, "config.json")));
-            if (config.url != World.Url) { PrintError("Preview map URL does not match the owned session."); return; }
-            if (!string.IsNullOrEmpty(config.owner) && config.owner.Length == 17 && config.owner.All(char.IsDigit))
-                ConsoleSystem.Run(ConsoleSystem.Option.Server, "ownerid " + config.owner + " \"Ruster preview owner\"");
-            var initial = JsonConvert.DeserializeObject<Snapshot>(File.ReadAllText(Path.Combine(directory, "initial.json")));
-            HashSet<GameObject> baked;
-            var candidates = World.SpawnedPrefabs.TryGetValue("RusterPreview", out baked)
-                ? new List<GameObject>(baked) : new List<GameObject>();
-            foreach (var p in initial.placements)
-            {
-                var position = Vector(p.position);
-                var obj = candidates.FirstOrDefault(o => o != null && o.name == p.path && (o.transform.position - position).sqrMagnitude < 0.0001f);
-                if (obj == null) { PrintError("Cannot claim initial map placement " + p.path + "; preview disabled to avoid duplicate objects."); return; }
-                candidates.Remove(obj); objects[p.key] = obj;
-            }
-            initialized = true;
-            var ready = Path.Combine(directory, "server.ready");
-            File.WriteAllText(ready + ".tmp", JsonConvert.SerializeObject(new { protocol = 1, secure = Network.Net.sv.secure, ip = ConVar.Server.ip }));
-            if (File.Exists(ready)) File.Delete(ready);
-            File.Move(ready + ".tmp", ready);
-            timer.Every(0.25f, Tick);
-            Puts("Local preview bridge ready. Rust client preview requires explicit no-EAC injection.");
-        }
-
-        void Tick()
-        {
-            if (!initialized) return;
-            if (!File.Exists(Path.Combine(directory, "active.flag")) || File.Exists(Path.Combine(directory, "stop.flag"))) { Cleanup(); return; }
-            if (Network.Net.sv.secure || ConVar.Server.ip != "127.0.0.1")
-            {
-                File.WriteAllText(Path.Combine(directory, "server.blocked"), "Server safety check failed: preview requires inactive EAC and loopback-only networking.");
-                File.Delete(Path.Combine(directory, "server.ready")); Cleanup(); return;
-            }
+            directory=Environment.GetEnvironmentVariable("RUSTER_PREVIEW_DIR");
             try
             {
-                var connected = Path.Combine(directory, "client.connected");
-                if (BasePlayer.activePlayerList.Any(p => p != null && p.IsConnected && p.net != null && p.net.connection != null
-                    && p.net.connection.ipaddress.StartsWith("127.0.0.1"))) File.WriteAllText(connected, "loopback player connected");
-                else if (File.Exists(connected)) File.Delete(connected);
-                var path = Path.Combine(directory, "scene.json");
-                if (new FileInfo(path).Length > 16 * 1024 * 1024) throw new Exception("Snapshot exceeds size limit");
-                var snapshot = JsonConvert.DeserializeObject<Snapshot>(File.ReadAllText(path));
-                if (snapshot.revision != revision) Apply(snapshot);
-                var queue = Path.Combine(directory, "commands");
-                if (Directory.Exists(queue)) foreach (var commandFile in Directory.GetFiles(queue, "*.json").Take(8))
+                if(string.IsNullOrWhiteSpace(directory)||!Active())throw new Exception("No active Ruster-owned preview session");
+                if(ConVar.Server.ip!="127.0.0.1"||Network.Net.sv.secure)throw new Exception("Preview requires a loopback-only insecure server");
+                config=JsonConvert.DeserializeObject<SessionConfig>(ReadText(Path.Combine(directory,"config.json"),4096));
+                if(config==null||config.url!=World.Url||config.token==null||config.token.Length!=64)throw new Exception("Preview map URL or session identity does not match");
+                var initial=Snapshot.Read(Path.Combine(directory,"initial.bin"));
+                HashSet<GameObject> baked;
+                var candidates=World.SpawnedPrefabs.TryGetValue("RusterPreview",out baked)?new List<GameObject>(baked):new List<GameObject>();
+                var claimed=new Dictionary<ulong,GameObject>();
+                foreach(var p in initial.placements)
                 {
-                    if (new FileInfo(commandFile).Length > 32768) { File.Delete(commandFile); continue; }
-                    var command = JsonConvert.DeserializeObject<Command>(File.ReadAllText(commandFile)).command;
-                    File.Delete(commandFile);
-                    if (string.IsNullOrWhiteSpace(command) || command.Length > 4096 || command.Contains("\n") || command.Contains("\r")) continue;
-                    var response = ConsoleSystem.Run(ConsoleSystem.Option.Server, command);
-                    Puts("> " + command + "\n" + response);
+                    if(StringPool.Get(p.uid)!=p.path)throw new Exception("Invalid initial prefab reference");
+                    var position=Vector(p.position);
+                    var obj=candidates.FirstOrDefault(o=>o!=null&&o.name==p.path&&(o.transform.position-position).sqrMagnitude<0.0001f);
+                    if(obj==null)throw new Exception("Cannot claim initial map placement "+p.path);
+                    candidates.Remove(obj);claimed.Add(p.key,obj);
+                }
+                if(!Active())return;
+                // Claim only after the entire initial scene has matched.
+                foreach(var entry in claimed)objects.Add(entry.Key,entry.Value);
+                if(!string.IsNullOrEmpty(config.owner)&&config.owner.Length==17&&config.owner.All(c=>c>='0'&&c<='9'))
+                    ConsoleSystem.Run(ConsoleSystem.Option.Server,"ownerid "+config.owner+" \"Ruster preview owner\"");
+                initialized=true;Tick();timer.Every(0.25f,Tick);
+                Puts("Local preview bridge ready. Rust client preview requires explicit no-EAC injection.");
+            }
+            catch(Exception error)
+            {
+                PrintError(error.Message);
+                if(!string.IsNullOrWhiteSpace(directory)){Write("server.blocked",error.Message);Cleanup();}
+            }
+        }
+        void Tick()
+        {
+            if(!initialized)return;
+            try
+            {
+                if(!Active()){Cleanup();return;}
+                if(Network.Net.sv.secure||ConVar.Server.ip!="127.0.0.1"||config.url!=World.Url)
+                {Write("server.blocked","Preview requires inactive EAC, loopback networking and the owned map.");Cleanup();return;}
+                var now=(DateTime.UtcNow-new DateTime(1970,1,1)).TotalSeconds;
+                if(now>=nextHeartbeat)
+                {
+                    Write("server.ready",JsonConvert.SerializeObject(new{protocol=1,secure=Network.Net.sv.secure,ip=ConVar.Server.ip,timestamp=now,pid=Process.GetCurrentProcess().Id,token=config.token}));
+                    if(BasePlayer.activePlayerList.Any(p=>p!=null&&p.IsConnected&&p.net!=null&&p.net.connection!=null&&p.net.connection.ipaddress.StartsWith("127.0.0.1:",StringComparison.Ordinal)))
+                        Write("client.connected","loopback player connected");
+                    else Delete("client.connected");
+                    nextHeartbeat=now+1;
                 }
             }
-            catch (Exception error) { File.WriteAllText(Path.Combine(directory, "server.status"), "ERROR\n" + error.Message); }
+            catch(Exception error){PrintError("Preview heartbeat failed: "+error.Message);return;}
+            // Console remains usable when a scene update fails.
+            Commands();
+            try
+            {
+                var path=Path.Combine(directory,"scene.bin");var stamp=File.GetLastWriteTimeUtc(path).Ticks;
+                if(stamp==attemptedStamp)return;
+                attemptedStamp=stamp;
+                var snapshot=Snapshot.Read(path);
+                if(snapshot.revision>revision)Apply(snapshot);
+            }
+            catch(Exception error){Write("server.status","ERROR\n"+error.Message);}
         }
-
-        static Vector3 Vector(float[] value) { if (value == null || value.Length != 3 || value.Any(v => float.IsNaN(v) || float.IsInfinity(v))) throw new Exception("Invalid preview vector"); return new Vector3(value[0], value[1], value[2]); }
+        void Commands()
+        {
+            var queue=Path.Combine(directory,"commands");if(!Directory.Exists(queue))return;
+            foreach(var file in Directory.GetFiles(queue,"*.json").OrderBy(p=>p,StringComparer.Ordinal).Take(8))
+            {
+                try
+                {
+                    var item=JsonConvert.DeserializeObject<Command>(ReadText(file,32768));File.Delete(file);
+                    var command=item==null?null:item.command;
+                    if(string.IsNullOrWhiteSpace(command)||command.Length>4096||command.IndexOfAny(new[]{'\n','\r','\0'})>=0)continue;
+                    Puts("> "+command+"\n"+ConsoleSystem.Run(ConsoleSystem.Option.Server,command));
+                }
+                catch(Exception error){PrintError("Preview console: "+error.Message);try{File.Delete(file);}catch(IOException){}}
+            }
+        }
+        static Vector3 Vector(float[] value){return new Vector3(value[0],value[1],value[2]);}
+        static Quaternion Rotation(Placement p){return new Quaternion(p.rotation[0],p.rotation[1],p.rotation[2],p.rotation[3]);}
+        static void Transform(GameObject obj,Placement p)
+        {
+            obj.transform.SetPositionAndRotation(Vector(p.position),Rotation(p));obj.transform.localScale=Vector(p.scale);
+            foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))
+            {entity.networkEntityScale=true;entity.UpdateNetworkGroup();entity.SendNetworkUpdateImmediate();}
+        }
         void Apply(Snapshot snapshot)
         {
-            if (snapshot.placements == null || snapshot.placements.Length > 2000) throw new Exception("Invalid placement count");
-            var keys = new HashSet<ulong>();
-            foreach (var p in snapshot.placements)
+            foreach(var p in snapshot.placements)
+                if(StringPool.Get(p.uid)!=p.path||GameManager.server.FindPrefab(p.path)==null)throw new Exception("Rust cannot load "+p.path+"; restart preview with this asset in the initial map");
+            var staged=new Dictionary<ulong,GameObject>();var restored=new List<TransformState>();var next=new Dictionary<ulong,GameObject>();
+            try
             {
-                if (!keys.Add(p.key) || p.key == 0 || p.uid == 0 || p.path == null || !p.path.StartsWith("assets/")
-                    || !p.path.EndsWith(".prefab") || p.path.Contains("..") || p.path.Contains("\\")
-                    || StringPool.Get(p.uid) != p.path) throw new Exception("Invalid original prefab reference");
-                Vector(p.position); Vector(p.scale);
-                if (p.rotation == null || p.rotation.Length != 4 || p.rotation.Any(v => float.IsNaN(v) || float.IsInfinity(v))) throw new Exception("Invalid rotation");
-            }
-            foreach (var key in objects.Keys.Where(k => !keys.Contains(k)).ToArray()) { Destroy(objects[key]); objects.Remove(key); }
-            foreach (var p in snapshot.placements)
-            {
-                var position = Vector(p.position); var scale = Vector(p.scale);
-                var rotation = new Quaternion(p.rotation[0], p.rotation[1], p.rotation[2], p.rotation[3]);
-                GameObject obj;
-                bool created = false;
-                if (!objects.TryGetValue(p.key, out obj) || obj == null || obj.name != p.path)
+                foreach(var p in snapshot.placements)
                 {
-                    if (obj != null) Destroy(obj);
-                    obj = GameManager.server.CreatePrefab(p.path, position, rotation, scale);
-                    if (obj == null) throw new Exception("Rust cannot load " + p.path);
-                    objects[p.key] = obj;
-                    created = true;
-                    foreach (var entity in obj.GetComponentsInChildren<BaseEntity>(true))
+                    GameObject obj;
+                    if(!objects.TryGetValue(p.key,out obj)||obj==null||obj.name!=p.path)
                     {
-                        entity.enableSaving = false;
-                        if (entity.net == null) entity.Spawn();
+                        obj=GameManager.server.CreatePrefab(p.path,Vector(p.position),Rotation(p),Vector(p.scale));
+                        if(obj==null)throw new Exception("Rust cannot create "+p.path);
+                        staged.Add(p.key,obj);
+                        foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true)){entity.enableSaving=false;if(entity.net==null)entity.Spawn();}
+                        Transform(obj,p);
                     }
+                    next.Add(p.key,obj);
                 }
-                if (!created && obj.transform.position == position && obj.transform.rotation == rotation && obj.transform.localScale == scale) continue;
-                obj.transform.SetPositionAndRotation(position, rotation); obj.transform.localScale = scale;
-                foreach (var entity in obj.GetComponentsInChildren<BaseEntity>(true))
-                { entity.networkEntityScale = true; entity.UpdateNetworkGroup(); entity.SendNetworkUpdateImmediate(); }
+                foreach(var p in snapshot.placements)
+                {
+                    if(staged.ContainsKey(p.key))continue;
+                    var obj=next[p.key];
+                    if(obj.transform.position==Vector(p.position)&&obj.transform.rotation==Rotation(p)&&obj.transform.localScale==Vector(p.scale))continue;
+                    restored.Add(new TransformState(obj));Transform(obj,p);
+                }
+                Physics.SyncTransforms();
             }
-            Physics.SyncTransforms();
-            revision = snapshot.revision;
-            File.WriteAllText(Path.Combine(directory, "server.revision"), revision.ToString());
-            File.WriteAllText(Path.Combine(directory, "server.status"), "READY\nServer scene revision " + revision + " (" + objects.Count + " placements)");
+            catch
+            {
+                foreach(var state in restored){state.Restore();if(state.obj!=null)foreach(var entity in state.obj.GetComponentsInChildren<BaseEntity>(true))entity.SendNetworkUpdateImmediate();}
+                foreach(var obj in staged.Values)Destroy(obj);Physics.SyncTransforms();throw;
+            }
+            var retired=objects.Where(e=>!next.ContainsKey(e.Key)||next[e.Key]!=e.Value).Select(e=>e.Value).ToArray();
+            objects.Clear();foreach(var entry in next)objects.Add(entry.Key,entry.Value);
+            foreach(var obj in retired)Destroy(obj);
+            revision=snapshot.revision;
+            Write("server.revision",revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Write("server.status","READY\nServer scene revision "+revision+" ("+objects.Count+" placements)");
         }
-
         void Destroy(GameObject obj)
         {
-            if (obj == null) return;
-            foreach (var entity in obj.GetComponentsInChildren<BaseEntity>(true)) if (entity != null && !entity.IsDestroyed) entity.Kill();
-            if (obj != null) UnityEngine.Object.Destroy(obj);
+            if(obj==null)return;
+            foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))if(entity!=null&&!entity.IsDestroyed)entity.Kill();
+            if(obj!=null)UnityEngine.Object.Destroy(obj);
         }
-        void Cleanup() { foreach (var obj in objects.Values) Destroy(obj); objects.Clear(); initialized = false; }
-        void Unload() { Cleanup(); }
+        void Cleanup()
+        {
+            initialized=false;
+            if(!string.IsNullOrWhiteSpace(directory)){Delete("server.ready");Delete("client.connected");}
+            foreach(var obj in objects.Values)Destroy(obj);objects.Clear();
+        }
+        void Unload(){Cleanup();}
     }
 }

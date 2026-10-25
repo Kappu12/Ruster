@@ -11,6 +11,7 @@ from . import wire
 MAX_PLACEMENTS = 2000
 MAGIC = b'RUSLIVE1'
 MAX_SNAPSHOT = 16 * 1024 * 1024
+MAX_REVISION = 2**63-1
 
 
 def validate_placements(placements):
@@ -29,19 +30,36 @@ def validate_placements(placements):
             raise ValueError('Preview requires an original Rust prefab asset path')
         for name, length in (('position', 3), ('rotation', 4), ('scale', 3)):
             values = row[name]
-            if len(values) != length or not all(math.isfinite(v) and abs(v) < 1e7 for v in values):
+            if len(values) != length or not all(type(v) in (int, float) and math.isfinite(v) and abs(v) < 1e7 for v in values):
                 raise ValueError('Invalid preview transform')
         if any(abs(v) < 1e-6 for v in row['scale']):
             raise ValueError('Preview does not support zero scale')
         if abs(sum(v*v for v in row['rotation']) - 1) > .001:
             raise ValueError('Preview rotation must be a normalized quaternion')
         euler = row.get('euler', (0., 0., 0.))
-        if len(euler) != 3 or not all(math.isfinite(v) for v in euler):
+        if len(euler) != 3 or not all(type(v) in (int, float) and math.isfinite(v) and abs(v) < 1e7 for v in euler):
             raise ValueError('Invalid map rotation')
 
 
-def encode_snapshot(revision, placements):
+def canonical_placements(placements):
+    """Detach caller-owned mutable vectors and agree with both float32 readers."""
+    placements = list(placements)
     validate_placements(placements)
+    rows = []
+    for source in placements:
+        row = {key: source[key] for key in ('key', 'uid', 'path')}
+        for key in ('position', 'rotation', 'scale', 'euler'):
+            if key in source:
+                values = source[key]
+                row[key] = tuple(struct.unpack('<'+'f'*len(values), struct.pack('<'+'f'*len(values), *values)))
+        rows.append(row)
+    validate_placements(rows)
+    return rows
+
+
+def encode_snapshot(revision, placements):
+    if type(revision) is not int or not 1 <= revision <= MAX_REVISION:raise ValueError('Invalid preview revision')
+    placements = canonical_placements(placements)
     chunks = [MAGIC, struct.pack('<QI', revision, len(placements))]
     for row in placements:
         path = row['path'].encode('utf8')
@@ -53,6 +71,7 @@ def encode_snapshot(revision, placements):
 
 
 def write_snapshot(directory, revision, placements):
+    placements = canonical_placements(placements)
     payload = encode_snapshot(revision, placements)
     directory = Path(directory)
     # Each consumer sees either a complete old snapshot or a complete new one.
@@ -63,7 +82,9 @@ def write_snapshot(directory, revision, placements):
 
 def preview_map(placements, size=1000):
     """A small private flat test map, with original prefab IDs and no terrain edits."""
-    validate_placements(placements)
+    placements = canonical_placements(placements)
+    if size != 1000:raise ValueError('The flat preview map is fixed at 1,000 metres')
+    if any('euler' not in row for row in placements):raise ValueError('Initial map placements require Euler rotation metadata')
     n, m = 513, 512
     layers = {
         'terrain': struct.pack('<h', round(495/1000*32766)) * n*n,

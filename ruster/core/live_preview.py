@@ -1,8 +1,11 @@
 """Owned local Rust server installation and preview-session lifecycle."""
 from collections import deque
+from contextlib import contextmanager
 import hashlib
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 from pathlib import Path, PurePosixPath
 import secrets
 import shutil
@@ -16,11 +19,19 @@ import uuid
 import zipfile
 
 from .project import atomic_write
-from .preview_protocol import write_snapshot, preview_map
+from .preview_protocol import write_snapshot, preview_map, canonical_placements
+from .process_limits import OwnedProcessJob
 
 STEAMCMD_URL = 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip'
 CARBON_RELEASE = 'https://api.github.com/repos/CarbonCommunity/Carbon/releases/latest'
 STOPPED = {'STOPPED', 'FAILED'}
+SERVER_LEASE_SECONDS = 15.
+
+
+def read_bounded(path, limit=4096):
+    with Path(path).open('rb') as handle:data = handle.read(limit+1)
+    if len(data) > limit:raise ValueError('Preview status exceeds size limits')
+    return data.decode('utf8')
 
 
 def owner_id(value):
@@ -37,12 +48,51 @@ def port_number(port):
     return port
 
 
-def verify_server_ready(path):
-    path = Path(path)
-    if path.stat().st_size > 4096:raise ValueError('Invalid preview server readiness report')
-    report = json.loads(path.read_text())
+def verify_server_ready(path, *, expected_pid=None, expected_token=None, now=None):
+    report = json.loads(read_bounded(path))
     if report.get('protocol') != 1 or report.get('secure') is not False or report.get('ip') != '127.0.0.1':
         raise ValueError('The server did not verify inactive EAC and a loopback-only listener')
+    timestamp = report.get('timestamp')
+    if (type(timestamp) not in (int, float) or not math.isfinite(timestamp)
+            or not -2 <= (time.time() if now is None else now)-timestamp <= SERVER_LEASE_SECONDS):
+        raise ValueError('The local server readiness report is stale; wait for its heartbeat')
+    if type(report.get('pid')) is not int or report['pid'] <= 0 or not isinstance(report.get('token'), str):
+        raise ValueError('The local server readiness report has no session identity')
+    if expected_pid is not None and report['pid'] != expected_pid:raise ValueError('Preview server process changed')
+    if expected_token is not None and not hmac.compare_digest(report['token'], expected_token):raise ValueError('Preview server session changed')
+    return report
+
+
+def verify_session(directory):
+    directory = Path(directory)
+    if not (directory/'active.flag').is_file() or (directory/'stop.flag').exists() or (directory/'server.blocked').exists():
+        raise ValueError('The local preview server is not active')
+    config = json.loads(read_bounded(directory/'config.json'))
+    token = config.get('token')
+    if not isinstance(token, str) or len(token) != 64:raise ValueError('Invalid preview session identity')
+    return verify_server_ready(directory/'server.ready', expected_pid=int(read_bounded(directory/'server.pid')), expected_token=token)
+
+
+@contextmanager
+def installation_lease(root):
+    """Do not update shared Carbon files while another preview owns them."""
+    path = Path(root)/'server.lock'
+    with path.open('a+b') as handle:
+        if not path.stat().st_size:handle.write(b'0');handle.flush()
+        handle.seek(0)
+        try:
+            if sys.platform == 'win32':
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:raise ValueError('Another Ruster preview is using this local server; stop it first') from error
+        try:yield
+        finally:
+            handle.seek(0)
+            if sys.platform == 'win32':msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def check_ports(port):
@@ -113,21 +163,23 @@ class PreviewSession:
         self.status = 'STARTING';self.message = 'Preparing local preview'
         self.process = None;self.http = None;self.thread = None
         self.cancel = threading.Event();self.lock = threading.Lock();self.events = deque(maxlen=80)
-        self.revision = 1;self.url = '';self._map = preview_map(list(placements))
+        self.revision = 1;self.url = '';self._initial = canonical_placements(placements)
+        self._map = preview_map(self._initial);self.token = secrets.token_hex(32)
+        self.process_lock = threading.Lock();self.owned_job = None
         self.pending = None
-        self._initial = list(placements)
         write_snapshot(self.directory, self.revision, self._initial)
         shutil.copyfile(self.directory/'scene.bin', self.directory/'initial.bin')
         atomic_write(self.directory/'initial.json', (self.directory/'scene.json').read_bytes())
 
     @property
-    def active(self):return self.status not in STOPPED
+    def active(self):return self.thread.is_alive() if self.thread else self.status not in STOPPED
 
     def note(self, status, message):
         with self.lock:
             self.status, self.message = status, message;self.events.append(message)
 
     def start(self):
+        if self.thread is not None:raise ValueError('This preview session has already been started')
         self.thread = threading.Thread(target=self._run, name='Ruster live preview', daemon=True)
         self.thread.start();return self
 
@@ -156,9 +208,9 @@ class PreviewSession:
             archive = self.root/'steamcmd.zip';download(STEAMCMD_URL, archive, self.cancel, maximum=16*1024*1024)
             extract_zip(archive, steam, 64*1024*1024)
         with (self.directory/'installation.log').open('wb') as output:
-            self.process = subprocess.Popen([str(steam/'steamcmd.exe'), '+force_install_dir', str(self.install),
+            self._spawn([str(steam/'steamcmd.exe'), '+force_install_dir', str(self.install),
                 '+login', 'anonymous', '+app_update', '258550', 'validate', '+quit'], cwd=steam,
-                stdout=output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
+                stdout=output, stderr=subprocess.STDOUT)
             self._wait_process(7200)
             if self.process.returncode or not binary.is_file():raise RuntimeError('SteamCMD could not install Rust. See installation.log')
         if self.cancel.is_set():raise InterruptedError()
@@ -182,54 +234,78 @@ class PreviewSession:
             if time.monotonic() > deadline:raise TimeoutError('Preview process timed out')
 
     def _run(self):
+        final_status, final_message = 'STOPPED', 'Local preview stopped'
+        lease = installation_lease(self.root);leased = False
         try:
+            lease.__enter__();leased = True
+            self.owned_job = OwnedProcessJob()
             binary = self._install()
             if self.cancel.is_set():raise InterruptedError()
             check_ports(self.port)
             plugins = self.install/'carbon/plugins';plugins.mkdir(parents=True, exist_ok=True)
             source = Path(__file__).resolve().parents[1]/'preview_native/RusterPreview.cs'
-            atomic_write(plugins/'RusterPreview.cs', source.read_bytes())
+            atomic_write(plugins/'RusterPreview.cs', source.read_bytes()+b'\n'+source.with_name('PreviewProtocol.cs').read_bytes())
             self._serve_map()
-            atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url}).encode())
+            atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url, 'token': self.token}).encode())
             atomic_write(self.directory/'active.flag', b'Ruster local preview\n')
             import os
             env = {**os.environ, 'RUSTER_PREVIEW_DIR': str(self.directory)}
             self.note('STARTING', 'Starting the private Rust server; waiting for the preview plugin')
-            self.process = subprocess.Popen(command(binary, self.identity, self.port, self.url, self.log),
-                cwd=self.install, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW)
-            deadline = time.monotonic()+900
+            self._spawn(command(binary, self.identity, self.port, self.url, self.log),
+                cwd=self.install, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            atomic_write(self.directory/'server.pid', str(self.process.pid).encode())
+            deadline = time.monotonic()+900;next_lease = 0.
             while not self.cancel.wait(.2):
-                if self.process.poll() is not None:raise RuntimeError(f'Preview server exited ({self.process.returncode}); see server.log')
+                if self.process.poll() is not None:
+                    if self.status == 'RUNNING' and self.process.returncode == 0:break
+                    raise RuntimeError(f'Preview server exited ({self.process.returncode}); see server.log')
                 if (self.directory/'server.blocked').exists():
                     raise RuntimeError((self.directory/'server.blocked').read_text()[:4096])
                 with self.lock:
                     pending, self.pending = self.pending, None
                 if pending is not None:
                     self.revision += 1;write_snapshot(self.directory, self.revision, pending)
-                if (self.directory/'server.ready').is_file() and self.status != 'RUNNING':
-                    verify_server_ready(self.directory/'server.ready')
-                    self.note('RUNNING', 'Local server ready · EAC disabled')
+                if time.monotonic() >= next_lease and (self.status == 'RUNNING' or (self.directory/'server.ready').is_file()):
+                    verify_server_ready(self.directory/'server.ready', expected_pid=self.process.pid, expected_token=self.token)
+                    if self.status != 'RUNNING':self.note('RUNNING', 'Local server ready · EAC disabled')
+                    next_lease = time.monotonic()+1.
                 if self.status != 'RUNNING' and time.monotonic() > deadline:
                     raise TimeoutError('The preview plugin did not become ready within 15 minutes. See server.log')
                 if self.status != 'RUNNING' and any('PlayerPrefsException' in line for line in self.log_tail(12)):
                     raise RuntimeError('Rust server startup could not write its preferences. See server.log')
-            self.note('STOPPED', 'Local preview stopped')
-        except InterruptedError:self.note('STOPPED', 'Preview setup cancelled')
-        except Exception as error:self.note('FAILED', str(error))
+        except InterruptedError:final_message = 'Preview setup cancelled'
+        except Exception as error:final_status, final_message = 'FAILED', str(error)
         finally:
             self._stop_marker()
+            cleanups = [self._stop_process]
+            if self.owned_job:cleanups.append(self.owned_job.close)
+            if self.http:cleanups.extend((self.http.shutdown, self.http.server_close))
+            if leased:cleanups.append(lambda: lease.__exit__(None, None, None))
+            for cleanup in cleanups:
+                try:cleanup()
+                except Exception as error:
+                    final_status, final_message = 'FAILED', final_message+'; cleanup: '+str(error)
+            self.note(final_status, final_message)
+
+    def _spawn(self, arguments, **kwargs):
+        with self.process_lock:
+            if self.cancel.is_set():raise InterruptedError()
+            self.process = subprocess.Popen(arguments, creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kwargs)
+            try:self.owned_job.assign(self.process)
+            except Exception:
+                self.process.terminate();self.process.wait(timeout=5);raise
+
+    def _stop_process(self):
+        with self.process_lock:
             if self.process and self.process.poll() is None:
                 self.process.terminate()
                 try:self.process.wait(timeout=5)
                 except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=5)
-            if self.http:self.http.shutdown();self.http.server_close()
 
     def update(self, placements):
         if not self.active:return
-        from .preview_protocol import validate_placements
-        validate_placements(placements)
-        with self.lock:self.pending = placements
+        frozen = canonical_placements(placements)
+        with self.lock:self.pending = frozen
 
     def send_command(self, value):
         if self.status != 'RUNNING':raise ValueError('Wait for the local server to become ready')
@@ -242,6 +318,7 @@ class PreviewSession:
 
     def close(self):
         self.request_stop()
+        self._stop_process()
         if self.thread:self.thread.join(timeout=7)
 
     def request_stop(self):

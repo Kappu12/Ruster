@@ -1,10 +1,13 @@
 """Offline tests only: never inspect, launch, or inject the user's Rust client."""
 from dataclasses import replace
 import io
+import hashlib
+import json
 from pathlib import Path
 import struct
 import sys
 import threading
+import time
 from unittest.mock import Mock
 import zipfile
 
@@ -24,6 +27,16 @@ def safe_probe(tmp_path):
     return client.ClientProbe(pid=123, executable=str(tmp_path/'RustClient.exe'), created=100,
         command_line='"'+str(tmp_path/'RustClient.exe')+'"', parent_name='explorer.exe',
         modules=[str(tmp_path/'GameAssembly.dll'), str(tmp_path/'UnityPlayer.dll')])
+
+
+def ready_session(path, **changes):
+    (path/'active.flag').touch();(path/'scene.bin').touch()
+    (path/'server.pid').write_text('123')
+    (path/'config.json').write_text(json.dumps({'token': 'a'*64}))
+    report = {'protocol': 1, 'secure': False, 'ip': '127.0.0.1', 'pid': 123,
+              'token': 'a'*64, 'timestamp': time.time(), **changes}
+    (path/'server.ready').write_text(json.dumps(report))
+    return report
 
 
 def test_no_eac_requires_multiple_independent_observations(tmp_path):
@@ -83,8 +96,7 @@ def test_injection_rechecks_server_runtime_eac_before_writing(tmp_path, monkeypa
     inspector = Mock();inspector.inspect.return_value = safe_probe(tmp_path)
     monkeypatch.setattr(client, '_windows', lambda: inspector)
     (tmp_path/'RusterPreview.dll').touch();(tmp_path/'scene.bin').touch()
-    (tmp_path/'active.flag').touch()
-    (tmp_path/'server.ready').write_text('{"protocol":1,"secure":true,"ip":"127.0.0.1"}')
+    ready_session(tmp_path, secure=True)
     with pytest.raises(ValueError, match='inactive EAC'):
         client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
     inspector.k.OpenProcess.assert_not_called()
@@ -184,16 +196,17 @@ def test_owned_server_lifecycle_with_synthetic_child(tmp_path, monkeypatch):
         (job.directory/'map.url').write_text(job.url)
     job._serve_map = map_server
     script = tmp_path/'synthetic-server.py'
-    script.write_text("""import os,time
+    script.write_text("""import os,time,json
 from pathlib import Path
 session=Path(os.environ['RUSTER_PREVIEW_DIR'])
-(session/'server.ready').write_text('{"protocol":1,"secure":false,"ip":"127.0.0.1"}')
+token=json.loads((session/'config.json').read_text())['token']
+(session/'server.ready').write_text(json.dumps(dict(protocol=1,secure=False,ip='127.0.0.1',pid=os.getpid(),token=token,timestamp=time.time())))
 while (session/'active.flag').exists():time.sleep(.02)
 """)
     real_popen = subprocess.Popen
     def popen(args, **kwargs):
         kwargs.pop('creationflags', None);kwargs['cwd'] = tmp_path
-        return real_popen([sys.executable, str(script)], **kwargs)
+        return real_popen([getattr(sys, '_base_executable', sys.executable), str(script)], **kwargs)
     monkeypatch.setattr(server.subprocess, 'Popen', popen)
     untouched = tmp_path/'other-server.sav';untouched.write_bytes(b'keep')
     job.start()
@@ -213,7 +226,7 @@ while (session/'active.flag').exists():time.sleep(.02)
 def test_server_runtime_report_must_confirm_inactive_eac(tmp_path):
     import json
     path = tmp_path/'server.ready'
-    path.write_text(json.dumps({'protocol': 1, 'secure': False, 'ip': '127.0.0.1'}))
+    ready_session(tmp_path)
     server.verify_server_ready(path)
     for report in ({'protocol': 1, 'secure': True, 'ip': '127.0.0.1'},
                    {'protocol': 1, 'secure': False, 'ip': '0.0.0.0'},
@@ -232,3 +245,68 @@ def test_stop_marker_survives_windows_delete_pending_error(tmp_path, monkeypatch
     monkeypatch.setattr(Path, 'unlink', unlink)
     job._stop_marker()
     assert (tmp_path/'stop.flag').is_file()
+
+
+@pytest.mark.parametrize('changes', [{'timestamp': 0}, {'timestamp': float('nan')},
+    {'timestamp': time.time()+120}, {'pid': 456}, {'token': 'b'*64}])
+def test_stale_or_foreign_server_report_blocks_injection(tmp_path, monkeypatch, changes):
+    ready_session(tmp_path, **changes)
+    inspector = Mock();inspector.inspect.return_value = safe_probe(tmp_path)
+    monkeypatch.setattr(client, '_windows', lambda: inspector)
+    (tmp_path/'RusterPreview.dll').touch()
+    with pytest.raises(ValueError):client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
+    inspector.k.OpenProcess.assert_not_called();inspector.k.WriteProcessMemory.assert_not_called()
+
+
+def test_completed_session_and_conflicting_installation_cannot_be_used(tmp_path):
+    ready_session(tmp_path);server.verify_session(tmp_path)
+    (tmp_path/'stop.flag').touch()
+    with pytest.raises(ValueError, match='not active'):server.verify_session(tmp_path)
+    with server.installation_lease(tmp_path):
+        with pytest.raises(ValueError, match='Another Ruster'):
+            with server.installation_lease(tmp_path):raise AssertionError('Acquired twice')
+    with server.installation_lease(tmp_path):pass
+
+
+def test_snapshots_freeze_vectors_consume_generators_once_and_round_to_float32(tmp_path):
+    row = placement(position=[.1, .2, .3])
+    frozen = protocol.canonical_placements(iter([row]));row['position'][0] = 99
+    assert frozen[0]['position'][0] == struct.unpack('<f', struct.pack('<f', .1))[0]
+    protocol.write_snapshot(tmp_path, 3, iter(frozen))
+    assert len(json.loads((tmp_path/'scene.json').read_text())['placements']) == 1
+    with pytest.raises(ValueError):protocol.encode_snapshot(0, frozen)
+    with pytest.raises(ValueError):protocol.encode_snapshot(2**63, frozen)
+    with pytest.raises(ValueError):protocol.encode_snapshot(1, [placement(position=(True, 0, 0))])
+    with pytest.raises(ValueError):protocol.preview_map([{k:v for k,v in placement().items() if k != 'euler'}])
+
+
+def test_module_integrity_and_build_source_must_match(tmp_path):
+    folder = tmp_path/'bin';folder.mkdir();dll = folder/'RusterPreview.dll';dll.write_bytes(b'offline fixture')
+    source = tmp_path/'client.cpp';source.write_text('// fixture')
+    manifest = {'protocol': 1, 'platform': 'windows-x64', 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(),
+                'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest()}
+    dll.with_suffix('.json').write_text(json.dumps(manifest));client.verify_module(dll)
+    source.write_text('// changed')
+    with pytest.raises(ValueError, match='source changed'):client.verify_module(dll)
+    source.unlink();dll.write_bytes(b'changed')
+    with pytest.raises(ValueError, match='integrity'):client.verify_module(dll)
+
+
+def test_loaded_old_module_is_rejected_before_any_remote_operation(tmp_path, monkeypatch):
+    ready_session(tmp_path);(tmp_path/'RusterPreview.dll').touch()
+    inspector = Mock();probe = safe_probe(tmp_path);probe.modules.append(str(tmp_path/'RusterPreview.dll'))
+    inspector.inspect.return_value = probe
+    monkeypatch.setattr(client, '_windows', lambda: inspector)
+    monkeypatch.setattr(client, 'verify_module', lambda dll: None)
+    with pytest.raises(ValueError, match='already loaded'):client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
+    inspector.k.OpenProcess.assert_not_called();inspector.k.LoadLibraryExW.assert_not_called()
+
+
+def test_missing_export_is_rejected_before_opening_client(tmp_path, monkeypatch):
+    ready_session(tmp_path);(tmp_path/'RusterPreview.dll').touch()
+    inspector = Mock();inspector.inspect.return_value = safe_probe(tmp_path)
+    inspector.k.LoadLibraryExW.return_value = 100;inspector.k.GetProcAddress.return_value = 0
+    monkeypatch.setattr(client, '_windows', lambda: inspector)
+    monkeypatch.setattr(client, 'verify_module', lambda dll: None)
+    with pytest.raises(ValueError, match='entry point'):client.inject(tmp_path, tmp_path/'RusterPreview.dll', tmp_path, 123)
+    inspector.k.OpenProcess.assert_not_called();inspector.k.FreeLibrary.assert_called_once_with(100)

@@ -36,37 +36,54 @@ def build(compiler=None, output=None):
     output.parent.mkdir(parents=True, exist_ok=True)
     cache = ROOT/'build/preview-compiler/cache';cache.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, 'ZIG_GLOBAL_CACHE_DIR': str(cache), 'ZIG_LOCAL_CACHE_DIR': str(cache/'local')}
-    subprocess.run([str(compiler), 'c++', '-std=c++17', '-O2', '-shared', '-target', 'x86_64-windows-gnu',
-        str(ROOT/'ruster/preview_native/client.cpp'), '-o', str(output), '-ladvapi32', '-luser32'], check=True, cwd=ROOT,
-        env=env)
-    output.with_suffix('.json').write_text(json.dumps({'protocol': 1, 'platform': 'windows-x64',
-        'sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
-        'source_sha256': hashlib.sha256((ROOT/'ruster/preview_native/client.cpp').read_bytes()).hexdigest()}, indent=2))
-    if sys.platform == 'win32':check_protocol(compiler, env)
+    with tempfile.TemporaryDirectory(dir=output.parent, prefix='preview-build-') as folder:
+        temporary = Path(folder)/output.name
+        subprocess.run([str(compiler), 'c++', '-std=c++17', '-O2', '-shared', '-target', 'x86_64-windows-gnu',
+            str(ROOT/'ruster/preview_native/client.cpp'), '-o', str(temporary), '-ladvapi32', '-luser32'], check=True, cwd=ROOT,
+            env=env)
+        if sys.platform == 'win32':check_protocol(compiler, env)
+        manifest = temporary.with_suffix('.json')
+        manifest.write_text(json.dumps({'protocol': 1, 'platform': 'windows-x64',
+            'sha256': hashlib.sha256(temporary.read_bytes()).hexdigest(),
+            'source_sha256': hashlib.sha256((ROOT/'ruster/preview_native/client.cpp').read_bytes()).hexdigest()}, indent=2))
+        # Publish only a build whose standalone checks succeeded. If publication
+        # is interrupted, integrity verification rejects a mismatched manifest.
+        temporary.replace(output);manifest.replace(output.with_suffix('.json'))
     return output
 
 
 def check_protocol(compiler, env):
     """Execute only our standalone binary parser, never a game or injection API."""
-    binary = ROOT/'build/preview-protocol-test.exe'
-    subprocess.run([str(compiler), 'c++', '-std=c++17', '-O2', '-target', 'x86_64-windows-gnu',
-        str(ROOT/'tests/preview_protocol_native.cpp'), '-o', str(binary), '-ladvapi32', '-luser32'], check=True, env=env)
+    with tempfile.TemporaryDirectory(dir=ROOT/'build', prefix='preview-protocol-') as folder:
+        binary = Path(folder)/'decoder.exe'
+        subprocess.run([str(compiler), 'c++', '-std=c++17', '-O2', '-target', 'x86_64-windows-gnu',
+            str(ROOT/'tests/preview_protocol_native.cpp'), '-o', str(binary), '-ladvapi32', '-luser32'], check=True, env=env)
+        path = Path(folder)/'snapshot.bin'
+        for data, expected in protocol_cases():
+            path.write_bytes(data)
+            result = subprocess.run([str(binary), str(path)], capture_output=True)
+            if result.returncode != expected:raise RuntimeError('Native preview protocol check failed: '+result.stderr.decode(errors='replace'))
+    print('Native preview protocol and EAC-name checks passed (no Rust process used)', flush=True)
+
+
+def protocol_cases():
+    """The same valid/malformed snapshots exercise both independent readers."""
+    import struct
     sys.path.insert(0, str(ROOT))
     from ruster.core.preview_protocol import encode_snapshot
     row = {'key': 17, 'uid': 123456, 'path': 'assets/test/source.prefab',
         'position': (1., 2., -3.), 'rotation': (0., 0., 0., 1.), 'scale': (1., 2., 3.)}
     valid = encode_snapshot(7, [row])
-    import struct
-    bad_rotation = bytearray(valid);struct.pack_into('<f', bad_rotation, len(valid)-16, 0.)
-    with tempfile.TemporaryDirectory(dir=ROOT/'build', prefix='preview-protocol-') as folder:
-        path = Path(folder)/'snapshot.bin'
-        for data, expected in ((valid, 0), (encode_snapshot(8, []), 0), (valid[:19], 1),
-                (b'NOTLIVE!'+valid[8:], 1), (valid+b'extra', 1), (bytes(bad_rotation), 1),
-                (valid[:16]+struct.pack('<I', 2001)+valid[20:], 1)):
-            path.write_bytes(data)
-            result = subprocess.run([str(binary), str(path)], capture_output=True)
-            if result.returncode != expected:raise RuntimeError('Native preview protocol check failed: '+result.stderr.decode(errors='replace'))
-    print('Native preview protocol and EAC-name checks passed (no Rust process used)', flush=True)
+    def corrupt(offset, fmt, value):
+        data = bytearray(valid);struct.pack_into(fmt, data, offset, value);return bytes(data)
+    return [(valid, 0), (encode_snapshot(8, []), 0), (encode_snapshot(2**63-1, [row]), 0),
+        (valid[:19], 1), (b'NOTLIVE!'+valid[8:], 1), (valid+b'extra', 1),
+        (corrupt(len(valid)-16, '<f', 0.), 1), (corrupt(len(valid)-4, '<f', 0.), 1),
+        (corrupt(len(valid)-40, '<f', float('nan')), 1), (corrupt(8, '<Q', 0), 1),
+        (corrupt(8, '<Q', 2**63), 1), (corrupt(16, '<I', 2001), 1),
+        (corrupt(20, '<Q', 0), 1), (corrupt(28, '<I', 0), 1), (corrupt(32, '<I', 4097), 1),
+        (valid[:36]+b'\xff'+valid[37:], 1), (valid[:43]+b'..'+valid[45:], 1),
+        (valid[:16]+struct.pack('<I', 2)+valid[20:]+valid[20:], 1)]
 
 
 if __name__ == '__main__':

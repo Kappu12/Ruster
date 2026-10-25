@@ -70,3 +70,36 @@ time.sleep(30)
     finally:
         if parent.poll() is None:parent.kill()
         parent.communicate(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows job ownership')
+def test_preview_breaks_away_from_editor_memory_cap_but_keeps_children_owned():
+    code = '''
+import ctypes,subprocess,sys
+from ctypes import wintypes as w
+from ruster.core.process_limits import protect_process, OwnedProcessJob, MIB
+protect_process(96*MIB,allow_breakaway=True)
+job=OwnedProcessJob()
+child_code="import subprocess,sys,time; data=bytearray(128*1024*1024); grandchild=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']); print(grandchild.pid,flush=True); time.sleep(30)"
+child=subprocess.Popen([sys.executable,'-c',child_code],stdout=subprocess.PIPE,text=True,creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB)
+try:
+    job.assign(child)
+    grandchild_pid=int(child.stdout.readline())
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];kernel.OpenProcess.restype=w.HANDLE
+    kernel.WaitForSingleObject.argtypes=[w.HANDLE,w.DWORD];kernel.CloseHandle.argtypes=[w.HANDLE]
+    handle=kernel.OpenProcess(0x100000,False,grandchild_pid);assert handle
+    try:
+        job.close()
+        assert kernel.WaitForSingleObject(handle,5000)==0,'Server descendant survived cleanup'
+        child.wait(timeout=5)
+    finally:kernel.CloseHandle(handle)
+finally:
+    job.close()
+    if child.poll() is None:child.kill();child.wait(timeout=5)
+    child.stdout.close()
+print('PREVIEW_OWNERSHIP_OK')
+'''
+    result = subprocess.run([PYTHON, '-c', code], cwd=ROOT, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert 'PREVIEW_OWNERSHIP_OK' in result.stdout

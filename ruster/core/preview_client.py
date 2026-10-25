@@ -208,7 +208,25 @@ def launch(installation):
     if not binary.is_file():raise ValueError('RustClient.exe was not found in your Rust installation')
     if discover(installation):raise ValueError('Rust is already running; close it before launching another instance')
     # The official direct executable route omits the EAC bootstrapper.
-    return subprocess.Popen([str(binary)], cwd=binary.parent).pid
+    return subprocess.Popen([str(binary)], cwd=binary.parent,
+        creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB).pid
+
+
+def verify_module(dll):
+    """Validate our on-disk artifact before mapping it into another process."""
+    dll = Path(dll)
+    try:
+        if not 0 < dll.stat().st_size <= 16*1024*1024:raise ValueError('Invalid preview DLL size')
+        manifest = json.loads(dll.with_suffix('.json').read_text())
+        if (manifest.get('protocol') != 1 or manifest.get('platform') != 'windows-x64'
+                or hashlib.sha256(dll.read_bytes()).hexdigest() != manifest.get('sha256')):
+            raise ValueError('Preview DLL integrity check failed; rebuild or reinstall Ruster')
+        source = dll.parent.parent/'client.cpp'
+        if source.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() != manifest.get('source_sha256'):
+            raise ValueError('Preview module source changed; rebuild the client module before starting preview')
+    except (OSError, KeyError, json.JSONDecodeError) as error:
+        raise ValueError('The preview module or its build manifest is missing or invalid; rebuild or reinstall Ruster') from error
+    return manifest
 
 
 def inject(installation, dll, session, pid):
@@ -220,15 +238,21 @@ def inject(installation, dll, session, pid):
     def check():
         current = verify_probe(inspector.inspect(pid), installation)
         if current.created != first.created:raise ValueError('Rust restarted during verification; injection cancelled')
-        if (not (session/'active.flag').is_file() or (session/'stop.flag').exists()
-                or (session/'server.blocked').exists()):
-            raise ValueError('The local preview server is not active')
-        from .live_preview import verify_server_ready
-        verify_server_ready(session/'server.ready')
+        from .live_preview import verify_session
+        verify_session(session)
     check()
-    manifest = json.loads(dll.with_suffix('.json').read_text())
-    if manifest.get('protocol') != 1 or hashlib.sha256(dll.read_bytes()).hexdigest() != manifest.get('sha256'):
-        raise ValueError('Preview DLL integrity check failed; rebuild or reinstall Ruster')
+    verify_module(dll)
+    if any(Path(name).name.casefold() == 'rusterpreview.dll' for name in first.modules):
+        raise ValueError('A preview module is already loaded. Restart Rust before injecting another session or build')
+    # Validate the export before the first remote write. DONT_RESOLVE_DLL_REFERENCES
+    # maps our DLL locally without running its entry point or initializers.
+    local = inspector.k.LoadLibraryExW(str(dll), None, 1)
+    inspector.require(local, 'Could not inspect the preview module')
+    try:
+        entry = inspector.k.GetProcAddress(local, b'RusterStart')
+        if not entry:raise ValueError('The preview DLL has no RusterStart entry point')
+        entry_offset = entry-local
+    finally:inspector.k.FreeLibrary(local)
     handle = inspector.k.OpenProcess(0x43a, False, pid)
     inspector.require(handle, 'Could not open the verified client; no privilege escalation is attempted')
     allocations = []
@@ -258,29 +282,24 @@ def inject(installation, dll, session, pid):
         # Resolve LoadLibraryW in the target's kernel32 rather than assuming ASLR
         # produced the same base address in Blender and Rust.
         modules = inspector.modules(pid)
-        remote = next((base for path, base in modules if Path(path).resolve() == dll), None)
-        if remote is None:
-            local = inspector.k.LoadLibraryExW('kernel32.dll', None, 0)
-            try:
-                address = inspector.k.GetProcAddress(local, b'LoadLibraryW')
-                containing = W.HMODULE()
-                inspector.require(inspector.k.GetModuleHandleExW(6, address, ctypes.byref(containing)), 'Cannot resolve the Windows loader module')
-                path = ctypes.create_unicode_buffer(32768)
-                inspector.require(inspector.k.GetModuleFileNameW(containing, path, len(path)), 'Cannot resolve the Windows loader path')
-                offset = address-containing.value
-            finally:inspector.k.FreeLibrary(local)
-            base = next(base for name, base in modules if Path(name).name.casefold() == Path(path.value).name.casefold())
-            remote_call(base+offset, str(dll))
-            remote = next((base for path, base in inspector.modules(pid) if Path(path).resolve() == dll), None)
-            if not remote:raise ValueError('The preview DLL did not load')
-        local = inspector.k.LoadLibraryExW(str(dll), None, 1)
-        inspector.require(local, 'Could not inspect preview entry point')
+        if any(Path(name).name.casefold() == 'rusterpreview.dll' for name, _ in modules):
+            raise ValueError('A preview module was loaded during verification; restart Rust')
+        local = inspector.k.LoadLibraryExW('kernel32.dll', None, 0)
+        inspector.require(local, 'Cannot inspect the Windows loader')
         try:
-            address = inspector.k.GetProcAddress(local, b'RusterStart')
-            if not address:raise ValueError('The preview DLL has no RusterStart entry point')
-            offset = address-local
+            address = inspector.k.GetProcAddress(local, b'LoadLibraryW')
+            containing = W.HMODULE()
+            inspector.require(address and inspector.k.GetModuleHandleExW(6, address, ctypes.byref(containing)), 'Cannot resolve the Windows loader module')
+            path = ctypes.create_unicode_buffer(32768)
+            inspector.require(inspector.k.GetModuleFileNameW(containing, path, len(path)), 'Cannot resolve the Windows loader path')
+            offset = address-containing.value
         finally:inspector.k.FreeLibrary(local)
-        code = remote_call(remote+offset, str(session))
+        base = next((base for name, base in modules if Path(name).name.casefold() == Path(path.value).name.casefold()), None)
+        if base is None:raise ValueError('The Windows loader module was not found in the verified client')
+        remote_call(base+offset, str(dll))
+        remote = next((base for path, base in inspector.modules(pid) if Path(path).resolve() == dll), None)
+        if not remote:raise ValueError('The preview DLL did not load')
+        code = remote_call(remote+entry_offset, str(session))
         if code != 0:raise ValueError(f'Client preview initialization refused ({code}); see the preview log')
     finally:
         for memory in allocations:inspector.k.VirtualFreeEx(handle, memory, 0, 0x8000)

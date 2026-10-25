@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT))
 if sys.platform == 'win32':
     from ruster.core.process_limits import protect_process, EDITOR_MEMORY
     protect_process(EDITOR_MEMORY, int(os.environ['RUSTER_LAUNCHER_PID'])
-                    if os.environ.get('RUSTER_LAUNCHER_PID') else None)
+                    if os.environ.get('RUSTER_LAUNCHER_PID') else None, allow_breakaway=True)
 modules = ROOT / 'python_modules'
 if modules.exists():
     sys.path.insert(0, str(modules))
