@@ -145,7 +145,7 @@ def request_assets(ids):
         return False
     # A completed process still owns its IDs until poll_job consumes the result.
     # Replacing it between timer ticks used to strand the previous placements.
-    active=_job_ids if _job is not None and _job_action=='extract' else set()
+    active=_job_ids if _job is not None and _job_action=='extract' and not _job_cancelled else set()
     _pending_asset_ids.update(ids-active)
     for obj in scene.prefab_roots():
         if int(obj['ruster_uid']) in ids:
@@ -177,6 +177,7 @@ def redraw():
 
 def poll_job():
     global _job, _job_log, _visual_queue, _job_action, _job_ids
+    if bpy.context.window_manager.is_interface_locked:return .5
     state = bpy.context.scene.ruster
     progress = {}
     try:
@@ -234,7 +235,9 @@ def poll_job():
             state.asset_progress_known=False
         if _visual_queue and not bpy.app.timers.is_registered(load_visuals):
             bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
-    if not _job_cancelled and _pending_asset_ids:
+    # Cancel clears the queue. Requests added afterwards belong to a retry,
+    # even while the canceled process still awaits this completion tick.
+    if _pending_asset_ids:
         pending=sorted(_pending_asset_ids);_pending_asset_ids.clear()
         try:
             start_job('extract',pending);return .5
@@ -252,6 +255,7 @@ def load_visuals():
     # Bound repeated placements too: one UID can represent thousands of copies.
     # A single library link is indivisible, but no further copies block that tick.
     global _visual_iterator,_visual_uid,_visual_scene
+    if bpy.context.window_manager.is_interface_locked:return .1
     if _visual_queue:
         uid=_visual_queue[0]
         from . import preview_jobs
@@ -284,7 +288,7 @@ def load_visuals():
                 _visual_queue.pop(0);_visual_iterator=None;_visual_uid=None
                 break
             try:
-                loaded=scene.attach_visual(obj,force=True)
+                loaded=scene.attach_visual(obj,force=True,prepared=True)
                 if loaded and not obj.get('ruster_marker'):
                     if not obj.get('ruster_spawner_preview'):obj['ruster_model_status']='Model loaded'
                     frame_first_model(obj)
@@ -321,6 +325,15 @@ def load_visuals():
     return .05 if _visual_queue else None
 
 
+def queue_visuals(ids):
+    """Share one bounded preview queue across placement and recovery paths."""
+    _visual_queue.extend(sorted(set(ids)-set(_visual_queue)))
+    if not _visual_queue:return
+    bpy.context.scene.ruster.busy=True
+    if not bpy.app.timers.is_registered(load_visuals):
+        bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
+
+
 def restore_cached_visuals(objects=None):
     """Recover saved placeholders one unique cached model per tick, without extraction."""
     waiting=set(_visual_queue)|_pending_asset_ids|_job_ids
@@ -330,10 +343,7 @@ def restore_cached_visuals(objects=None):
              (obj.get('ruster_marker') in {'HELPER','SOUND','TERRAIN'} and not obj.get('ruster_helper_preview_version')))}
     ready=sorted(uid for uid in ids-waiting if (cache/f'{uid}.json.gz').is_file())
     if not ready:return
-    _visual_queue.extend(ready)
-    bpy.context.scene.ruster.busy=True
-    if not bpy.app.timers.is_registered(load_visuals):
-        bpy.app.timers.register(load_visuals,first_interval=.1,persistent=True)
+    queue_visuals(ready)
 
 
 def request_missing_visuals(objects):
@@ -354,6 +364,8 @@ def frame_first_model(obj):
     if not obj.get('ruster_frame_on_load'):return
     del obj['ruster_frame_on_load']
     if bpy.app.background or not obj.get('ruster_visual') or bpy.context.view_layer.objects.active!=obj or not obj.select_get():return
+    if any(operator.bl_idname.startswith('TRANSFORM_OT_')
+           for window in bpy.context.window_manager.windows for operator in window.modal_operators):return
     bpy.context.view_layer.update()
     for window in bpy.context.window_manager.windows:
         if window.scene!=bpy.context.scene:continue
@@ -840,7 +852,7 @@ class RUSTER_OT_place(bpy.types.Operator):
             obj.select_set(True)
             context.view_layer.objects.active = obj
             if obj.get('ruster_visual'):frame_first_model(obj)
-            if not obj.get('ruster_visual') and not obj.get('ruster_marker'):request_assets([uid])
+            if not obj.get('ruster_visual') and not obj.get('ruster_marker'):request_missing_visuals([obj])
             from .core import palettes
             try:settings.save(palettes.remember(settings.load(),uid))
             except OSError:self.report({'WARNING'},'Prefab placed, but the recent list could not be saved')
@@ -978,6 +990,17 @@ class RUSTER_OT_select_model_status(bpy.types.Operator):
 
 
 @persistent
+def after_undo(_dummy):
+    global _visual_iterator,_visual_uid
+    _visual_iterator=None;_visual_uid=None
+    if not hasattr(bpy.context.scene,'ruster'):return
+    objects=scene.prefab_roots()
+    for obj in objects:
+        if 'ruster_frame_on_load' in obj:del obj['ruster_frame_on_load']
+    restore_cached_visuals(objects)
+
+
+@persistent
 def after_load(_dummy):
     global _visual_iterator,_visual_uid
     _visual_iterator=None;_visual_uid=None
@@ -1070,6 +1093,8 @@ def register():
     from . import quitting
     quitting.register()
     bpy.app.handlers.load_post.append(after_load)
+    bpy.app.handlers.undo_post.append(after_undo)
+    bpy.app.handlers.redo_post.append(after_undo)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
         km = config.keymaps.new(name='Window', space_type='EMPTY')
@@ -1109,10 +1134,13 @@ def unregister():
             bpy.app.timers.unregister(callback)
     if after_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(after_load)
+    for handlers in (bpy.app.handlers.undo_post,bpy.app.handlers.redo_post):
+        if after_undo in handlers:handlers.remove(after_undo)
     for km, item in _keymaps:
         km.keymap_items.remove(item)
     _keymaps.clear()
     _pending_asset_ids.clear()
+    _job_ids.clear()
     _visual_queue.clear()
     _visual_iterator=None;_visual_uid=None
     from . import mcp_bridge

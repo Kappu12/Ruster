@@ -124,8 +124,10 @@ def run():
             log=(Path(directory)/'cleanup-worker.log').open('w')
             child=subprocess.Popen([app.worker_python(),'-c','import time; time.sleep(30)'],stdout=log,stderr=subprocess.STDOUT)
             app._job,app._job_log=child,log
+            app._job_ids.add(42)
             ruster.unregister()
             assert child.poll() is not None and log.closed and app._job is None and app._job_log is None
+            assert not app._job_ids,'An old worker left phantom loading IDs after re-registration'
             assert bpy.types.USERPREF_PT_navigation_bar.draw==old_navigation
             assert bpy.types.VIEW3D_HT_header.draw==old_header
             assert bpy.types.VIEW3D_PT_tools_active.draw==old_toolbar

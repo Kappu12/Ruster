@@ -231,6 +231,9 @@ def restore_symmetry(_dummy):
 def sync_symmetry(context_scene, _depsgraph=None):
     global _syncing
     if _syncing or _restoring:return
+    # Enabling symmetry seeds a fresh snapshot in update_symmetry. Disabled
+    # editing has nothing to synchronize, even on a very large composition.
+    if not context_scene.ruster_construction.symmetry:return
     _syncing = True
     try:
         previous = _snapshots.get(context_scene.as_pointer(), {})

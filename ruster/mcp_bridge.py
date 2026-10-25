@@ -115,7 +115,7 @@ def place_prefab(uid,position,rotation_degrees=None,scale=None):
         for child in list(obj.children_recursive):bpy.data.objects.remove(child,do_unlink=True)
         bpy.data.objects.remove(obj,do_unlink=True);raise
     placement.select([obj])
-    if not obj.get('ruster_visual') and not obj.get('ruster_marker'):app.request_assets([uid])
+    if not obj.get('ruster_visual') and not obj.get('ruster_marker'):app.request_missing_visuals([obj])
     return obj
 
 

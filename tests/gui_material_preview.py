@@ -48,7 +48,7 @@ else:
         metallic_gloss_texture='preview.png', emission=[0, .4, .7, 1], alpha_blend=True)
     (cache / '123456.json.gz').write_bytes(gzip.compress(json.dumps(asset).encode()))
     root = scene.root_object([wire.encode(2,0,123456)], bpy.data.collections['Prefabs'])
-    assert scene.attach_visual(root), 'Synthetic prefab model did not attach'
+    scene.attach_visual(root)
 
 state = {'stage': 0, 'draws': 0, 'previous_draws': 0, 'started': time.monotonic(),
          'compiling': False}
@@ -70,6 +70,9 @@ def step():
             with bpy.context.temp_override(area=area, region=region):
                 shading = area.spaces.active.shading
                 if state['stage'] == 0:
+                    if bpy.context.scene.ruster.busy:
+                        assert time.monotonic()-state['started'] < 60, 'Preview preparation stalled'
+                        return .1
                     assert bpy.app.version[:2] == (5, 2), 'Use the pinned Blender 5.2 runtime'
                     assert bpy.context.scene.ruster.mode == 'PREFAB'
                     assert not bpy.context.scene.ruster.source_map

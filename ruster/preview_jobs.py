@@ -5,11 +5,13 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import bpy
 from . import scene
 
 _job=None
 _ready=set()
+PREVIEW_TIMEOUT=120.
 
 
 def cancel():
@@ -41,7 +43,11 @@ def prepare(uid):
     if _job and _job['key']!=key:cancel()
     if _job:
         process=_job['process']
-        if process.poll() is None:return 'WAIT',''
+        if process.poll() is None:
+            if time.monotonic()-_job['started']>=PREVIEW_TIMEOUT:
+                cancel()
+                return 'ERROR','Model preview preparation timed out; retry loading or check preview-worker.log'
+            return 'WAIT',''
         try:
             result=json.loads(_job['report'].read_text())
             if process.returncode or result.get('error'):
@@ -77,5 +83,6 @@ def prepare(uid):
             creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
     except Exception:
         log.close();temporary.cleanup();raise
-    _job={'key':key,'process':process,'report':report,'temporary':temporary,'log':log}
+    _job={'key':key,'process':process,'report':report,'temporary':temporary,'log':log,
+        'started':time.monotonic()}
     return 'WAIT',''

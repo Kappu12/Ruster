@@ -72,7 +72,7 @@ def perform():
         cache = scene.cache_dir()
         from contextlib import closing
         with closing(catalog.connect(cache)) as db:
-            db.execute('INSERT INTO names VALUES(?,?)', (123456, 'assets/test/triangle.prefab'))
+            db.execute('INSERT INTO names VALUES(?,?)', (123456, triangle_asset()['path']))
             db.commit()
         (cache/'prefabs').mkdir(parents=True, exist_ok=True)
         (cache/'prefabs/123456.json.gz').write_bytes(gzip.compress(json.dumps(triangle_asset()).encode()))
@@ -96,11 +96,13 @@ def perform():
         space.region_3d.view_location = (0, 0, 0)
         space.region_3d.view_distance = 25
     elif stage == 2:
+        if bpy.context.scene.ruster.busy:return .1
         with at_view():bpy.ops.ed.undo()
         assert not scene.prefab_roots(), 'Placement was not a single undo step'
     elif stage == 3:
         with at_view():bpy.ops.ed.redo()
         assert len(scene.prefab_roots()) == 6
+        assert all(obj.get('ruster_visual') for obj in scene.prefab_roots()) or app._visual_queue, 'Redo stranded a placeholder without queued preview recovery'
         settings = bpy.context.scene.ruster_construction
         settings.object_snap = True
         settings.angle_snap = '45'

@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 if '--' in sys.argv:sys.path.insert(0,sys.argv[sys.argv.index('--')+1])
 import bpy,ruster
-from ruster import app,scene,studio,loading,quitting
+from ruster import app,scene,studio,loading,quitting,construction
 from ruster.core import wire
 from ruster.core.rustedit_prefab import RustEditPrefab
 
@@ -44,6 +44,37 @@ def run():
             for _ in range(20):loading.cached_model_summary()
             assert len(counts)==1,'Every viewport redraw rescanned the scene'
         finally:loading.model_summary=native_summary
+        native_groups=construction.symmetry_groups;scans=[]
+        def groups(*args,**kwargs):
+            scans.append(1);return native_groups(*args,**kwargs)
+        construction.symmetry_groups=groups
+        try:
+            bpy.context.scene.ruster_construction.symmetry=False
+            scans.clear()
+            for _ in range(20):construction.sync_symmetry(bpy.context.scene)
+            assert not scans,'Disabled symmetry scanned the scene on dependency updates'
+        finally:construction.symmetry_groups=native_groups
+        from types import SimpleNamespace
+        native_bpy=app.bpy
+        app.bpy=SimpleNamespace(context=SimpleNamespace(window_manager=SimpleNamespace(is_interface_locked=True)))
+        queued=app._visual_queue[:]
+        try:
+            assert app.load_visuals()==.1 and app.poll_job()==.5
+            assert app._visual_queue==queued,'Asset timers mutated a locked scene'
+        finally:app.bpy=native_bpy
+        native_start=app.start_job;starts=[]
+        app._job=SimpleNamespace(poll=lambda:0,returncode=0)
+        app._job_action='extract';app._job_ids={42};app._job_cancelled=False
+        try:
+            bpy.ops.ruster.cancel_assets()
+            assert app.request_assets([42])
+            assert app._pending_asset_ids=={42},'Retry was mistaken for canceled in-flight work'
+            app.start_job=lambda action,ids:starts.append((action,ids))
+            assert app.poll_job()==.5
+            assert starts==[('extract',[42])],'Completion discarded a request made after Cancel'
+        finally:
+            app.start_job=native_start;app._job=None;app._job_action=None
+            app._job_ids.clear();app._pending_asset_ids.clear();app._job_cancelled=False
         # Save-status polling must yield on the same large scene too. Closing
         # still compares the complete document, including during a partial scan.
         app.save_project(Path(directory)/'large.ruster')

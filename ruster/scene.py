@@ -260,7 +260,7 @@ def model_asset_key(uid,signature=None):
     return str(uid)+(':'+token if token else '')+':view4'
 
 
-def attach_visual(root,force=False):
+def attach_visual(root,force=False,prepared=False):
     if root.get('ruster_visual') and not force:
         return True
     # Also upgrade unresolved placements restored from older saved projects.
@@ -309,6 +309,13 @@ def attach_visual(root,force=False):
         model_attached(root)
         name_prefab(root,model.get('ruster_asset_name',root.name))
         return True
+    if not bpy.app.background and not prepared:
+        # Placement, replace, restore and assembly import also reach this path.
+        # Only the bounded loader may construct a prepared foreground preview.
+        from .app import queue_visuals
+        queue_visuals([int(root['ruster_uid'])])
+        root['ruster_model_status']='Preparing original model preview…'
+        return False
     with gzip.open(path, 'rt') as stream:
         asset = json.load(stream)
     if asset.get('schema') != 1:

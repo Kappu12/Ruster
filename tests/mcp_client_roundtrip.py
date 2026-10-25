@@ -46,6 +46,10 @@ async def run():
             assert (await call('list_prefab_categories'))['total_prefabs']==1
             assert (await call('get_prefab_details',uid=123456))['cached']
             obj=await call('place_prefab',uid=123456,position=[1,2,25])
+            for _ in range(600):
+                if not (await call('get_editor_status'))['busy']:break
+                await asyncio.sleep(.1)
+            else:raise AssertionError('Placed model preview did not finish loading')
             name=obj['name'];assert obj['geometry_read_only']
             ring=await call('radial_array_objects',names=[name],count=3,center=[0,0,25],angle_degrees=90)
             await call('distribute_objects',names=ring['objects'],spacing=3,axis='X',mode='BOUNDS_GAP')
