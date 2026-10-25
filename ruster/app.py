@@ -990,6 +990,12 @@ class RUSTER_OT_select_model_status(bpy.types.Operator):
 
 
 @persistent
+def before_scene_replace(_dummy):
+    global _visual_iterator,_visual_uid
+    _visual_iterator=None;_visual_uid=None
+
+
+@persistent
 def after_undo(_dummy):
     global _visual_iterator,_visual_uid
     _visual_iterator=None;_visual_uid=None
@@ -1095,6 +1101,8 @@ def register():
     from . import quitting
     quitting.register()
     bpy.app.handlers.load_post.append(after_load)
+    for handlers in (bpy.app.handlers.undo_pre,bpy.app.handlers.redo_pre,bpy.app.handlers.load_pre):
+        handlers.append(before_scene_replace)
     bpy.app.handlers.undo_post.append(after_undo)
     bpy.app.handlers.redo_post.append(after_undo)
     config = bpy.context.window_manager.keyconfigs.addon
@@ -1136,6 +1144,8 @@ def unregister():
             bpy.app.timers.unregister(callback)
     if after_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(after_load)
+    for handlers in (bpy.app.handlers.undo_pre,bpy.app.handlers.redo_pre,bpy.app.handlers.load_pre):
+        if before_scene_replace in handlers:handlers.remove(before_scene_replace)
     for handlers in (bpy.app.handlers.undo_post,bpy.app.handlers.redo_post):
         if after_undo in handlers:handlers.remove(after_undo)
     for km, item in _keymaps:

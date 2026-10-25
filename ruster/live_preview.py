@@ -105,6 +105,13 @@ def scene_changed(_scene, _depsgraph=None):
     _dirty = True;_generation += 1
 
 
+@persistent
+def invalidate_capture(_dummy):
+    global _capture, _capture_rows
+    _capture = None;_capture_rows = []
+    scene_changed(None)
+
+
 def capture_snapshot():
     """Copy RNA on the main thread, yielding between bounded placement batches."""
     global _capture, _capture_rows, _capture_generation, _dirty, _last_snapshot, _snapshot_error
@@ -386,6 +393,7 @@ def register():
     _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='Ruster preview client')
     bpy.app.timers.register(tick, first_interval=1., persistent=True)
     bpy.app.handlers.load_post.append(after_load)
+    for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):handlers.append(invalidate_capture)
     for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):handlers.append(scene_changed)
     atexit.register(shutdown)
 
@@ -395,6 +403,8 @@ def unregister():
     atexit.unregister(shutdown)
     if bpy.app.timers.is_registered(tick):bpy.app.timers.unregister(tick)
     if after_load in bpy.app.handlers.load_post:bpy.app.handlers.load_post.remove(after_load)
+    for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):
+        if invalidate_capture in handlers:handlers.remove(invalidate_capture)
     for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
         if scene_changed in handlers:handlers.remove(scene_changed)
     shutdown()

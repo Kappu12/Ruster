@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import bpy
+from bpy.app.handlers import persistent
 from bpy.props import EnumProperty, StringProperty
 
 _saved = None
@@ -37,7 +38,9 @@ def digest(value):
 
 def collection_steps(collection):
     children = []
-    for child in collection.children:
+    # Never suspend Blender's native collection iterator between timer ticks.
+    # Undo/deletion can free its current node before Python asks for the next.
+    for child in list(collection.children):
         children.append((yield from collection_steps(child)))
     value = digest((collection.name, collection.hide_viewport, collection.hide_render,
                     sorted(children)))
@@ -49,7 +52,7 @@ def fingerprint_steps():
     """Hash independent records so timer scans can yield before encoding more."""
     state = bpy.context.scene.ruster
     objects, sources = [], set()
-    for obj in bpy.context.scene.objects:
+    for obj in list(bpy.context.scene.objects):
         if obj.get('ruster_kind') == 'VISUAL':
             yield
             continue
@@ -73,8 +76,8 @@ def fingerprint_steps():
         content = None
         if text is not None:
             content = hashlib.sha256()
-            for line in text.lines:
-                body = line.body
+            for index in range(len(text.lines)):
+                body = text.lines[index].body
                 for offset in range(0, len(body), 65536):
                     content.update(body[offset:offset+65536].encode())
                     yield
@@ -129,6 +132,13 @@ def save_status():
     return 'Saved' if state.project_path else 'Not saved yet'
 
 
+@persistent
+def invalidate_scan(_dummy):
+    """Release paused RNA references before undo or file loading replaces IDs."""
+    global _status_scan
+    _status_scan = None
+
+
 def status_tick():
     global _dirty, _status_scan
     if not hasattr(bpy.context.scene, 'ruster'):return 1.
@@ -152,7 +162,7 @@ def status_tick():
                     break
                 if time.perf_counter() >= deadline:return .01
             else:return .01
-        except ReferenceError:
+        except (ReferenceError, IndexError):
             # A native deletion or file load can invalidate a yielded RNA value.
             _status_scan = None
             return .01
@@ -301,6 +311,8 @@ class RUSTER_OT_discard_and_quit(bpy.types.Operator):
 
 def register():
     reset()
+    for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):
+        handlers.append(invalidate_scan)
     for cls in (RUSTER_OT_quit, RUSTER_OT_discard_and_quit, RUSTER_OT_save_changes, RUSTER_OT_discard_changes):
         bpy.utils.register_class(cls);_classes.append(cls)
     if not bpy.app.background:
@@ -313,6 +325,8 @@ def unregister():
     global _continuation
     from . import native_close
     native_close.unregister()
+    for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):
+        if invalidate_scan in handlers:handlers.remove(invalidate_scan)
     if bpy.app.timers.is_registered(finish_quit):bpy.app.timers.unregister(finish_quit)
     for callback in (status_tick, perform_pending_action):
         if bpy.app.timers.is_registered(callback):bpy.app.timers.unregister(callback)

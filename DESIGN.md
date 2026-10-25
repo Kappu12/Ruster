@@ -143,6 +143,11 @@ document to the successful `.ruster` savepoint; preview loading, selection and
 viewport changes do not mark it dirty. UI drawing reads cached state rather than
 hashing the document on every redraw.
 
+Incremental scans must release Blender data references before undo, redo or file
+loading replaces the document. Never retain a native Blender collection iterator
+across timer yields; native deletion can invalidate its current node without a
+Python exception.
+
 Quit, New and Open protect unsaved work with Save, Don't Save and Cancel. Clean
 saved projects proceed without a warning. Save uses the current `.ruster` target
 or opens the project picker for untitled work. Continue only after a successful
