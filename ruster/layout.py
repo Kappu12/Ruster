@@ -3,7 +3,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty
 
 from . import scene, placement, mcp_blender, mcp_prefab_ops, mcp_bridge, map_prefabs
-from .ui_style import action, properties, wrapped
+from .ui_style import action, properties, wrapped, invoke_dialog
 
 _classes = []
 AXES = [(axis, axis, 'World '+axis+' axis') for axis in 'XYZ']
@@ -61,7 +61,7 @@ class RUSTER_OT_layout(bpy.types.Operator):
 
     def invoke(self, context, event):
         if self.operation in {'RADIAL', 'PLANE'}:self.axis = 'Z'
-        return context.window_manager.invoke_props_dialog(self, width=380)
+        return invoke_dialog(self,context,event,width=380)
 
     def draw(self, context):
         fields = properties(self.layout)
@@ -121,7 +121,7 @@ class RUSTER_OT_composition_check(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.errors, self.notes = map_prefabs.validate()
-        return context.window_manager.invoke_props_dialog(self, width=540)
+        return invoke_dialog(self,context,event,width=540)
 
     def draw(self, context):
         errors = getattr(self, 'errors', [])

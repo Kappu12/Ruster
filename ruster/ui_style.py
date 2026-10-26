@@ -95,6 +95,18 @@ def properties(layout):
     return layout
 
 
+def invoke_dialog(operator,context,event=None,**kwargs):
+    """Anchor modal dialogs in their parent window, preserving pointer position."""
+    window=context.window
+    original=(event.mouse_x,event.mouse_y) if event is not None and hasattr(event,'mouse_x') else None
+    if window is None or original is None:
+        return context.window_manager.invoke_props_dialog(operator,**kwargs)
+    try:
+        window.cursor_warp(window.width//2,window.height//2)
+        return context.window_manager.invoke_props_dialog(operator,**kwargs)
+    finally:window.cursor_warp(*original)
+
+
 def duplicate_button(layout, context):
     """Interactive movement belongs to a viewport; other editors copy in place."""
     in_view = context.area and context.area.type == 'VIEW_3D'

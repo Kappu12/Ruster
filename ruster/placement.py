@@ -11,7 +11,7 @@ from . import scene,editing
 from .core import prefabs,wire
 from .core.project import atomic_write
 from .core.rust_map import prefab_transform,update_transform
-from .ui_style import properties,wrapped
+from .ui_style import properties,wrapped,invoke_dialog
 
 _classes=[]
 TRANSFORM_CHANNELS=('rotation_mode','location','rotation_euler','rotation_quaternion','rotation_axis_angle','scale',
@@ -107,7 +107,7 @@ class RUSTER_OT_surface_snap(bpy.types.Operator):
     bl_options={'REGISTER','UNDO'}
     offset:FloatProperty(name='Height Offset',default=0)
     align:BoolProperty(name='Align to Surface',default=False)
-    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+    def invoke(self,context,event):return invoke_dialog(self,context,event)
     def draw(self,context):
         fields=properties(self.layout)
         fields.prop(self,'offset');fields.prop(self,'align')
@@ -186,7 +186,7 @@ class RUSTER_OT_scatter(bpy.types.Operator):
     min_scale:FloatProperty(name='Minimum Scale',default=.8,min=.01,max=100)
     max_scale:FloatProperty(name='Maximum Scale',default=1.2,min=.01,max=100)
     max_slope:FloatProperty(name='Maximum Slope',default=45,min=0,max=90)
-    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self,width=400)
+    def invoke(self,context,event):return invoke_dialog(self,context,event,width=400)
     def draw(self,context):
         wrapped(self.layout,context,'Scatter the selected prefab around the 3D cursor.',icon='scatter')
         fields=properties(self.layout.column())
@@ -240,7 +240,7 @@ class RUSTER_OT_replace(bpy.types.Operator):
     bl_label='Replace Prefabs'
     bl_options={'REGISTER','UNDO'}
     uid:StringProperty(name='Replacement Prefab ID')
-    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+    def invoke(self,context,event):return invoke_dialog(self,context,event)
     def draw(self,context):
         properties(self.layout).prop(self,'uid')
     def execute(self,context):

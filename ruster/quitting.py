@@ -8,6 +8,7 @@ from pathlib import Path
 import bpy
 from bpy.app.handlers import persistent
 from bpy.props import EnumProperty, StringProperty
+from .ui_style import invoke_dialog
 
 _saved = None
 _dialog_open = False
@@ -217,7 +218,7 @@ class RUSTER_OT_save_changes(bpy.types.Operator):
         if _dialog_open:return {'CANCELLED'}
         _dialog_open = True
         title = 'Save changes before starting a new prefab?' if self.action == 'NEW' else 'Save changes before opening?'
-        return context.window_manager.invoke_props_dialog(self, width=440,
+        return invoke_dialog(self,context,event,width=440,
             title=title, confirm_text='Save')
 
     def draw(self, context):
@@ -280,7 +281,7 @@ class RUSTER_OT_quit(bpy.types.Operator):
             schedule_quit()
             return {'FINISHED'}
         _dialog_open = True
-        return context.window_manager.invoke_props_dialog(self, width=410,
+        return invoke_dialog(self,context,event,width=410,
             title='Save changes before closing?', confirm_text='Save')
 
     def draw(self, context):

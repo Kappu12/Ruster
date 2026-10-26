@@ -17,6 +17,7 @@ from .core.asset_categories import GROUPS
 from .core.project import atomic_write
 from .core.rust_map import prefab_transform, update_transform
 from .core.rustedit_prefab import RustEditPrefab
+from .ui_style import invoke_dialog
 
 _classes, _keymaps = [], []
 _menu_cache = {}
@@ -96,7 +97,7 @@ class RUSTER_OT_io_settings(bpy.types.Operator):
             found = io_source(context.active_object)
             if not found:raise ValueError('Select an imported prefab with existing RustEdit IO data')
             for name in IO_SETTINGS:setattr(self,name,io_value(found[-1],name))
-            return context.window_manager.invoke_props_dialog(self,width=460)
+            return invoke_dialog(self,context,event,width=460)
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 
     def draw(self,context):

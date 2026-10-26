@@ -24,7 +24,7 @@ from .core import paths,wire
 from .core.terrain import Terrain,empty_world,SPLATS,BIOMES,TOPOLOGIES,resample
 from .core.rust_map import RustMap
 from .core.project import atomic_write
-from .ui_style import ICONS as I,TOOL_ICONS,properties,wrapped
+from .ui_style import ICONS as I,TOOL_ICONS,properties,wrapped,invoke_dialog
 
 _cache = {}
 _classes = []
@@ -415,7 +415,7 @@ class RUSTER_OT_generate(bpy.types.Operator):
     amplitude:FloatProperty(name='Relief',default=160,min=0,max=500)
     frequency:IntProperty(name='Detail Frequency',default=4,min=1,max=32)
     octaves:IntProperty(name='Detail Octaves',default=5,min=1,max=8)
-    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self,width=400)
+    def invoke(self,context,event):return invoke_dialog(self,context,event,width=400)
     def draw(self,context):
         wrapped(self.layout,context,'Replaces terrain heights. Undo restores the previous terrain.',icon='info')
         fields=properties(self.layout.column())
@@ -457,7 +457,7 @@ class RUSTER_OT_new_map(bpy.types.Operator):
     size: IntProperty(name='Size (metres)',default=1000,min=100,max=6000)
     height: FloatProperty(name='Land Height',default=20,min=-500,max=500)
     def invoke(self,context,event):
-        return context.window_manager.invoke_props_dialog(self,width=400)
+        return invoke_dialog(self,context,event,width=400)
     def draw(self,context):
         wrapped(self.layout,context,'Save your current project before creating a new map.',icon='info')
         fields=properties(self.layout.column())

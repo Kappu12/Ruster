@@ -16,7 +16,7 @@ from bpy_extras.io_utils import ImportHelper, ExportHelper
 from . import scene
 from .core import project, settings, wire
 from .assets import catalog
-from .ui_style import ICONS as I,action,properties,wrapped
+from .ui_style import ICONS as I,action,properties,wrapped,invoke_dialog
 
 _classes = []
 _keymaps = []
@@ -902,7 +902,7 @@ class RUSTER_OT_delete(bpy.types.Operator):
         return context.mode == 'OBJECT' and bool(selected_roots())
 
     def invoke(self, context, event):
-        if self.confirm:return context.window_manager.invoke_confirm(self, event)
+        if self.confirm:return invoke_dialog(self,context,event,title='Delete selected prefabs?',confirm_text='Delete')
         return self.execute(context)
 
     def execute(self, context):
@@ -950,7 +950,7 @@ class RUSTER_OT_report(bpy.types.Operator):
     def invoke(self,context,event):
         result=self.execute(context)
         if result!={'FINISHED'}:return result
-        return context.window_manager.invoke_props_dialog(self,width=560,confirm_text='Close')
+        return invoke_dialog(self,context,event,width=560,confirm_text='Close')
 
     def draw(self,context):
         wrapped(self.layout,context,context.scene.ruster.asset_status,icon='info',width=500)

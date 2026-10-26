@@ -136,9 +136,9 @@ def step():
                 assert (Path(temporary.name)/'Untitled Saved.ruster').is_file()
                 assert not bpy.context.scene.objects and not quitting._continuation
                 scene.root_object([wire.encode(2,0,42)],bpy.context.scene.collection)
-                # Native dialogs follow the pointer. Place it for the fixture's
-                # fixed-coordinate Don't Save click; the app must not warp it.
-                window.cursor_warp(window.width//2,window.height//2)
+                # The confirmation must open centrally even when invoked with
+                # the pointer near the top-right window controls.
+                window.cursor_warp(window.width-10,window.height-10)
                 bpy.ops.ruster.new('INVOKE_DEFAULT')
             elif phase==21:
                 assert quitting._dialog_open

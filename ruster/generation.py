@@ -4,7 +4,7 @@ import secrets
 import bpy
 from bpy.props import IntProperty,PointerProperty
 from .core import generation as backend,settings
-from .ui_style import action,properties,wrapped
+from .ui_style import action,properties,wrapped,invoke_dialog
 
 _job=None
 _classes=[]
@@ -55,7 +55,7 @@ class RUSTER_OT_generate_map(bpy.types.Operator):
     bl_idname='ruster.generate_map'
     bl_label='Generate Rust Map'
     bl_description='Generate a seeded procedural map using an installed RustDedicated; keep the current project open'
-    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self,width=460)
+    def invoke(self,context,event):return invoke_dialog(self,context,event,width=460)
     def draw(self,context):
         state=context.window_manager.ruster_generation
         fields=properties(self.layout.column());fields.prop(state,'seed');fields.prop(state,'size')

@@ -47,6 +47,9 @@ def step():
             elif phase == 1:
                 assert decisions == ['quit'] and not quitting._dialog_open
                 scene.prefab_roots()[0].location.x = 7
+                # Native titlebar close must center its dialog even when the
+                # pointer is still next to the top-right window controls.
+                window.cursor_warp(window.width-10,window.height-10)
                 close()
             elif phase == 2:
                 assert quitting._dialog_open and decisions == ['quit']
