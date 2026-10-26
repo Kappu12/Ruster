@@ -93,7 +93,7 @@ def centered_placements(placements, origin):
     return canonical_placements(rows)
 
 
-def preview_map(placements, size=1000):
+def preview_map(placements, size=1000, *, preload=()):
     """A void preview map: hidden terrain holes and no world scenery or paths."""
     placements = canonical_placements(placements)
     if size != 1000:raise ValueError('The void preview map is fixed at 1,000 metres')
@@ -114,8 +114,18 @@ def preview_map(placements, size=1000):
             wire.encode(1, 2, name.encode()), wire.encode(2, 2, payload)])))
     # Baking the initial scene loads its original asset scenes on both sides.
     # Both companions claim these exact placements before applying any edits.
-    for row in placements:
-        record = [wire.encode(1, 2, b'RusterPreview'), wire.encode(2, 0, row['uid'])]
+    # Markers are map records only: never part of the editable snapshots or
+    # initial placement claims. Their records make Rust load every asset scene.
+    from .preview_preload import WARMUP_CATEGORY
+    preload = list(preload)
+    if len(preload) > 4096:raise ValueError('Too many prefab preload markers')
+    markers = []
+    for index, marker in enumerate(preload):
+        if type(marker.get('uid')) is not int or not 0 < marker['uid'] < 2**32:raise ValueError('Invalid preload prefab ID')
+        markers.append({'uid': marker['uid'], 'position': (10000.+index*32., -10000., 10000.),
+            'euler': (0., 0., 0.), 'scale': (.001, .001, .001)})
+    for category, row in [(b'RusterPreview', row) for row in placements]+[(WARMUP_CATEGORY, row) for row in markers]:
+        record = [wire.encode(1, 2, category), wire.encode(2, 0, row['uid'])]
         for number, values in ((3, row['position']), (4, row.get('euler', (0., 0., 0.))), (5, row['scale'])):
             record.append(wire.encode(number, 2, wire.set_vector(None, values)))
         fields.append(wire.encode(3, 2, wire.serialize(record)))

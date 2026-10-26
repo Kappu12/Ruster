@@ -15,6 +15,11 @@ game/server in Ruster's executable.
    Setup shows an approximate overall percentage and the SteamCMD, download,
    verification and plugin-loader phases. A completed Rust download is reused
    if a later setup stage fails, including SteamCMD's first-run self-relaunch.
+   The generated map also includes one hidden preload marker for **every** asset
+   scene listed in the installed client and server manifests, including auto-load
+   and monument packs. The panel displays the pack count. Setup fails with the
+   pack name if it cannot select a shared, valid prefab ID; it never silently skips
+   a pack. Loading all monument packs increases startup time and memory use.
 3. Close any running Rust client. Click **Launch Rust Without EAC**, or run
    `RustClient.exe` directly from your Rust installation. Keep Steam running, but
    do not use Steam's Play button or `Rust.exe` to start this preview session.
@@ -105,6 +110,12 @@ development, at the user's request. Runtime errors appear in the panel and logs.
 The local dedicated server has been booted successfully with an empty void map,
 the companion loaded, and runtime EAC-disabled readiness verified. Client-side
 prefab rendering and injected gameplay remain untested by development tooling.
+The all-pack preview map has also been booted in a separate dedicated server
+with all 29 installed pack markers. A concrete cube absent from the initial
+composition was then created successfully through a live update. The test server
+was stopped afterwards; no running game client was launched or injected by these
+checks. Pack/template availability on the actual client still needs visual
+verification.
 The revised loader, all required Unity signatures and the bootstrap singleton
 match the installed client's offline metadata. Standalone synthetic IL2CPP
 fixtures cover adding previously absent assets, failed loads and transforms,
@@ -113,7 +124,12 @@ prove that a specific prefab can render or initialize inside the running game.
 
 The composition is centered in a 1,000 metre void map. Terrain is entirely holes,
 the ocean is moved out of view through Rust's replicated environment setting,
-and no extra scenery or platform is added. The initial composition's placement
+and no platform is added. Pack preload markers are tiny and placed at least
+10,000 metres from the origin and 10,000 metres underground, in their own
+`RusterPreviewWarmup` map category. The server removes its hidden instances before
+players join while retaining the loaded asset-scene templates. These markers
+never enter the authoring scene, exported composition, or live snapshots.
+The initial composition's placement
 center is translated to the origin in the preview snapshots; the project itself
 stays unchanged. That translation stays fixed during edits. Starting empty uses
 the first composition's center instead. Load the composition before starting so
@@ -121,7 +137,7 @@ the map can preload its original asset scenes. The companion supplies a spawn
 point above available prefab colliders. Use owner permissions and Rust's F1
 `noclip` for free movement when the composition has no walkable surface.
 
-Both companions claim the baked placements instead of adding
+Both companions claim the authored baked placements instead of adding
 duplicates. A newly introduced asset that Rust cannot load dynamically reports
 an error; restart preview with that asset in the initial composition. There is a
 2,000 placement limit. Updates stage replacements before removing previous

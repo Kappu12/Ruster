@@ -10,7 +10,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.0")]
+    [Info("RusterPreview", "Ruster", "0.3.1")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -71,6 +71,17 @@ namespace Oxide.Plugins
                 if(!Active())return;
                 // Claim only after the entire initial scene has matched.
                 foreach(var entry in claimed)objects.Add(entry.Key,entry.Value);
+                // Map-only records already caused Rust to load their asset
+                // scenes. Remove the distant server instances before players
+                // join; keep the asset-scene templates available for live edits.
+                HashSet<GameObject> preload;
+                if(World.SpawnedPrefabs.TryGetValue("RusterPreviewWarmup",out preload))
+                {
+                    var preloadCount=preload.Count;
+                    foreach(var obj in preload.ToArray())Destroy(obj);
+                    World.SpawnedPrefabs.Remove("RusterPreviewWarmup");
+                    Puts("Preloaded "+preloadCount+" prefab packs; removed hidden server markers.");
+                }
                 if(!string.IsNullOrEmpty(config.owner)&&config.owner.Length==17&&config.owner.All(c=>c>='0'&&c<='9'))
                     ConsoleSystem.Run(ConsoleSystem.Option.Server,"ownerid "+config.owner+" \"Ruster preview owner\"");
                 initialized=true;Tick();timer.Every(0.25f,Tick);

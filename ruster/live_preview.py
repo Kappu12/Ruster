@@ -29,6 +29,7 @@ _snapshot_error = ''
 _client_allowed = False
 _module_loaded = False
 _client_status = ''
+_server_status = ''
 _logs = ()
 _status = {'status': 'IDLE', 'message': 'Start a private local Rust preview server'}
 _next_status = 0.
@@ -134,19 +135,21 @@ def capture_snapshot():
 
 
 def refresh_status():
-    global _status, _client_status, _logs
+    global _status, _client_status, _server_status, _logs
     _status = _job.info() if _job else {'status': 'IDLE', 'message': 'Start a private local Rust preview server'}
     _logs = tuple(_job.log_tail(6)) if _job else ()
-    _client_status = ''
+    _client_status = '';_server_status = ''
     if _job:
         try:_client_status = ' · '.join(backend.read_bounded(_job.directory/'client.status').splitlines()[:2])
+        except (OSError, ValueError, UnicodeError):pass
+        try:_server_status = ' · '.join(backend.read_bounded(_job.directory/'server.status').splitlines()[:2])
         except (OSError, ValueError, UnicodeError):pass
 
 
 def redraw_panel():
     global _ui_signature
     current = (tuple(_status.items()), _probe_message, _client_allowed, _module_loaded,
-        bool(_future), _error, _snapshot_error, _client_status, _logs)
+        bool(_future), _error, _snapshot_error, _client_status, _server_status, _logs)
     if current == _ui_signature:return
     _ui_signature = current
     for window in bpy.context.window_manager.windows:
@@ -204,7 +207,9 @@ class RUSTER_OT_start_live_preview(bpy.types.Operator):
             state = context.window_manager.ruster_live_preview
             rows = placements()
             config = settings.load();config['preview_port'] = state.port;config['preview_owner'] = backend.owner_id(state.owner);settings.save(config)
-            _job = backend.PreviewSession(settings.user_root()/'live-preview', state.port, state.owner, rows, update_server=state.update_server).start()
+            from . import scene
+            _job = backend.PreviewSession(settings.user_root()/'live-preview', state.port, state.owner, rows, update_server=state.update_server,
+                client_install=installation(), catalog_path=scene.cache_dir()/'catalog.sqlite3').start()
             _last_snapshot = rows;_error = '';_snapshot_error = '';_capture = None;_dirty = True;_next_status = 0
             refresh_status()
             return {'FINISHED'}
@@ -311,6 +316,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         action(controls, 'ruster.stop_live_preview' if active else 'ruster.start_live_preview')
         message = status()
         wrapped(layout, context, message['message'], icon='error' if message['status'] == 'FAILED' else 'busy' if active and not running else 'info')
+        if message.get('pack_count'):wrapped(layout, context, f"Preload map: all {message['pack_count']} prefab packs", icon='info')
         if active and message.get('progress') is not None:
             layout.progress(factor=message['progress'], type='BAR', text=f"Setup · ~{message['progress']:.0%}")
         row = layout.row(align=True);row.label(text=f'127.0.0.1:{_job.port if active else state.port}')
@@ -332,6 +338,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         wrapped(notice, context, RESTART_NOTICE, icon='locked')
         if _error:wrapped(layout, context, _error, icon='error')
         if _snapshot_error:wrapped(layout, context, _snapshot_error, icon='error')
+        if _server_status.startswith('ERROR'):wrapped(layout, context, 'Server: '+_server_status, icon='error')
         if _client_status:wrapped(layout, context, 'Client: '+_client_status, icon='error' if _client_status.startswith(('ERROR', 'BLOCKED')) else 'info')
         wrapped(layout, context, f'Rust F1: connect 127.0.0.1:{_job.port if active else state.port}')
         details = section(layout, 'ruster_preview_eac_checks', 'Setup and EAC Checks', 'locked')
@@ -340,6 +347,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
             wrapped(details, context, 'Client preview is experimental. Use Launch Rust Without EAC or run RustClient.exe directly. Keep Steam running; Steam Play and Rust.exe launch EAC. Wait for the main menu before Inject.')
             wrapped(details, context, 'Inject verifies the executable, launch information, loaded modules, EAC processes, services and drivers. Incomplete inspection blocks injection. The server must report EAC disabled before Inject is enabled.')
             wrapped(details, context, 'New prefabs use the client\'s own asset loader. A failed load leaves the previous preview scene intact. Some assets may still require inclusion in the initial map.')
+            wrapped(details, context, 'The preview map preloads every installed prefab pack with a hidden marker. Monument packs increase startup time and memory use.')
         console = section(layout, 'ruster_preview_console', 'Server Console', 'console', closed=False)
         if console is not None:
             row = console.row();row.enabled = running
@@ -379,11 +387,11 @@ def after_load(_dummy):
 
 def reset_state():
     global _job, _future, _future_kind, _clients, _probe_message, _next_probe, _last_snapshot, _error
-    global _snapshot_error, _client_allowed, _module_loaded, _client_status, _logs, _status, _next_status
+    global _snapshot_error, _client_allowed, _module_loaded, _client_status, _server_status, _logs, _status, _next_status
     global _dirty, _generation, _capture, _capture_generation, _capture_rows, _ui_signature
     _job = None;_future = None;_future_kind = '';_clients = [];_probe_message = 'Checking for Rust…'
     _next_probe = 0.;_last_snapshot = None;_error = '';_snapshot_error = ''
-    _client_allowed = False;_module_loaded = False;_client_status = '';_logs = ()
+    _client_allowed = False;_module_loaded = False;_client_status = '';_server_status = '';_logs = ()
     _status = {'status': 'IDLE', 'message': 'Start a private local Rust preview server'};_next_status = 0.
     _dirty = True;_generation = 0;_capture = None;_capture_generation = 0;_capture_rows = [];_ui_signature = None
 

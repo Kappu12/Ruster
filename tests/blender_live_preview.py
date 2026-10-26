@@ -105,6 +105,7 @@ def run():
                 def prop(self, *args, **kwargs):pass
                 def operator(self, *args, **kwargs):self.labels.append(kwargs.get('text', ''));return SimpleNamespace()
                 def panel(self, *args, **kwargs):return self, self
+            (root/'server.status').write_text('ERROR\nSynthetic missing asset-scene dependency\n')
             layout = Layout();live_preview.refresh_status()
             saved_install, saved_read = live_preview.installation, live_preview.backend.read_bounded
             def no_io(*args, **kwargs):raise AssertionError('Preview draw performed I/O')
@@ -124,6 +125,7 @@ def run():
             finally:
                 live_preview.installation, live_preview.backend.read_bounded = saved_install, saved_read
             assert 'restart your computer' in ' '.join(layout.labels)
+            assert 'Server: ERROR' in ' '.join(layout.labels) and 'Synthetic missing asset-scene dependency' in ' '.join(layout.labels)
             live_preview.document_replaced();assert job.stopped
             assert live_preview._last_snapshot is None and live_preview._capture is None
             job.active = False;state.port = 29200

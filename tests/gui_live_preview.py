@@ -23,7 +23,7 @@ state = {'phase': 0, 'draws': set(), 'started': time.monotonic()}
 class FakeJob:
     active = True;status = 'RUNNING';port = 28015;directory = root
     def info(self):return {'status': self.status, 'message': getattr(self, 'message', 'Local server ready at 127.0.0.1:28015'),
-        'progress': getattr(self, 'progress', None)}
+        'progress': getattr(self, 'progress', None), 'pack_count': getattr(self, 'pack_count', 0)}
     def log_tail(self, count):return ['Local preview bridge ready', 'Server scene revision 8 (24 placements)']
     def update(self, rows):pass
     def close(self):pass
@@ -97,8 +97,15 @@ def tick():
             live_preview._module_loaded = True
             (root/'client.status').write_text('ERROR\nPreview API unavailable: typed bootstrap loaders=0, loader instances=1\n')
             live_preview.refresh_status()
+        elif phase == 8:
+            live_preview._job.pack_count = 29
+            live_preview._probe_message = 'Preview module is loaded'
+            live_preview._clients[0].command_line = 'RustClient.exe'
+            (root/'client.status').write_text('READY\nLive scene revision 1 applied (0 placements).\n')
+            (root/'server.status').write_text('ERROR\nRust cannot load concrete_cube.prefab: AssetScene-props.common is unavailable\n')
+            live_preview.refresh_status()
         else:
-            assert state['draws'] >= {0, 1, 2, 3, 4, 5, 6, 7}
+            assert state['draws'] >= {0, 1, 2, 3, 4, 5, 6, 7, 8}
             live_preview._job = None
             ruster.unregister()
             print('RUSTER_LIVE_PREVIEW_DRAW_STATES_OK', flush=True)

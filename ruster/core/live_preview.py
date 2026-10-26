@@ -213,13 +213,17 @@ def command(binary, identity, port, url, log):
 
 
 class PreviewSession:
-    def __init__(self, root, port=28015, owner='', placements=(), *, update_server=False):
+    def __init__(self, root, port=28015, owner='', placements=(), *, update_server=False, client_install=None, catalog_path=None):
         if sys.platform != 'win32':raise ValueError('Live client preview currently requires Windows x64')
         self.port = port_number(port);self.owner = owner_id(owner);check_ports(port)
         self.root = Path(root).resolve();self.root.mkdir(parents=True, exist_ok=True)
         self.install = self.root/'server';self.install.mkdir(exist_ok=True)
         self.identity = 'ruster_preview_'+uuid.uuid4().hex
         self.update_server = bool(update_server)
+        if bool(client_install) != bool(catalog_path):raise ValueError('Prefab pack preload needs the Rust installation and catalog')
+        self.client_install = Path(client_install) if client_install else None
+        self.catalog_path = Path(catalog_path) if catalog_path else None
+        self.preload = []
         self.directory = self.root/'sessions'/self.identity;self.directory.mkdir(parents=True)
         self.log = self.directory/'server.log'
         self.status = 'STARTING';self.message = 'Preparing local preview'
@@ -358,6 +362,14 @@ class PreviewSession:
         if self.status != 'RUNNING':self.note('RUNNING', 'Local server ready · EAC disabled')
         return True
 
+    def _prepare_map(self):
+        if not self.client_install:return
+        from .preview_preload import plan
+        self.note('STARTING', 'Preparing one preload marker for every prefab pack')
+        self.preload = plan(self.client_install/'Bundles/AssetSceneManifest.json', self.install/'Bundles/AssetSceneManifest.json', self.catalog_path)
+        self._map = preview_map(self._initial, preload=self.preload)
+        atomic_write(self.directory/'preload.json', json.dumps({'packs': self.preload}, indent=2).encode())
+
     def _run(self):
         final_status, final_message = 'STOPPED', 'Local preview stopped'
         lease = installation_lease(self.root);leased = False
@@ -366,6 +378,7 @@ class PreviewSession:
             self.owned_job = OwnedProcessJob()
             binary = self._install()
             if self.cancel.is_set():raise InterruptedError()
+            self._prepare_map()
             check_ports(self.port)
             plugins = self.install/'carbon/plugins';plugins.mkdir(parents=True, exist_ok=True)
             source = Path(__file__).resolve().parents[1]/'preview_native/RusterPreview.cs'
@@ -468,7 +481,7 @@ class PreviewSession:
         with self.lock:
             return {'status': self.status, 'message': self.message, 'address': f'127.0.0.1:{self.port}',
                 'directory': str(self.directory), 'revision': self.revision, 'events': list(self.events),
-                'progress': self.progress, 'phase_progress': self.phase_progress, 'phase': self.phase}
+                'progress': self.progress, 'phase_progress': self.phase_progress, 'phase': self.phase, 'pack_count': len(self.preload)}
 
     def log_tail(self, lines=8):
         values = []
