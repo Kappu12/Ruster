@@ -5,6 +5,26 @@ namespace Ruster.Preview
     using System.Collections.Generic;
     using System.IO;
     using System.Text;
+    internal static class PeerProof
+    {
+        public static byte[] Encode(string token, uint serverPid, uint port, long timestamp, string url)
+        {
+            if (token == null || token.Length != 64 || serverPid == 0 || port == 0 || port > 65535 || timestamp <= 0
+                || url == null || !url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal))
+                throw new InvalidDataException("Invalid local connection proof");
+            var address = new UTF8Encoding(false, true).GetBytes(url);
+            if (address.Length > 2048) throw new InvalidDataException("Invalid local map URL");
+            using (var output = new MemoryStream())
+            using (var writer = new BinaryWriter(output))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("RUSPEER2"));
+                for (int i = 0; i < 64; i += 2) writer.Write(Convert.ToByte(token.Substring(i, 2), 16));
+                writer.Write(serverPid); writer.Write(port); writer.Write(timestamp);
+                writer.Write((uint)address.Length); writer.Write(address);
+                return output.ToArray();
+            }
+        }
+    }
     internal sealed class Placement
     {
         public ulong key;

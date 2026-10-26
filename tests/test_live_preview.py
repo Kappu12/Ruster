@@ -33,7 +33,7 @@ def ready_session(path, **changes):
     (path/'active.flag').touch();(path/'scene.bin').touch()
     (path/'server.pid').write_text('123')
     (path/'config.json').write_text(json.dumps({'token': 'a'*64}))
-    report = {'protocol': 1, 'secure': False, 'ip': '127.0.0.1', 'pid': 123,
+    report = {'protocol': 1, 'client_protocol': 2, 'secure': False, 'ip': '127.0.0.1', 'pid': 123,
               'token': 'a'*64, 'timestamp': time.time(), **changes}
     (path/'server.ready').write_text(json.dumps(report))
     return report
@@ -235,7 +235,7 @@ def test_owned_server_lifecycle_with_synthetic_child(tmp_path, monkeypatch):
 from pathlib import Path
 session=Path(os.environ['RUSTER_PREVIEW_DIR'])
 token=json.loads((session/'config.json').read_text())['token']
-(session/'server.ready').write_text(json.dumps(dict(protocol=1,secure=False,ip='127.0.0.1',pid=os.getpid(),token=token,timestamp=time.time())))
+(session/'server.ready').write_text(json.dumps(dict(protocol=1,client_protocol=2,secure=False,ip='127.0.0.1',pid=os.getpid(),token=token,timestamp=time.time())))
 while (session/'active.flag').exists():time.sleep(.02)
 """)
     real_popen = subprocess.Popen
@@ -274,6 +274,11 @@ def test_server_runtime_report_must_confirm_inactive_eac(tmp_path):
                    {'protocol': 1, 'ip': '127.0.0.1'}):
         path.write_text(json.dumps(report))
         with pytest.raises(ValueError):server.verify_server_ready(path)
+
+
+def test_old_companion_protocol_requires_server_restart(tmp_path):
+    ready_session(tmp_path, client_protocol=1)
+    with pytest.raises(ValueError, match='updated map-object bridge'):server.verify_session(tmp_path)
 
 
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows file sharing regression')

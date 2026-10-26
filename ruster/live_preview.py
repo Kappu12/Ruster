@@ -318,11 +318,13 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         layout.separator()
         if not _clients:wrapped(layout, context, 'Keep Steam open. Launch without EAC and wait for the main menu.', icon='info')
         row = layout.row();row.enabled = not bool(_future)
+        failed_module = _module_loaded and _client_status.startswith(('ERROR', 'BLOCKED'))
         if _clients:
             row.enabled = row.enabled and running and _client_allowed and not _module_loaded
-            action(row, 'ruster.inject_preview', text='Preview Module Loaded' if _module_loaded else None)
+            action(row, 'ruster.inject_preview', text='Preview Unavailable' if failed_module else 'Preview Module Loaded' if _module_loaded else None)
         else:action(row, 'ruster.launch_preview_rust')
-        wrapped(layout, context, _probe_message, icon='error' if _clients and not _client_allowed and not _module_loaded else 'info')
+        wrapped(layout, context, 'Module loaded; preview could not start. See the client error below.' if failed_module else _probe_message,
+            icon='error' if failed_module or (_clients and not _client_allowed and not _module_loaded) else 'info')
         if _clients and not running and not _module_loaded:
             wrapped(layout, context, 'Inject unlocks when the local server is Ready.', icon='busy')
         wrapped(layout, context, 'Active or unknown EAC blocks Inject.', icon='locked')
@@ -337,6 +339,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
             update = details.column();update.enabled = not active;update.prop(state, 'update_server')
             wrapped(details, context, 'Client preview is experimental. Use Launch Rust Without EAC or run RustClient.exe directly. Keep Steam running; Steam Play and Rust.exe launch EAC. Wait for the main menu before Inject.')
             wrapped(details, context, 'Inject verifies the executable, launch information, loaded modules, EAC processes, services and drivers. Incomplete inspection blocks injection. The server must report EAC disabled before Inject is enabled.')
+            wrapped(details, context, 'New prefabs use the client\'s own asset loader. A failed load leaves the previous preview scene intact. Some assets may still require inclusion in the initial map.')
         console = section(layout, 'ruster_preview_console', 'Server Console', 'console', closed=False)
         if console is not None:
             row = console.row();row.enabled = running

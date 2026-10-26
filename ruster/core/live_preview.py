@@ -108,6 +108,8 @@ def verify_server_ready(path, *, expected_pid=None, expected_token=None, now=Non
     report = json.loads(read_bounded(path))
     if report.get('protocol') != 1 or report.get('secure') is not False or report.get('ip') != '127.0.0.1':
         raise ValueError('The server did not verify inactive EAC and a loopback-only listener')
+    if report.get('client_protocol') != 2:
+        raise ValueError('Restart Live Preview to load the updated map-object bridge')
     timestamp = report.get('timestamp')
     if (type(timestamp) not in (int, float) or not math.isfinite(timestamp)
             or not -2 <= (time.time() if now is None else now)-timestamp <= SERVER_LEASE_SECONDS):
@@ -370,6 +372,7 @@ class PreviewSession:
             atomic_write(plugins/'RusterPreview.cs', source.read_bytes()+b'\n'+source.with_name('PreviewProtocol.cs').read_bytes())
             self._serve_map()
             atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url, 'token': self.token, 'origin': self.origin}).encode())
+            atomic_write(self.directory/'session.token', self.token.encode('ascii'))
             atomic_write(self.directory/'active.flag', b'Ruster local preview\n')
             env = {**os.environ, 'RUSTER_PREVIEW_DIR': str(self.directory)}
             self.note('STARTING', 'Starting the private Rust server; waiting for the preview plugin')

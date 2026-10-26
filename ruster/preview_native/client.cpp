@@ -1,7 +1,9 @@
 // Local, explicitly injected Rust IL2CPP prefab preview. GPL-3.0-or-later.
 // No game offsets, code patches, driver, EAC disabling, or remote endpoints.
 #define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
 #include <windows.h>
+#include <iphlpapi.h>
 #include <tlhelp32.h>
 #include <winsvc.h>
 #include <stdint.h>
@@ -29,7 +31,8 @@ DWORD windowThread;
 HANDLE worker;
 std::mutex pendingMutex;
 std::vector<uint8_t> pending;
-bool ready=false,initializationFailed=false;
+bool ready=false;
+std::atomic<bool> initializationFailed{false};
 std::atomic<bool> stopping{false}, stopped{false};
 std::atomic_flag callbackActive=ATOMIC_FLAG_INIT;
 uint64_t applied=0;
@@ -107,6 +110,61 @@ std::vector<uint8_t> readBytes(const wchar_t* name,size_t maximum) {
 }
 std::string readText(const wchar_t* name){auto data=readBytes(name,4096);return {data.begin(),data.end()};}
 
+template<typename T>T take(const std::vector<uint8_t>& data,size_t& offset) {
+    if(offset+sizeof(T)>data.size())throw std::runtime_error("Truncated preview data");
+    T result;memcpy(&result,data.data()+offset,sizeof(T));offset+=sizeof(T);return result;
+}
+struct Peer {std::string token,url;uint32_t server,port;int64_t timestamp;};
+Peer decodePeer(const std::vector<uint8_t>& data) {
+    if(data.size()<60||data.size()>2108||memcmp(data.data(),"RUSPEER2",8))throw std::runtime_error("Invalid local connection proof");
+    Peer peer;const char* hex="0123456789abcdef";
+    for(size_t i=8;i<40;i++){peer.token+=hex[data[i]>>4];peer.token+=hex[data[i]&15];}
+    size_t offset=40;peer.server=take<uint32_t>(data,offset);peer.port=take<uint32_t>(data,offset);
+    peer.timestamp=take<int64_t>(data,offset);auto length=take<uint32_t>(data,offset);
+    if(!peer.server||!peer.port||peer.port>65535||peer.timestamp<=0||!length||length>2048||offset+length!=data.size())
+        throw std::runtime_error("Invalid local connection identity");
+    peer.url=std::string(data.begin()+offset,data.end());
+    if(peer.url.rfind("http://127.0.0.1:",0)!=0||peer.url.find('\0')!=std::string::npos)
+        throw std::runtime_error("Invalid local map URL");
+    return peer;
+}
+uint32_t decimal(const std::string& text) {
+    if(text.empty()||text.size()>10||!std::all_of(text.begin(),text.end(),[](unsigned char c){return c>='0'&&c<='9';}))
+        throw std::runtime_error("Invalid preview server PID");
+    auto value=std::stoull(text);if(!value||value>UINT32_MAX)throw std::runtime_error("Invalid preview server PID");return uint32_t(value);
+}
+bool matchingPeer(const Peer& peer,const std::string& token,uint32_t pid,const std::string& url,int64_t now) {
+    return token.size()==64&&peer.token==token&&peer.server==pid&&peer.url==url&&peer.timestamp>=now-1500&&peer.timestamp<=now+2000;
+}
+bool ownsUdpFamily(uint32_t port,ULONG family) {
+    DWORD size=0;
+    if(GetExtendedUdpTable(nullptr,&size,FALSE,family,UDP_TABLE_OWNER_PID,0)!=ERROR_INSUFFICIENT_BUFFER)return false;
+    if(size<sizeof(DWORD)||size>4*1024*1024)return false;
+    std::vector<uint8_t> data(size);
+    if(GetExtendedUdpTable(data.data(),&size,FALSE,family,UDP_TABLE_OWNER_PID,0)!=NO_ERROR)return false;
+    if(family==AF_INET6) {
+        auto table=reinterpret_cast<MIB_UDP6TABLE_OWNER_PID*>(data.data());
+        if(table->dwNumEntries>(data.size()-offsetof(MIB_UDP6TABLE_OWNER_PID,table))/sizeof(MIB_UDP6ROW_OWNER_PID))return false;
+        for(DWORD i=0;i<table->dwNumEntries;i++) {
+            auto& row=table->table[i];auto addr=row.ucLocalAddr;
+            bool wildcard=std::all_of(addr,addr+16,[](uint8_t c){return c==0;});
+            bool loopback=std::all_of(addr,addr+15,[](uint8_t c){return c==0;})&&addr[15]==1;
+            bool mapped=std::all_of(addr,addr+10,[](uint8_t c){return c==0;})&&addr[10]==255&&addr[11]==255&&addr[12]==127;
+            if(row.dwOwningPid==GetCurrentProcessId()&&ntohs(uint16_t(row.dwLocalPort))==port&&(wildcard||loopback||mapped))return true;
+        }
+        return false;
+    }
+    auto table=reinterpret_cast<MIB_UDPTABLE_OWNER_PID*>(data.data());
+    if(table->dwNumEntries>(data.size()-offsetof(MIB_UDPTABLE_OWNER_PID,table))/sizeof(MIB_UDPROW_OWNER_PID))return false;
+    for(DWORD i=0;i<table->dwNumEntries;i++) {
+        auto& row=table->table[i];
+        if(row.dwOwningPid==GetCurrentProcessId()&&ntohs(uint16_t(row.dwLocalPort))==port
+            &&(row.dwLocalAddr==0||(ntohl(row.dwLocalAddr)&0xff000000)==0x7f000000))return true;
+    }
+    return false;
+}
+bool ownsUdpPort(uint32_t port){return ownsUdpFamily(port,AF_INET)||ownsUdpFamily(port,AF_INET6);}
+
 // Use the game's public IL2CPP reflection ABI. Signature matching tolerates
 // renamed game types, while ambiguous/missing methods fail without patching.
 struct Api {
@@ -117,10 +175,13 @@ struct Api {
     Class*(*image_get_class)(const Image*,size_t);
     const char*(*class_get_name)(Class*);
     const char*(*class_get_namespace)(Class*);
+    Class*(*class_get_declaring_type)(Class*);
+    Class*(*class_from_type)(const Type*);
     const Method*(*class_get_methods)(Class*,void**);
     Field*(*class_get_fields)(Class*,void**);
     const Type*(*field_get_type)(Field*);
     int(*field_get_flags)(Field*);
+    const char*(*field_get_name)(Field*);
     void(*field_static_get_value)(Field*,void*);
     const char*(*method_get_name)(const Method*);
     uint32_t(*method_get_param_count)(const Method*);
@@ -147,8 +208,9 @@ struct Api {
         API(domain_get,"domain_get");API(domain_get_assemblies,"domain_get_assemblies");
         API(assembly_get_image,"assembly_get_image");API(image_get_class_count,"image_get_class_count");
         API(image_get_class,"image_get_class");API(class_get_name,"class_get_name");API(class_get_namespace,"class_get_namespace");
+        API(class_get_declaring_type,"class_get_declaring_type");API(class_from_type,"class_from_type");
         API(class_get_methods,"class_get_methods");API(class_get_fields,"class_get_fields");
-        API(field_get_type,"field_get_type");API(field_get_flags,"field_get_flags");API(field_static_get_value,"field_static_get_value");
+        API(field_get_type,"field_get_type");API(field_get_flags,"field_get_flags");API(field_get_name,"field_get_name");API(field_static_get_value,"field_static_get_value");
         API(method_get_name,"method_get_name");API(method_get_param_count,"method_get_param_count");
         API(method_get_param,"method_get_param");API(method_get_return_type,"method_get_return_type");API(method_get_flags,"method_get_flags");
         API(type_get_name,"type_get_name");API(free_,"free");API(runtime_invoke,"runtime_invoke");API(string_new,"string_new");
@@ -158,7 +220,10 @@ struct Api {
 #undef API
     }
     std::string name(const Type* type){char* p=type_get_name(type);if(!p)return {};std::string s=p;free_(p);return s;}
-    std::string name(Class* type){std::string ns=class_get_namespace(type);return ns.empty()?class_get_name(type):ns+"."+class_get_name(type);}
+    std::string name(Class* type){
+        if(auto parent=class_get_declaring_type(type))return name(parent)+"+"+class_get_name(type);
+        std::string ns=class_get_namespace(type);return ns.empty()?class_get_name(type):ns+"."+class_get_name(type);
+    }
     Object* call(const Method* method,void* self,void** args=nullptr){
         if(!method)throw std::runtime_error("A required game method is unavailable");
         Object* error=nullptr;Object* value=runtime_invoke(method,self,args,&error);
@@ -174,93 +239,105 @@ struct Api {
 
 const Method *createPrefab,*getTransform,*setPosition,*setRotation,*setScale,*destroyObject;
 const Method *findPrefab,*getComponent,*findObjects,*getName,*getPosition,*getScene,*sceneValid,*arrayGet;
+const Method *setActive,*setName,*objectAlive;
 Object *gameObjectType=nullptr,*networkableType=nullptr;
 Object* manager=nullptr;
-std::vector<Field*> worldUrls;
-bool signature(const Method* method,const char* result,std::initializer_list<const char*> params) {
+bool signature(const Method* method,const char* result,const std::vector<const char*>& params) {
     if(api.method_get_param_count(method)!=params.size()||api.name(api.method_get_return_type(method))!=result)return false;
     uint32_t i=0;for(auto p:params)if(api.name(api.method_get_param(method,i++))!=p)return false;
     return true;
 }
 
-void initialize() {
-    api.load();if(!api.thread_current())throw std::runtime_error("The game window is not on an IL2CPP main thread");
+struct Binding {const char* role;const char* owner;const char* member;const char* result;bool isStatic;std::vector<const char*> params;const Method** slot;};
+const std::vector<Binding>& bindings() {
+    static const std::vector<Binding> result={
+        {"transform", "UnityEngine.GameObject", "get_transform", "UnityEngine.Transform", false, {}, &getTransform},
+        {"scene", "UnityEngine.GameObject", "get_scene", "UnityEngine.SceneManagement.Scene", false, {}, &getScene},
+        {"component", "UnityEngine.GameObject", "GetComponent", "UnityEngine.Component", false, {"System.Type"}, &getComponent},
+        {"name", "UnityEngine.Object", "get_name", "System.String", false, {}, &getName},
+        {"position", "UnityEngine.Transform", "get_position", "UnityEngine.Vector3", false, {}, &getPosition},
+        {"valid scene", "UnityEngine.SceneManagement.Scene", "IsValid", "System.Boolean", false, {}, &sceneValid},
+        {"object search", "UnityEngine.Resources", "FindObjectsOfTypeAll", "UnityEngine.Object[]", true, {"System.Type"}, &findObjects},
+        {"array element", "System.Array", "GetValue", "System.Object", false, {"System.Int32"}, &arrayGet},
+        {"move", "UnityEngine.Transform", "set_position", "System.Void", false, {"UnityEngine.Vector3"}, &setPosition},
+        {"rotate", "UnityEngine.Transform", "set_rotation", "System.Void", false, {"UnityEngine.Quaternion"}, &setRotation},
+        {"scale", "UnityEngine.Transform", "set_localScale", "System.Void", false, {"UnityEngine.Vector3"}, &setScale},
+        {"destroy", "UnityEngine.Object", "Destroy", "System.Void", true, {"UnityEngine.Object"}, &destroyObject},
+        {"instantiate", "UnityEngine.Object", "Instantiate", "UnityEngine.Object", true, {"UnityEngine.Object", "UnityEngine.Vector3", "UnityEngine.Quaternion"}, &createPrefab},
+        {"activate", "UnityEngine.GameObject", "SetActive", "System.Void", false, {"System.Boolean"}, &setActive},
+        {"name placement", "UnityEngine.Object", "set_name", "System.Void", false, {"System.String"}, &setName},
+        {"object lifetime", "UnityEngine.Object", "op_Implicit", "System.Boolean", true, {"UnityEngine.Object"}, &objectAlive},
+    };
+    return result;
+}
+void resolveApi() {
+    for(auto& binding:bindings())*binding.slot=nullptr;
+    gameObjectType=nullptr;networkableType=nullptr;manager=nullptr;findPrefab=nullptr;
     size_t count=0;auto assemblies=api.domain_get_assemblies(api.domain_get(),&count);
     if(!assemblies||count>4096)throw std::runtime_error("IL2CPP assemblies are unavailable");
-    worldUrls.clear();
-    int factories=0;
+    int loaders=0,singletons=0;
     for(size_t a=0;a<count;a++) {
         auto image=api.assembly_get_image(assemblies[a]);size_t total=api.image_get_class_count(image);
         for(size_t c=0;c<total;c++) {
             Class* klass=api.image_get_class(image,c);if(!klass)continue;
-            std::string type=api.name(klass);void* it=nullptr;bool hasWorld=false;
+            std::string type=api.name(klass);void* it=nullptr;
             if(type=="UnityEngine.GameObject")gameObjectType=api.type_get_object(api.class_get_type(klass));
             if(type=="BaseNetworkable")networkableType=api.type_get_object(api.class_get_type(klass));
-            std::vector<Field*> strings;
-            while(Field* f=api.class_get_fields(klass,&it))if(api.field_get_flags(f)&0x10) {
-                auto fieldType=api.name(api.field_get_type(f));
-                if(fieldType=="WorldSerialization")hasWorld=true;
-                if(fieldType=="System.String")strings.push_back(f);
+            if(type!="Bootstrap+<>c"&&std::none_of(bindings().begin(),bindings().end(),[&](const Binding& b){return type==b.owner;}))continue;
+            if(type=="Bootstrap+<>c")while(Field* f=api.class_get_fields(klass,&it)) {
+                if((api.field_get_flags(f)&0x10)&&std::string(api.field_get_name(f))=="<>9"
+                    &&api.class_from_type(api.field_get_type(f))==klass) {
+                    Object* value=nullptr;api.field_static_get_value(f,&value);
+                    if(value){manager=value;singletons++;}
+                }
             }
-            if(hasWorld)worldUrls.insert(worldUrls.end(),strings.begin(),strings.end());
             it=nullptr;
             while(const Method* m=api.class_get_methods(klass,&it)) {
                 std::string name=api.method_get_name(m);
-                if(type=="UnityEngine.GameObject"&&name=="get_transform"&&api.method_get_param_count(m)==0)getTransform=m;
-                if(type=="UnityEngine.GameObject"&&name=="get_scene"&&api.method_get_param_count(m)==0)getScene=m;
-                if(type=="UnityEngine.GameObject"&&name=="GetComponent"&&signature(m,"UnityEngine.Component",{"System.Type"}))getComponent=m;
-                if(type=="UnityEngine.Object"&&name=="get_name"&&api.method_get_param_count(m)==0)getName=m;
-                if(type=="UnityEngine.Transform"&&name=="get_position"&&api.method_get_param_count(m)==0)getPosition=m;
-                if(type=="UnityEngine.SceneManagement.Scene"&&name=="IsValid"&&api.method_get_param_count(m)==0)sceneValid=m;
-                if(type=="UnityEngine.Resources"&&name=="FindObjectsOfTypeAll"&&signature(m,"UnityEngine.Object[]",{"System.Type"}))findObjects=m;
-                if(type=="System.Array"&&name=="GetValue"&&signature(m,"System.Object",{"System.Int32"}))arrayGet=m;
-                if(type=="UnityEngine.Transform"&&api.method_get_param_count(m)==1) {
-                    if(name=="set_position")setPosition=m;
-                    if(name=="set_rotation")setRotation=m;
-                    if(name=="set_localScale")setScale=m;
+                uint32_t implementation=0;bool isStatic=(api.method_get_flags(m,&implementation)&0x10)!=0;
+                for(auto& b:bindings())if(type==b.owner&&name==b.member&&isStatic==b.isStatic&&signature(m,b.result,b.params)) {
+                    if(*b.slot)throw std::runtime_error(std::string("Ambiguous Unity preview API: ")+b.role);
+                    *b.slot=m;
                 }
-                if(type=="UnityEngine.Object"&&name=="Destroy"&&signature(m,"System.Void",{"UnityEngine.Object"}))destroyObject=m;
-                if(!signature(m,"UnityEngine.GameObject",{"System.String","UnityEngine.Vector3","UnityEngine.Quaternion","UnityEngine.Vector3","System.Boolean"}))continue;
-                if(api.method_get_flags(m,nullptr)&0x10)continue;
-                void* fields=nullptr;Object* candidate=nullptr;int candidates=0;
-                while(Field* f=api.class_get_fields(klass,&fields))if((api.field_get_flags(f)&0x10)&&!(api.field_get_flags(f)&0x40)
-                        &&api.name(api.field_get_type(f))==type) {
-                    Object* value=nullptr;api.field_static_get_value(f,&value);
-                    if(value&&value!=candidate){candidate=value;candidates++;}
-                }
-                if(candidates==1){
-                    createPrefab=m;manager=candidate;factories++;
-                    void* methods=nullptr;int finders=0;
-                    while(const Method* f=api.class_get_methods(klass,&methods))if(signature(f,"UnityEngine.GameObject",{"System.String"})){
-                        findPrefab=f;finders++;
-                    }
-                    if(finders!=1)throw std::runtime_error("Ambiguous Rust prefab lookup API");
+                // This genuine callback remains typed and invokable even when
+                // the GameManager methods behind it are obfuscated.
+                if(type=="Bootstrap+<>c"&&name.rfind("<Init_Tier0>b__",0)==0&&!isStatic
+                    &&signature(m,"UnityEngine.GameObject",{"System.String"})) {
+                    findPrefab=m;loaders++;
                 }
             }
         }
     }
-    if(factories!=1||!manager||!getTransform||!setPosition||!setRotation||!setScale||!destroyObject||worldUrls.empty()
-            ||!findPrefab||!getComponent||!findObjects||!getName||!getPosition||!getScene||!sceneValid||!arrayGet||!gameObjectType||!networkableType)
-        throw std::runtime_error("This Rust build has no unambiguous preview API; no game offsets or fallback patches were applied");
+    std::string missing;
+    for(auto& b:bindings())if(!*b.slot)missing+=(missing.empty()?"":", ")+std::string(b.role);
+    if(loaders!=1||singletons!=1||!manager||!findPrefab||!gameObjectType||!networkableType||!missing.empty())
+        throw std::runtime_error("Preview API unavailable: typed bootstrap loaders="+std::to_string(loaders)
+            +", loader instances="+std::to_string(singletons)+(missing.empty()?"":"; missing Unity methods: "+missing));
+}
+void initialize() {
+    api.load();if(!api.thread_current())throw std::runtime_error("The game window is not on an IL2CPP main thread");
+    resolveApi();
     ready=true;
 }
 
-bool inPreviewWorld() {
+bool inPreviewWorld(std::string& reason) {
+    reason="Join the local preview server using Copy IP.";
     if(!exists(L"client.connected"))return false;
-    std::string expected=readText(L"map.url");
-    if(expected.empty())return false;
-    for(auto field:worldUrls){Object* value=nullptr;api.field_static_get_value(field,&value);if(api.text(value)==expected)return true;}
-    return false;
+    reason="Waiting for a fresh local server heartbeat.";
+    if(!serverFresh())return false;
+    auto peer=decodePeer(readBytes(L"client.connected",2108));
+    FILETIME time;GetSystemTimeAsFileTime(&time);ULARGE_INTEGER value{};value.LowPart=time.dwLowDateTime;value.HighPart=time.dwHighDateTime;
+    int64_t now=int64_t(value.QuadPart/10000)-11644473600000LL;
+    reason="The local connection report is stale or belongs to another preview session.";
+    if(!matchingPeer(peer,readText(L"session.token"),decimal(readText(L"server.pid")),readText(L"map.url"),now))return false;
+    reason="Cannot verify that this Rust process owns the local server's peer UDP port.";
+    return ownsUdpPort(peer.port);
 }
 
 struct Placement {uint64_t key;uint32_t uid;std::string path;Vec pos;Quat rot;Vec scale;};
 struct Instance {uint32_t handle;uint32_t uid;Vec pos;Quat rot;Vec scale;};
 std::map<uint64_t,Instance> objects;
 bool baseline=false;
-template<typename T>T take(const std::vector<uint8_t>& data,size_t& offset) {
-    if(offset+sizeof(T)>data.size())throw std::runtime_error("Truncated preview snapshot");
-    T result;memcpy(&result,data.data()+offset,sizeof(T));offset+=sizeof(T);return result;
-}
 std::vector<Placement> decode(const std::vector<uint8_t>& data,uint64_t& revision) {
     if(data.size()<20||data.size()>16*1024*1024||memcmp(data.data(),"RUSLIVE1",8))throw std::runtime_error("Invalid preview snapshot");
     size_t offset=8;revision=take<uint64_t>(data,offset);uint32_t count=take<uint32_t>(data,offset);
@@ -288,6 +365,18 @@ void remove(Instance instance) {
 }
 void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
 void clear() {discard(objects);applied=0;attempted=0;}
+bool retainedAlive() {
+    for(auto& entry:objects){
+        Object* value=api.gchandle_get_target(entry.second.handle);if(!value)return false;
+        void* args[]={value};Object* result=api.call(objectAlive,nullptr,args);
+        if(!result||!*static_cast<bool*>(api.object_unbox(result)))return false;
+    }
+    return true;
+}
+void forgetWorld() {
+    for(auto& entry:objects)api.gchandle_free(entry.second.handle);
+    objects.clear();applied=0;attempted=0;baseline=false;
+}
 bool isNetworked(Object* object) {void* args[]={networkableType};return api.call(getComponent,object,args)!=nullptr;}
 void claimInitial() {
     auto data=readBytes(L"initial.bin",16*1024*1024);uint64_t revision;auto rows=decode(data,revision);
@@ -341,8 +430,8 @@ void apply(const std::vector<Placement>& rows) {
             }
             // Stage replacements through the original lifecycle before retiring
             // anything. A failed create preserves the complete previous scene.
-            bool active=true;void* args[]={path,const_cast<Vec*>(&p.pos),const_cast<Quat*>(&p.rot),const_cast<Vec*>(&p.scale),&active};
-            Object* obj=api.call(createPrefab,manager,args);
+            void* args[]={prefab,const_cast<Vec*>(&p.pos),const_cast<Quat*>(&p.rot)};
+            Object* obj=api.call(createPrefab,nullptr,args);
             if(!obj)throw std::runtime_error("Rust could not create "+p.path);
             auto handle=api.gchandle_new(obj,false);
             if(!handle){void* destroy[]={obj};api.call(destroyObject,nullptr,destroy);throw std::runtime_error("Could not retain a preview object");}
@@ -350,6 +439,8 @@ void apply(const std::vector<Placement>& rows) {
             Object* transform=api.call(getTransform,obj);
             void* pos[]={const_cast<Vec*>(&p.pos)};void* rot[]={const_cast<Quat*>(&p.rot)};void* scale[]={const_cast<Vec*>(&p.scale)};
             api.call(setPosition,transform,pos);api.call(setRotation,transform,rot);api.call(setScale,transform,scale);
+            void* nameArgs[]={path};api.call(setName,obj,nameArgs);
+            bool active=true;void* activation[]={&active};api.call(setActive,obj,activation);
         }
     }catch(...){discard(staged);throw;}
     for(auto it=objects.begin();it!=objects.end();) {
@@ -372,14 +463,15 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
             else if(initializationFailed){}
             else {
             if(!ready)try{initialize();}catch(...){initializationFailed=true;throw;}
-            if(!inPreviewWorld()){
-                // Let Rust unload its own world on disconnect. Do not destroy
-                // new-scene objects through stale Unity references.
-                for(auto& entry:objects)api.gchandle_free(entry.second.handle);
-                objects.clear();applied=0;attempted=0;baseline=false;
-                status("WAITING","Join the local preview server using Copy IP.");
+            std::string connectionReason;
+            if(!inPreviewWorld(connectionReason)){
+                // A delayed heartbeat or unavailable UDP table pauses edits.
+                // Keep ownership through transient failures; otherwise moved
+                // baseline objects could no longer be claimed after recovery.
+                status("WAITING",connectionReason);
             }
             else {
+                if(baseline&&!retainedAlive())forgetWorld();
                 if(!baseline)claimInitial();
                 std::vector<uint8_t> data;{std::lock_guard<std::mutex> lock(pendingMutex);data=pending;}
                 if(!data.empty()) {
@@ -415,6 +507,7 @@ DWORD WINAPI run(void*) {try {
     if(!hook){status("ERROR","Could not register the local main-thread preview callback.");return 3;}
     status("STARTING","Waiting for the Unity main thread and local preview map.");
     while(exists(L"active.flag")&&!exists(L"stop.flag")&&!exists(L"server.blocked")) {
+        if(initializationFailed){UnhookWindowsHookEx(hook);return 8;}
         if(!serverFresh()){status("ERROR","Local server heartbeat expired. Preview stopped. Restart your computer before launching Rust again after injection.");break;}
         if(!eacOff()){status("BLOCKED","EAC became active or unreadable. Preview has stopped.");UnhookWindowsHookEx(hook);return 4;}
         auto value=readBytes(L"scene.bin",16*1024*1024);
@@ -438,7 +531,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI RusterStart(void* argument) {
     if(!argument||!eacOff())return 1;
     stopping=false;stopped=false;baseline=false;applied=0;
     directory=static_cast<const wchar_t*>(argument);
-    if(directory.size()>30000||!exists(L"active.flag")||exists(L"stop.flag")||!exists(L"scene.bin")||!exists(L"map.url"))return 2;
+    if(directory.size()>30000||!exists(L"active.flag")||exists(L"stop.flag")||!exists(L"scene.bin")||!exists(L"map.url")||!exists(L"session.token"))return 2;
     worker=CreateThread(nullptr,0,run,nullptr,0,nullptr);return worker?0:3;
     }catch(...){return 6;}
 }

@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from build_preview_client import ROOT, protocol_cases
+from build_preview_client import ROOT, protocol_cases, peer_cases
 
 
 def check(server):
@@ -31,6 +31,8 @@ def check(server):
             path.write_bytes(data)
             result = subprocess.run(['dotnet', str(binary), str(path)], capture_output=True)
             if result.returncode != expected:raise RuntimeError('Managed protocol check failed: '+result.stderr.decode(errors='replace'))
+        subprocess.run(['dotnet',str(binary),'--peer',str(path)],check=True)
+        if path.read_bytes()!=peer_cases()[0][0]:raise RuntimeError('Managed/native connection proof encoding differs')
         refs = list((server/'RustDedicated_Data/Managed').glob('*.dll'))+list((server/'carbon/managed').glob('*.dll'))+list((server/'carbon/managed/lib').glob('*.dll'))
         byname = {p.name:p for p in refs if p.name != '0Harmony.dll'}
         if not byname:raise ValueError('No dedicated-server reference assemblies found')

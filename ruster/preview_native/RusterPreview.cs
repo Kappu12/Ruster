@@ -10,7 +10,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.2.0")]
+    [Info("RusterPreview", "Ruster", "0.3.0")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -36,9 +36,11 @@ namespace Oxide.Plugins
             }
         }
         void Write(string name,string value)
+        {WriteBytes(name,new System.Text.UTF8Encoding(false).GetBytes(value));}
+        void WriteBytes(string name,byte[] value)
         {
             var path=Path.Combine(directory,name); var temporary=path+".server.tmp";
-            File.WriteAllText(temporary,value);
+            File.WriteAllBytes(temporary,value);
             if(File.Exists(path))File.Replace(temporary,path,null); else File.Move(temporary,path);
         }
         void Delete(string name) { try { File.Delete(Path.Combine(directory,name)); } catch(IOException){} }
@@ -91,13 +93,17 @@ namespace Oxide.Plugins
                 var now=(DateTime.UtcNow-new DateTime(1970,1,1)).TotalSeconds;
                 if(now>=nextHeartbeat)
                 {
-                    Write("server.ready",JsonConvert.SerializeObject(new{protocol=1,secure=Network.Net.sv.secure,ip=ConVar.Server.ip,timestamp=now,pid=Process.GetCurrentProcess().Id,token=config.token}));
-                    if(BasePlayer.activePlayerList.Any(p=>p!=null&&p.IsConnected&&p.net!=null&&p.net.connection!=null
-                        &&(p.net.connection.ipaddress=="127.0.0.1"||p.net.connection.ipaddress.StartsWith("127.0.0.1:",StringComparison.Ordinal))))
-                        Write("client.connected","loopback player connected");
-                    else Delete("client.connected");
+                    Write("server.ready",JsonConvert.SerializeObject(new{protocol=1,client_protocol=2,secure=Network.Net.sv.secure,ip=ConVar.Server.ip,timestamp=now,pid=Process.GetCurrentProcess().Id,token=config.token}));
                     nextHeartbeat=now+1;
                 }
+                // The client verifies this observed peer port belongs to its own
+                // process. No obfuscated client World/GameManager fields needed.
+                var peers=BasePlayer.activePlayerList.Where(p=>p!=null&&p.IsConnected&&p.net!=null&&p.net.connection!=null).ToArray();
+                var endpoint=peers.Length==1?peers[0].net.connection.ipaddress:null;uint port;
+                if(endpoint!=null&&endpoint.StartsWith("127.0.0.1:",StringComparison.Ordinal)
+                    &&uint.TryParse(endpoint.Substring(10),System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out port)&&port>0&&port<=65535)
+                    WriteBytes("client.connected",PeerProof.Encode(config.token,(uint)Process.GetCurrentProcess().Id,port,(long)(now*1000),config.url));
+                else Delete("client.connected");
             }
             catch(Exception error){PrintError("Preview heartbeat failed: "+error.Message);return;}
             // Console remains usable when a scene update fails.
@@ -112,6 +118,8 @@ namespace Oxide.Plugins
             }
             catch(Exception error){Write("server.status","ERROR\n"+error.Message);}
         }
+        void OnPlayerDisconnected(BasePlayer player,string reason)
+        {if(!string.IsNullOrWhiteSpace(directory))Delete("client.connected");}
         object OnPlayerRespawn(BasePlayer player,BasePlayer.SpawnPoint original)
         {
             if(!initialized||!Active()||player==null||player.net==null||player.net.connection==null)return null;

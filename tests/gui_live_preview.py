@@ -93,8 +93,12 @@ def tick():
             except ValueError as error:live_preview._probe_message = str(error)
             else:raise AssertionError('Incomplete inspection was accepted')
             live_preview.refresh_status()
+        elif phase == 7:
+            live_preview._module_loaded = True
+            (root/'client.status').write_text('ERROR\nPreview API unavailable: typed bootstrap loaders=0, loader instances=1\n')
+            live_preview.refresh_status()
         else:
-            assert state['draws'] >= {0, 1, 2, 3, 4, 5, 6}
+            assert state['draws'] >= {0, 1, 2, 3, 4, 5, 6, 7}
             live_preview._job = None
             ruster.unregister()
             print('RUSTER_LIVE_PREVIEW_DRAW_STATES_OK', flush=True)

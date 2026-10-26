@@ -103,7 +103,7 @@ def run():
                 def separator(self):pass
                 def label(self, **kwargs):self.labels.append(kwargs.get('text', ''))
                 def prop(self, *args, **kwargs):pass
-                def operator(self, *args, **kwargs):return SimpleNamespace()
+                def operator(self, *args, **kwargs):self.labels.append(kwargs.get('text', ''));return SimpleNamespace()
                 def panel(self, *args, **kwargs):return self, self
             layout = Layout();live_preview.refresh_status()
             saved_install, saved_read = live_preview.installation, live_preview.backend.read_bounded
@@ -116,6 +116,11 @@ def run():
                 for clients, allowed, loaded in (([], False, False), ([SimpleNamespace()], True, False), ([SimpleNamespace()], False, True)):
                     live_preview._clients = clients;live_preview._client_allowed = allowed;live_preview._module_loaded = loaded
                     live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
+                live_preview._client_status = 'ERROR · Synthetic compatibility failure'
+                live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
+                assert 'Preview Unavailable' in layout.labels
+                assert 'preview could not start' in ' '.join(layout.labels)
+                live_preview._client_status = ''
             finally:
                 live_preview.installation, live_preview.backend.read_bounded = saved_install, saved_read
             assert 'restart your computer' in ' '.join(layout.labels)

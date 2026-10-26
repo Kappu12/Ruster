@@ -26,7 +26,9 @@ game/server in Ruster's executable.
    Passed EAC checks alone do not enable Inject; the server must also be Ready.
 5. Click **Copy IP**. In Rust's F1 console, enter `connect ` followed by that
    address. After joining, the module claims the original map placements and
-   applies editor snapshots to static scene objects. The server companion updates
+   applies editor snapshots to static scene objects. New placements go through
+   the client's typed bootstrap asset-loading callback, then Unity's original
+   instantiation API. The server companion updates
    its matching objects and colliders. Networked root entities use normal Rust
    replication.
 6. Use the small console to send commands to the owned local server. **Grant Owner
@@ -55,12 +57,25 @@ original launcher or loaded-module evidence. This means EAC could not be verifie
 it is not a positive detection of EAC. Injection stays disabled until every check
 passes.
 
-The module applies placements only when the client's current world URL matches
-the random loopback map URL and the companion reports a connected local player.
+The server verifies its current world URL against the random loopback map URL.
+Its connection report contains the session token, server PID, map URL, observed
+loopback peer port and timestamp. The DLL verifies these values and requires the
+peer UDP port to belong to its own process through
+[Windows' UDP endpoint table](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getextendedudptable).
+Missing, foreign or older-than-1.5-second connection reports pause edits. The
+server refreshes the report four times a second and removes it on disconnect.
 All game object operations run through a callback on the Unity window thread.
 IL2CPP methods are found through their exported reflection API and checked
 signatures. Missing or ambiguous methods produce a compatibility error; there
 are no guessed offsets or fallback game-code patches.
+
+The bridge uses the genuine `Bootstrap.<>c` callback registered during
+`Init_Tier0` to find client prefabs, together with Unity's typed `Instantiate`
+overload. It does not require the obfuscated GameManager creation methods or
+WorldSerialization fields that made the first implementation fail. Initialization
+only scans the relevant API types. Duplicate or missing bindings fail explicitly,
+and the worker exits after a compatibility failure. The panel shows **Preview
+Unavailable** when a loaded module reports an error.
 
 The dedicated server starts with its native `-insecure` switch. The companion
 checks `Network.Net.sv.secure` before advertising readiness and on every update.
@@ -89,7 +104,12 @@ the injected module. No client injection or gameplay testing was performed durin
 development, at the user's request. Runtime errors appear in the panel and logs.
 The local dedicated server has been booted successfully with an empty void map,
 the companion loaded, and runtime EAC-disabled readiness verified. Client-side
-prefab rendering and injected gameplay remain untested.
+prefab rendering and injected gameplay remain untested by development tooling.
+The revised loader, all required Unity signatures and the bootstrap singleton
+match the installed client's offline metadata. Standalone synthetic IL2CPP
+fixtures cover adding previously absent assets, failed loads and transforms,
+rollback, ambiguous/missing APIs and owned UDP endpoints. These checks do not
+prove that a specific prefab can render or initialize inside the running game.
 
 The composition is centered in a 1,000 metre void map. Terrain is entirely holes,
 the ocean is moved out of view through Rust's replicated environment setting,
@@ -134,3 +154,8 @@ For offline server validation, run
 This compiles the companion against the downloaded server and Carbon assemblies
 and tests the managed decoder against the native decoder's valid and malformed
 snapshot fixtures. It does not start a game or inspect a client process.
+
+For a static API report already generated from the installed files with Cpp2IL,
+run `python tools/check_preview_api.py --metadata-report PATH_TO_REPORT`.
+The checker reads the binding contract directly from the native bridge source
+and rejects missing or ambiguous signatures. This audit never launches Rust.
