@@ -90,6 +90,60 @@ def save_project(path:str,overwrite:bool=False)->dict:
     return command('save_project',path=path,overwrite=overwrite)
 
 
+@mcp.tool(annotations=READ)
+def get_project_status()->dict:
+    """Inspect current project path/title, unsaved changes, placement count and active preview before switching."""
+    return command('get_project_status')
+
+
+@mcp.tool(annotations=READ)
+def list_recent_projects(limit:int=20,offset:int=0)->dict:
+    """List recently used .ruster project paths and whether they still exist. Does not scan the filesystem. Page 1–100."""
+    return command('list_recent_projects',limit=limit,offset=offset)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def new_project(discard_unsaved:bool=False)->dict:
+    """Switch to an empty prefab project. Save existing work first; discard_unsaved=True explicitly discards it. Stop any live preview and wait until inactive first. Never changes the open project on a refused request."""
+    return command('new_project',discard_unsaved=discard_unsaved)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def open_project(path:str,discard_unsaved:bool=False)->dict:
+    """Switch to an existing absolute .ruster file through the native project loader. Save current work first or explicitly discard_unsaved=True. Stop live preview and wait until inactive first. Embedded scripts stay disabled."""
+    return command('open_project',path=path,discard_unsaved=discard_unsaved)
+
+
+@mcp.tool(annotations=READ)
+def get_live_preview_status(log_lines:int=20)->dict:
+    """Inspect local preview readiness, installation progress, server/client errors, scene revision, loopback connect command and up to 100 log lines. Does not launch or inject a game client."""
+    return command('get_live_preview_status',log_lines=log_lines)
+
+
+@mcp.tool(annotations=EDIT)
+def start_live_preview(port:int|None=None,owner_id:str|None=None,update_server:bool=False)->dict:
+    """Start the owned local preview server for this project; downloads SteamCMD/Rust/Carbon on first use. Optional game port and SteamID64; server EAC is disabled and verified. Returns immediately: poll get_live_preview_status. Launch Rust Without EAC and Inject remain explicit Live Preview panel actions."""
+    return command('start_live_preview',port=port,owner_id=owner_id,update_server=update_server)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def stop_live_preview()->dict:
+    """Request stopping only Ruster's owned preview server and bridge. Returns immediately: poll until inactive before switching projects. Does not close Rust or other servers."""
+    return command('stop_live_preview')
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def send_live_preview_command(console_command:str)->dict:
+    """Queue one console command on the running owned local preview server (up to 4096 characters). Check preview logs for execution/results; a queued response is not success from Rust."""
+    return command('send_live_preview_command',command=console_command)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def grant_live_preview_owner(steam_id:str)->dict:
+    """Queue ownerid for a verified 17-digit SteamID64 on the owned preview server. Reconnect in Rust after it applies."""
+    return command('grant_live_preview_owner',steam_id=steam_id)
+
+
 @mcp.tool(annotations=DESTRUCTIVE)
 def export_map(path:str,overwrite:bool=False)->dict:
     """Export ONLY prefab placements floating in void to an absolute .map destination. No terrain or paths. Existing files require explicit overwrite=True."""
@@ -218,6 +272,8 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 12. transform_objects_relative applies world-axis scale, then XYZ rotation around a shared pivot, then world translation. Omitted pivot is the mean selected root origin; shear is rejected rather than approximated. radial_array_objects makes count NEW independent copies about an explicit world center/axis using a per-copy angle step; for a ring of 8 including the source use count=7, angle_degrees=45. Existing array limits, rollback and metadata preservation apply.
 13. distribute_objects uses the supplied names order; the first root stays fixed. ORIGIN makes signed origin steps; BOUNDS_GAP leaves the requested signed gap between successive loaded world bounds. snap_objects_to_grid rounds root origins to a world grid, half steps away from zero relative to origin. measure_objects reports origin distance and optionally axis-aligned render bounds separation, never certified collision clearance. Turn off live Radial Symmetry before batch layout of linked symmetry members.
 14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, mesh edits, material replacement, arbitrary Python, terrain tools, path tools or map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
+15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. Stop an active live preview and poll until inactive before switching. Project replacement is not undoable.
+16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
 """
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')

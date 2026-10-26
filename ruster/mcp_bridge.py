@@ -11,7 +11,7 @@ from .vendor.blender_mcp_bridge import BlenderMCPServer
 from .core import settings,mcp_config,wire
 from . import app,scene,editing,painting,placement
 from .assets import catalog
-from . import mcp_building,mcp_prefab_ops,mcp_blender
+from . import mcp_building,mcp_prefab_ops,mcp_blender,mcp_session
 from .ui_style import ICONS as I,action,properties,wrapped
 
 _server=None
@@ -141,6 +141,10 @@ class RusterMCPServer(BlenderMCPServer):
                 raise ValueError('MCP authentication failed; use the Ruster MCP client configuration')
             params=command.get('params',{})
             if not isinstance(params,dict):raise ValueError('Command parameters must be an object')
+            # File loading replaces Window/Scene RNA. Never keep a temporary
+            # context override or selection references alive across that load.
+            if command.get('type') in mcp_session.PROJECT_EDIT:
+                return {'status':'success','result':self.dispatch(command['type'],params)}
             windows=list(bpy.context.window_manager.windows)
             if not windows:raise ValueError('Ruster has no active window')
             window=next((w for w in windows if any(a.type=='VIEW_3D' for a in w.screen.areas)),windows[0])
@@ -158,6 +162,7 @@ class RusterMCPServer(BlenderMCPServer):
 
     def dispatch(self,kind,params):
         if kind=='ping':return {'pong':True,'application':'Ruster'}
+        if kind in mcp_session.READ|mcp_session.EDIT:return mcp_session.dispatch(self,kind,params,sys.modules[__name__])
         if kind in mcp_blender.READ|mcp_blender.EDIT:return mcp_blender.dispatch(self,kind,params,sys.modules[__name__])
         if kind in {'duplicate_object','delete_object'}:
             result=mcp_prefab_ops.dispatch(self,'duplicate_objects' if kind=='duplicate_object' else 'delete_objects',{'names':[params['name']]},sys.modules[__name__])

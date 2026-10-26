@@ -22,9 +22,9 @@ def select(objects):
     if objects:bpy.context.view_layer.objects.active=objects[-1]
 
 
-def selected_prefabs():
+def selected_prefabs(objects=None):
     result=set()
-    for obj in bpy.context.selected_objects:
+    for obj in bpy.context.selected_objects if objects is None else objects:
         if obj.get('ruster_kind')=='PREFAB':result.add(obj)
         elif obj.get('ruster_kind')=='GROUP':
             result.update(child for child in obj.children_recursive if child.get('ruster_kind')=='PREFAB')

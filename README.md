@@ -51,6 +51,9 @@ Original prefab geometry stays read-only in the composition. Shape changes come 
 
 Rust exports describe original prefab IDs and placement transforms. Model exports produce geometry for use in other applications. For imported RustEdit prefabs with IO data, the editor also exposes supported IO settings on the selected placement.
 
+**Export Prefab** exports highlighted prefabs/groups. With nothing highlighted,
+it exports the whole composition as a RustEdit `.prefab`.
+
 Save your working project before testing an export in RustEdit or Rust. Viewport previews show assets and placement; gameplay behavior is determined by the game.
 
 ## Local live preview
@@ -71,6 +74,15 @@ Ruster includes an optional local MCP connection for inspecting the editor and a
 The copied configuration uses the application's Python and `mcp_server.py` entry point. The editor bridge listens on `127.0.0.1`, uses a per-user authentication token, and defaults to port `9877`.
 
 Start an automation session by reading `ruster://guide/building` and calling `get_editor_status`. Tools can search the local catalog, request models, place and transform prefabs, organize groups, inspect the viewport, and export compositions. They operate on whole placements while preserving the original assets.
+
+Project tools expose the current path and unsaved state, recent projects, and
+`open_project`/`new_project`. Save current work first; discarding changes requires
+`discard_unsaved=True`. Stop an active preview before switching projects.
+`start_live_preview`, `stop_live_preview` and `get_live_preview_status` control the
+owned server and report progress, logs, connection details and client errors.
+Console and owner-ID tools queue commands on that server. Launch and Inject use
+the Live Preview panel's explicit client actions and EAC verification.
+After updating Ruster, refresh the MCP client's tool list/reconnect the adapter.
 
 ## Run from source
 

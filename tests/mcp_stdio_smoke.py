@@ -18,7 +18,9 @@ async def run():
                 await session.initialize()
                 tools=(await session.list_tools()).tools
                 exposed={tool.name for tool in tools}
-                assert len(exposed)==52,sorted(exposed)
+                assert len(exposed)==61,sorted(exposed)
+                assert {'get_project_status','list_recent_projects','new_project','open_project','get_live_preview_status',
+                    'start_live_preview','stop_live_preview','send_live_preview_command','grant_live_preview_owner'}<=exposed
                 assert {'get_editor_status','get_objects_info','get_prefabs_details','array_objects','align_objects','export_models','export_prefab','import_map_prefabs','get_io_settings','set_io_settings'}<=exposed
                 assert not {'execute_code','paint_terrain','sample_surface','snap_objects_to_terrain','generate_map','get_generation_status','cancel_generation','create_path','update_path','get_path_info'} & exposed
                 resources=(await session.list_resources()).resources

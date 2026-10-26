@@ -27,7 +27,7 @@ async def run():
                 assert not result.isError,result
                 return result.structuredContent or json.loads(result.content[0].text)
             exposed={tool.name for tool in (await session.list_tools()).tools}
-            assert len(exposed)==52,sorted(exposed)
+            assert len(exposed)==61,sorted(exposed)
             assert not {'paint_terrain','sample_surface','snap_objects_to_terrain','generate_map','get_generation_status','cancel_generation','create_path','update_path','get_path_info','execute_code'} & exposed
             assert {'get_objects_info','get_prefabs_details','get_selection','array_objects','align_objects','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=exposed
             assert (await call('get_scene_info'))['mode']=='PREFAB'
@@ -106,6 +106,13 @@ async def run():
             assert len(exported.prefabs)==1 and not exported.paths and not exported.layers
             for output in ('stdio.glb','stdio.prefab','ai.ruster','ai.map'):
                 assert (directory/output).stat().st_size>0
+            assert (await call('get_project_status'))['path']==str(directory/'ai.ruster')
+            assert (await call('list_recent_projects'))['projects'][0]['path']==str(directory/'ai.ruster')
+            assert not (await call('get_live_preview_status',log_lines=0))['active']
+            assert (await call('new_project'))['prefab_count']==0
+            assert (await call('open_project',path=str(directory/'ai.ruster')))['prefab_count']==1
+            assert (await call('get_object_info',name=name))['name']==name
+            assert (await call('get_editor_status'))['project']['path']==str(directory/'ai.ruster')
             for test_token,kind,values,expected_error in [('wrong-token','get_scene_info',{},'authentication failed'),(token,'execute_code',{'code':'raise Exception("must not execute")'},'Unsupported')]:
                 client=BlenderConnection('127.0.0.1',port,test_token)
                 try:

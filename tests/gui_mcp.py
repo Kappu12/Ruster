@@ -109,4 +109,4 @@ def step():
             except subprocess.TimeoutExpired:state['client'].kill();state['client'].wait(timeout=3)
         os._exit(1)
 
-bpy.app.timers.register(step,first_interval=2.)
+bpy.app.timers.register(step,first_interval=2.,persistent=True)

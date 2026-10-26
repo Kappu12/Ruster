@@ -1,5 +1,14 @@
 # Local live preview (experimental, Windows x64)
 
+MCP clients can use `start_live_preview`, `get_live_preview_status`,
+`stop_live_preview`, `send_live_preview_command` and `grant_live_preview_owner`.
+Startup and shutdown are asynchronous; poll status for readiness or completion.
+Status includes the current placement count, connection command, setup progress,
+server/client errors and bounded log output. Console responses confirm queuing;
+read the logs for Rust's result. Launch and Inject stay explicit panel actions.
+`open_project` and `new_project` protect unsaved work and require an active preview
+to finish stopping before replacing its source composition.
+
 The **Live Preview** panel has its own editor below **Placements** on the right,
 outside the viewport extension sidebar. The preview uses the actual Rust client
 and a separate local dedicated server. It does not emulate Rust or bundle the

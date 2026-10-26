@@ -222,9 +222,13 @@ def import_prefab(path):
 
 
 def export_prefab(path, selected=True):
-    roots = placement.selected_prefabs() if selected else scene.prefab_roots()
-    if not roots:raise ValueError('Select prefab placements or a prefab group')
-    active = bpy.context.active_object
+    # Properties/file-browser contexts do not always expose selected_objects.
+    # Read actual view-layer flags so empty-selection fallback is unambiguous.
+    layer=bpy.context.view_layer
+    objects=[obj for obj in layer.objects if obj.select_get(view_layer=layer)] if selected else []
+    roots=placement.selected_prefabs(objects) if objects else scene.prefab_roots()
+    if not roots:raise ValueError('The composition has no prefab placements to export' if not objects else 'Select prefab placements or a prefab group')
+    active=layer.objects.active
     groups = {next((parent for parent in placement.parent_chain(obj)
                     if parent.get('ruster_prefab_source')),None) for obj in roots}
     if len(groups)>1:
@@ -377,9 +381,10 @@ class RUSTER_OT_prefab_import(bpy.types.Operator, ImportHelper):
 class RUSTER_OT_prefab_export(bpy.types.Operator, ExportHelper):
     bl_idname = 'ruster.prefab_export'
     bl_label = 'Export RustEdit Prefab'
+    bl_description = 'Export highlighted prefabs/groups, or the whole composition when nothing is selected'
     filename_ext = '.prefab'
     filter_glob: StringProperty(default='*.prefab', options={'HIDDEN'})
-    selected_only: BoolProperty(name='Selected Prefabs Only', default=True)
+    selected_only: BoolProperty(name='Use Selection When Available', description='Export highlighted prefabs/groups; export everything when nothing is highlighted', default=True)
     def execute(self, context):
         try:export_prefab(self.filepath, self.selected_only);return {'FINISHED'}
         except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}

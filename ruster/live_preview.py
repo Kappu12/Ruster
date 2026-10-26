@@ -194,24 +194,37 @@ class RUSTER_PG_live_preview(bpy.types.PropertyGroup):
     update_server: BoolProperty(name='Update Server on Start', description='Update the separate dedicated server and Carbon before starting; use after Rust updates or a server version mismatch', default=False, options={'SKIP_SAVE'})
 
 
+def start_preview(port=None,owner=None,update_server=None):
+    """Shared explicit UI/MCP action; starts only the owned server job."""
+    global _job, _last_snapshot, _error, _dirty, _snapshot_error, _capture, _next_status
+    if _job and _job.active:raise ValueError('Live preview is already running')
+    if bpy.context.window_manager.is_interface_locked:raise ValueError('Wait for the current editor operation to finish')
+    state=bpy.context.window_manager.ruster_live_preview
+    port=backend.port_number(state.port if port is None else port)
+    owner=state.owner if owner is None else owner
+    if not isinstance(owner,str):raise ValueError('Owner Steam ID must be a string')
+    owner=backend.owner_id(owner)
+    update_server=state.update_server if update_server is None else update_server
+    if type(update_server) is not bool:raise ValueError('update_server must be boolean')
+    preview_client.verify_module(dll_path())
+    path=installation();rows=placements()
+    config=settings.load();config['preview_port']=port;config['preview_owner']=owner;settings.save(config)
+    from . import scene
+    _job=backend.PreviewSession(settings.user_root()/'live-preview',port,owner,rows,update_server=update_server,
+        client_install=path,catalog_path=scene.cache_dir()/'catalog.sqlite3').start()
+    state.port,state.owner,state.update_server=port,owner,update_server
+    _last_snapshot=rows;_error='';_snapshot_error='';_capture=None;_dirty=True;_next_status=0
+    refresh_status()
+    return dict(_status)
+
+
 class RUSTER_OT_start_live_preview(bpy.types.Operator):
     bl_idname = 'ruster.start_live_preview'
     bl_label = 'Start Live Preview'
     bl_description = 'Download a dedicated server on first use, then start a private local preview'
     def execute(self, context):
-        global _job, _last_snapshot, _error, _dirty, _snapshot_error, _capture, _next_status
         try:
-            if _job and _job.active:raise ValueError('Live preview is already running')
-            preview_client.verify_module(dll_path())
-            if context.window_manager.is_interface_locked:raise ValueError('Wait for the current editor operation to finish')
-            state = context.window_manager.ruster_live_preview
-            rows = placements()
-            config = settings.load();config['preview_port'] = state.port;config['preview_owner'] = backend.owner_id(state.owner);settings.save(config)
-            from . import scene
-            _job = backend.PreviewSession(settings.user_root()/'live-preview', state.port, state.owner, rows, update_server=state.update_server,
-                client_install=installation(), catalog_path=scene.cache_dir()/'catalog.sqlite3').start()
-            _last_snapshot = rows;_error = '';_snapshot_error = '';_capture = None;_dirty = True;_next_status = 0
-            refresh_status()
+            start_preview()
             return {'FINISHED'}
         except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
 

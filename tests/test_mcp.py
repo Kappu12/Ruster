@@ -30,7 +30,13 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert {'search_prefabs','place_prefab','transform_object','get_scene_info','export_map'}<=tools.keys()
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
-                assert len(tools)==52
+                assert len(tools)==61
+                assert {'get_project_status','list_recent_projects','new_project','open_project','get_live_preview_status',
+                    'start_live_preview','stop_live_preview','send_live_preview_command','grant_live_preview_owner'}<=tools.keys()
+                assert tools['get_project_status'].annotations.readOnlyHint
+                assert tools['get_live_preview_status'].annotations.readOnlyHint
+                assert tools['open_project'].annotations.destructiveHint and tools['stop_live_preview'].annotations.destructiveHint
+                assert tools['open_project'].inputSchema['properties']['discard_unsaved']['default'] is False
                 assert {'get_blender_context','get_viewport_state','set_viewport_state','set_cursor','measure_objects','transform_objects_relative','radial_array_objects','distribute_objects','snap_objects_to_grid'}<=tools.keys()
                 assert tools['measure_objects'].annotations.readOnlyHint
                 assert not tools['radial_array_objects'].annotations.destructiveHint

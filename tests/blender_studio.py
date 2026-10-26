@@ -54,6 +54,16 @@ def run():
         group=next(o for o in bpy.context.scene.objects if o.get('ruster_prefab_source'))
         placement.select([group]);studio.export_prefab(directory/'reopened.prefab')
         assert RustEditPrefab.load(directory/'reopened.prefab').prefabs==edited.prefabs
+        # The document export button falls back to the whole composition when
+        # nothing is highlighted. An explicit selection still limits the file.
+        placement.select([])
+        assert bpy.ops.ruster.prefab_export(filepath=str(directory/'all-unselected.prefab'))=={'FINISHED'}
+        assert RustEditPrefab.load(directory/'all-unselected.prefab').prefabs==edited.prefabs
+        placement.select([scene.prefab_roots()[0]])
+        with bpy.context.temp_override(selected_objects=[],active_object=None,object=None):
+            assert bpy.ops.ruster.prefab_export(filepath=str(directory/'one-selected.prefab'))=={'FINISHED'}
+        assert len(RustEditPrefab.load(directory/'one-selected.prefab').prefabs)==1
+        placement.select([group])
         first=scene.prefab_roots()[0]
         cache=scene.cache_dir()/'prefabs';cache.mkdir(parents=True,exist_ok=True)
         uid=int(first['ruster_uid'])
