@@ -42,7 +42,7 @@ def tick():
                 area.spaces.active.show_region_ui=False
             elif stage==2:
                 assert len(set(draws))==3,draws
-                bpy.ops.screen.screenshot(filepath=str(ROOT/'build/volume-preview-before.png'))
+                bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'volume-preview-before.png'))
                 point=location_3d_to_region_2d(region,area.spaces.active.region_3d,Vector((-7,0,0)))
                 window.event_simulate(type='MOUSEMOVE',value='NOTHING',x=region.x+int(point.x),y=region.y+int(point.y))
             elif stage==3:
@@ -51,7 +51,7 @@ def tick():
                     window.event_simulate(type='LEFTMOUSE',value=value,x=region.x+int(point.x),y=region.y+int(point.y))
             elif stage==4:
                 assert bpy.context.object and bpy.context.object['ruster_uid']=='1','Volume surface was not selectable'
-                bpy.ops.screen.screenshot(filepath=str(ROOT/'build/volume-preview.png'))
+                bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'volume-preview.png'))
                 bpy.context.scene.ruster_show_volumes=False;draws.clear()
             elif stage==6:
                 assert not draws,'Hidden volumes still drew'

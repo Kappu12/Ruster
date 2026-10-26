@@ -94,7 +94,7 @@ def tick():
                 assert bpy.context.window_manager.operators[-1].bl_idname == 'RUSTER_OT_layout'
                 key('F9')
             elif stage == 15:
-                bpy.ops.screen.screenshot(filepath=str(ROOT/'build/blender-controls-f9.png'))
+                bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'blender-controls-f9.png'))
                 key('ESC')
             elif stage == 16:bpy.ops.wm.call_menu(name='RUSTER_MT_object')
             elif stage == 17:

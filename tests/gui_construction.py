@@ -134,7 +134,7 @@ def perform():
         with at_view():bpy.ops.wm.call_panel(name='RUSTER_PT_symmetry', keep_open=True)
     elif stage == 10:
         assert 'RUSTER_PT_symmetry' in state['draws']
-        bpy.ops.screen.screenshot(filepath=str(ROOT/'build/construction-ui.png'))
+        bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'construction-ui.png'))
         window.event_simulate(type='ESC', value='PRESS')
     elif stage == 11:
         # Snap one whole instance onto another instance's original geometry.

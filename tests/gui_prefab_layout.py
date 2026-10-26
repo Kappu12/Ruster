@@ -76,7 +76,7 @@ def tick():
             elif stage == 15:bpy.ops.wm.call_panel(name='RUSTER_PT_layout', keep_open=True)
             elif stage == 16:
                 assert 'panel' in draws
-                bpy.ops.screen.screenshot(filepath=str(ROOT/'build/prefab-layout-ui.png'))
+                bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'prefab-layout-ui.png'))
                 window.event_simulate(type='ESC', value='PRESS')
             elif stage == 17:
                 window.event_simulate(type='MOUSEMOVE', value='NOTHING', x=region.x+100, y=region.y+100)
