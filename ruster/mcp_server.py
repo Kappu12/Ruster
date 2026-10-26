@@ -11,7 +11,10 @@ from .vendor.blender_mcp_client import BlenderConnection
 
 _connection=None
 _lock=threading.Lock()
-mcp=FastMCP('Ruster',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/design and ruster://guide/building, then get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, radial arrays, spacing, grid and bounds snapping. Inspect Blender context, control viewport and cursor, and measure compositions. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only: never create custom mesh primitives, including triangles. Existing triangular Rust prefabs and triangular arrangements are allowed. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations.')
+ROTATION_GUIDANCE=('Verify every placement\'s orientation and intended facing direction using the loaded model and multiple viewport angles. '
+    'Do not assume its forward axis or the sign of a rotation. Confirm it faces the correct way and is not reversed, inverted or upside down '
+    'before duplicating it or finishing the composition.')
+mcp=FastMCP('Ruster',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/design and ruster://guide/building, then get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, radial arrays, spacing, grid and bounds snapping. Inspect Blender context, control viewport and cursor, and measure compositions. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only: never create custom mesh primitives, including triangles. Existing triangular Rust prefabs and triangular arrangements are allowed. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations. '+ROTATION_GUIDANCE)
 READ=ToolAnnotations(readOnlyHint=True,destructiveHint=False,openWorldHint=False)
 EDIT=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False)
 DESTRUCTIVE=ToolAnnotations(readOnlyHint=False,destructiveHint=True,openWorldHint=False)
@@ -275,6 +278,7 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. Stop an active live preview and poll until inactive before switching. Project replacement is not undoable.
 16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
 """
+BUILDING_GUIDE+='17. '+ROTATION_GUIDANCE+'\n'
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')
 def building_guide()->str:

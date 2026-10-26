@@ -31,6 +31,10 @@ world-axis scale, then rotation around a shared pivot, then translation. These
 operations reject shear instead of silently changing the intended shape.
 
 Use multiple viewport angles and a clean viewport image to inspect the result.
+Verify every placement's orientation and intended facing direction using its
+loaded model. Do not assume the model's forward axis or the sign of a rotation.
+Confirm it faces the correct way and is not reversed, inverted or upside down
+before duplicating it or finishing the composition.
 Spacing and distance tools use world axis-aligned render bounds; empty space
 between those boxes is not a gameplay clearance or collision guarantee. Keep
 networked parts at unit scale and verify doors, routes and interactions in Rust.
