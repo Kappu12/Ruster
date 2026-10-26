@@ -22,6 +22,10 @@
 
 namespace {
 struct Object; struct Class; struct Method; struct Type; struct Field; struct Image; struct Assembly;
+// Unity 6's Il2CppGCHandle is void*, not the uint32_t used by older runtimes.
+// Keep the opaque value intact through creation, storage, lookup and release.
+using GCHandle=void*;
+static_assert(sizeof(GCHandle)==8,"Preview requires the Windows x64 IL2CPP ABI");
 struct Vec {float x,y,z;}; struct Quat {float x,y,z,w;};
 HMODULE module;
 std::wstring directory;
@@ -194,14 +198,14 @@ struct Api {
     const Type*(*class_get_type)(Class*);
     Object*(*type_get_object)(const Type*);
     void*(*object_unbox)(Object*);
-    uintptr_t(*array_length)(Object*);
+    uint32_t(*array_length)(Object*);
     Object*(*string_new)(const char*);
     const wchar_t*(*string_chars)(Object*);
     int(*string_length)(Object*);
     void*(*thread_current)();
-    uint32_t(*gchandle_new)(Object*,bool);
-    Object*(*gchandle_get_target)(uint32_t);
-    void(*gchandle_free)(uint32_t);
+    GCHandle(*gchandle_new)(Object*,bool);
+    Object*(*gchandle_get_target)(GCHandle);
+    void(*gchandle_free)(GCHandle);
     void load() {
         HMODULE game=GetModuleHandleW(L"GameAssembly.dll");if(!game)throw std::runtime_error("GameAssembly.dll is not loaded");
 #define API(member,name) member=reinterpret_cast<decltype(member)>(GetProcAddress(game,"il2cpp_" name)); if(!member)throw std::runtime_error("Missing IL2CPP export: " name)
@@ -335,7 +339,7 @@ bool inPreviewWorld(std::string& reason) {
 }
 
 struct Placement {uint64_t key;uint32_t uid;std::string path;Vec pos;Quat rot;Vec scale;};
-struct Instance {uint32_t handle;uint32_t uid;Vec pos;Quat rot;Vec scale;};
+struct Instance {GCHandle handle;uint32_t uid;Vec pos;Quat rot;Vec scale;};
 std::map<uint64_t,Instance> objects;
 bool baseline=false;
 std::vector<Placement> decode(const std::vector<uint8_t>& data,uint64_t& revision) {
@@ -407,7 +411,11 @@ void claimInitial() {
                 if(fabs(pos.x-p.pos.x)<.005&&fabs(pos.y-p.pos.y)<.005&&fabs(pos.z-p.pos.z)<.005){match=*it;candidates.erase(it);break;}
             }
             if(!match)throw std::runtime_error("Waiting for the initial map object: "+p.path);
-            if(!isNetworked(match))claimed[p.key]={api.gchandle_new(match,false),p.uid,p.pos,p.rot,p.scale};
+            if(!isNetworked(match)) {
+                auto handle=api.gchandle_new(match,false);
+                if(!handle)throw std::runtime_error("Could not retain an initial preview object");
+                claimed[p.key]={handle,p.uid,p.pos,p.rot,p.scale};
+            }
         }
     }catch(...){for(auto& entry:claimed)api.gchandle_free(entry.second.handle);throw;}
     objects.swap(claimed);baseline=true;

@@ -44,7 +44,7 @@ def build(compiler=None, output=None):
         if sys.platform == 'win32':check_protocol(compiler, env)
         manifest = temporary.with_suffix('.json')
         manifest.write_text(json.dumps({'protocol': 1, 'platform': 'windows-x64',
-            'client_bridge': 2, 'sha256': hashlib.sha256(temporary.read_bytes()).hexdigest(),
+            'client_bridge': 2, 'gc_handle_bits': 64, 'sha256': hashlib.sha256(temporary.read_bytes()).hexdigest(),
             'source_sha256': hashlib.sha256((ROOT/'ruster/preview_native/client.cpp').read_bytes()).hexdigest()}, indent=2))
         # Publish only a build whose standalone checks succeeded. If publication
         # is interrupted, integrity verification rejects a mismatched manifest.
@@ -67,7 +67,7 @@ def check_protocol(compiler, env):
             path.write_bytes(data)
             result = subprocess.run([str(binary), '--peer', str(path)], capture_output=True)
             if result.returncode != expected:raise RuntimeError('Native connection proof check failed: '+result.stderr.decode(errors='replace'))
-    print('Native decoder, API bindings, new-asset rollback and UDP-ownership checks passed (no Rust process used)', flush=True)
+    print('Native decoder, pointer-sized handle polling/cleanup, API bindings, rollback and UDP ownership passed (no Rust process used)', flush=True)
 
 
 def peer_cases():

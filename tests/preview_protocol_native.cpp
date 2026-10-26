@@ -6,11 +6,17 @@
 
 // Synthetic IL2CPP callbacks exercise transaction rollback without game APIs.
 namespace {
-std::map<uint32_t,Object*> retained;
+// Model the published Unity 6 ABI independently of the bridge declarations.
+// A pointer above 4 GiB exposes truncated return values, stored fields and calls.
+using RuntimeHandle=void*;
+std::map<RuntimeHandle,Object*> retained;
 std::vector<uintptr_t> destroyed;
-uint32_t nextHandle=2;
+uintptr_t nextHandle=0x0000025600000002ULL;
 uintptr_t nextObject=1000;
 bool rejectScale=false;
+RuntimeHandle retainFake(Object* obj,bool){auto handle=reinterpret_cast<RuntimeHandle>(nextHandle++);retained[handle]=obj;return handle;}
+Object* targetFake(RuntimeHandle handle){return retained.at(handle);}
+void freeFake(RuntimeHandle handle){retained.erase(handle);}
 Object* invokeFake(const Method* method,void* self,void** args,Object**) {
     if(method==findPrefab){
         if(self!=manager)throw std::runtime_error("Prefab lookup did not use the bootstrap instance");
@@ -24,6 +30,7 @@ Object* invokeFake(const Method* method,void* self,void** args,Object**) {
     }
     if(method==setScale&&rejectScale)throw std::runtime_error("Synthetic setter rejection");
     if(method==getTransform)return static_cast<Object*>(self);
+    if(method==objectAlive){static bool alive=true;return reinterpret_cast<Object*>(&alive);}
     if(method==destroyObject)destroyed.push_back(reinterpret_cast<uintptr_t>(args[0]));
     return nullptr;
 }
@@ -32,27 +39,37 @@ void transactionCheck() {
     createPrefab=reinterpret_cast<Method*>(3);getTransform=reinterpret_cast<Method*>(4);
     destroyObject=reinterpret_cast<Method*>(5);setPosition=reinterpret_cast<Method*>(6);
     setRotation=reinterpret_cast<Method*>(7);setScale=reinterpret_cast<Method*>(8);
-    setActive=reinterpret_cast<Method*>(9);setName=reinterpret_cast<Method*>(10);manager=reinterpret_cast<Object*>(99);
+    setActive=reinterpret_cast<Method*>(9);setName=reinterpret_cast<Method*>(10);objectAlive=reinterpret_cast<Method*>(11);manager=reinterpret_cast<Object*>(99);
     api.runtime_invoke=invokeFake;
     api.string_new=[](const char* p){return reinterpret_cast<Object*>(const_cast<char*>(p));};
-    api.gchandle_new=[](Object* obj,bool){auto handle=nextHandle++;retained[handle]=obj;return handle;};
-    api.gchandle_get_target=[](uint32_t handle){return retained.at(handle);};
-    api.gchandle_free=[](uint32_t handle){retained.erase(handle);};
-    retained[1]=reinterpret_cast<Object*>(101);
-    objects[17]={1,1,{0,0,0},{0,0,0,1},{1,1,1}};
+    api.gchandle_new=reinterpret_cast<decltype(api.gchandle_new)>(retainFake);
+    api.gchandle_get_target=reinterpret_cast<decltype(api.gchandle_get_target)>(targetFake);
+    api.gchandle_free=reinterpret_cast<decltype(api.gchandle_free)>(freeFake);
+    api.object_unbox=[](Object* p){return static_cast<void*>(p);};
+    Object* value=reinterpret_cast<Object*>(501);auto handle=api.gchandle_new(value,false);
+    if((uintptr_t)handle<=UINT32_MAX)throw std::runtime_error("Unity 6 GCHandle return value was truncated to 32 bits");
+    if(api.gchandle_get_target(handle)!=value)throw std::runtime_error("Unity 6 GCHandle lookup lost upper pointer bits");
+    api.gchandle_free(handle);
+    if(!retained.empty())throw std::runtime_error("Unity 6 GCHandle free lost upper pointer bits");
+    auto original=reinterpret_cast<RuntimeHandle>(0x0000025600000001ULL);
+    retained[original]=reinterpret_cast<Object*>(101);
+    objects[17]={(decltype(Instance{}.handle))(uintptr_t)original,1,{0,0,0},{0,0,0,1},{1,1,1}};
     Placement p{17,123456,"assets/test/source.prefab",{1,2,-3},{0,0,0,1},{1,2,3}};
     Placement missing=p;missing.key=18;missing.path="assets/test/missing.prefab";
     bool failed=false;
     try{apply({p,missing});}catch(const std::exception&){failed=true;}
-    if(!failed||objects.size()!=1||objects.at(17).handle!=1||retained.size()!=1||destroyed!=std::vector<uintptr_t>{1000})
+    if(!failed||objects.size()!=1||(uintptr_t)objects.at(17).handle!=(uintptr_t)original||retained.size()!=1||destroyed!=std::vector<uintptr_t>{1000})
         throw std::runtime_error("A failed replacement damaged the previous scene");
     apply({p});
+    if(!retainedAlive())throw std::runtime_error("Post-spawn retained-object polling failed");
     if(objects.size()!=1||objects.at(17).uid!=123456||retained.size()!=1||destroyed.back()!=101)
         throw std::runtime_error("Successful replacement did not retire the old object");
     auto added=p;added.key=18;added.path="assets/test/new-on-the-fly.prefab";
     apply({p,added});
     if(objects.size()!=2||objects.at(17).uid!=123456||retained.size()!=2)
         throw std::runtime_error("A newly introduced asset could not be added");
+    for(auto& entry:objects)if((uintptr_t)entry.second.handle<=UINT32_MAX)throw std::runtime_error("Stored GCHandle was truncated");
+    if(!retainedAlive())throw std::runtime_error("Polling newly added objects lost their handles");
     auto old=objects.at(18).handle;added.scale.x=2;rejectScale=true;failed=false;
     try{apply({p,added});}catch(const std::exception&){failed=true;}
     rejectScale=false;
@@ -60,6 +77,8 @@ void transactionCheck() {
         throw std::runtime_error("A failed activation/transform damaged the old scene");
     apply({});
     if(!objects.empty()||!retained.empty())throw std::runtime_error("Deletion leaked preview handles");
+    apply({p});forgetWorld();
+    if(!objects.empty()||!retained.empty())throw std::runtime_error("World cleanup lost upper handle bits");
 }
 struct FakeClass;
 struct FakeType {std::string name;FakeClass* klass=nullptr;};

@@ -222,6 +222,8 @@ def verify_module(dll):
     try:
         if not 0 < dll.stat().st_size <= 16*1024*1024:raise ValueError('Invalid preview DLL size')
         manifest = json.loads(dll.with_suffix('.json').read_text())
+        if manifest.get('gc_handle_bits') != 64:
+            raise ValueError('This preview DLL predates the Unity 6 object-handle fix. Rebuild or use the updated Ruster build.')
         if (manifest.get('protocol') != 1 or manifest.get('platform') != 'windows-x64'
                 or hashlib.sha256(dll.read_bytes()).hexdigest() != manifest.get('sha256')):
             raise ValueError('Preview DLL integrity check failed; rebuild or reinstall Ruster')

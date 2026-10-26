@@ -82,6 +82,14 @@ only scans the relevant API types. Duplicate or missing bindings fail explicitly
 and the worker exits after a compatibility failure. The panel shows **Preview
 Unavailable** when a loaded module reports an error.
 
+The Unity 6 bridge stores object-retention handles as opaque pointers, matching
+the [IL2CPP API handle definition](https://github.com/MlgmXyysd/libil2cpp/blob/master/libil2cpp/Unity_6000.0/6000.0.5f1/il2cpp-api-types.h).
+The earlier 32-bit handle declarations caused a native crash on the first
+retained-object poll after a successful spawn. The crash dump identified that
+lookup and a truncated pointer; standalone tests now use handles above 4 GiB
+through creation, storage, polling, rollback, deletion and world cleanup. The
+module manifest records 64-bit handles, and the loader refuses older modules.
+
 The dedicated server starts with its native `-insecure` switch. The companion
 checks `Network.Net.sv.secure` before advertising readiness and on every update.
 Ruster validates a fresh heartbeat with the matching server PID and session

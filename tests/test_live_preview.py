@@ -388,13 +388,20 @@ def test_snapshots_freeze_vectors_consume_generators_once_and_round_to_float32(t
 def test_module_integrity_and_build_source_must_match(tmp_path):
     folder = tmp_path/'bin';folder.mkdir();dll = folder/'RusterPreview.dll';dll.write_bytes(b'offline fixture')
     source = tmp_path/'client.cpp';source.write_text('// fixture')
-    manifest = {'protocol': 1, 'platform': 'windows-x64', 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(),
+    manifest = {'protocol': 1, 'platform': 'windows-x64', 'gc_handle_bits': 64, 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(),
                 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest()}
     dll.with_suffix('.json').write_text(json.dumps(manifest));client.verify_module(dll)
     source.write_text('// changed')
     with pytest.raises(ValueError, match='source changed'):client.verify_module(dll)
     source.unlink();dll.write_bytes(b'changed')
     with pytest.raises(ValueError, match='integrity'):client.verify_module(dll)
+
+
+def test_module_without_pointer_sized_handles_is_rejected(tmp_path):
+    dll=tmp_path/'RusterPreview.dll';dll.write_bytes(b'old module fixture')
+    dll.with_suffix('.json').write_text(json.dumps({'protocol':1,'platform':'windows-x64',
+        'sha256':hashlib.sha256(dll.read_bytes()).hexdigest()}))
+    with pytest.raises(ValueError,match='predates the Unity 6 object-handle fix'):client.verify_module(dll)
 
 
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only server installation')
