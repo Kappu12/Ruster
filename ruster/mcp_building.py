@@ -13,6 +13,7 @@ from . import app,scene,editing,placement
 from .assets import catalog
 from .core import paths,prefabs,wire
 from .core.project import atomic_write
+from .model_geometry import placement_meshes
 
 READ={'get_editor_status','list_prefab_categories','get_prefab_details','get_viewport_image'}
 EDIT={'request_prefab_assets','place_prefabs','transform_objects','group_objects','ungroup_object','rename_object','focus_view','export_assembly','import_assembly'}
@@ -56,7 +57,7 @@ def object_bounds(obj,children=None,cache=None):
     # Object.children's repeated whole-scene scans on large imported groups.
     children=hierarchy() if children is None else children
     cache={} if cache is None else cache
-    pending=[(obj,False)]
+    pending=[(obj,False)];transforms={}
     while pending:
         root,visited=pending.pop()
         if root in cache:continue
@@ -66,8 +67,7 @@ def object_bounds(obj,children=None,cache=None):
         low=[math.inf]*3;high=[-math.inf]*3;found=False
         collection=root.instance_collection
         if collection:
-            matrix=root.matrix_world@Matrix.Translation(-collection.instance_offset)
-            models=((model,matrix@model.matrix_world) for model in collection.all_objects if model.type=='MESH')
+            models=placement_meshes(root,transforms)
         elif root.type=='MESH':models=((root,root.matrix_world),)
         else:models=()
         for model,matrix in models:

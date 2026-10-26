@@ -61,6 +61,14 @@ Extracted meshes are cache entries, not the authoritative map model. Unsupported
 assets retain their map IDs and visible placeholders. The conversion approximates
 materials in Blender; it does not implement Rust's rendering engine or gameplay.
 
+Bounds and model exports derive linked model matrices from each object's local
+basis and parent-inverse chain, then apply the collection offset and placement
+world transform once. Library objects outside the active scene can retain stale
+`matrix_world` values even when their evaluated instances render correctly. No
+asset-cache rebuild is needed for this calculation. Model exports bake internal
+hierarchy shear into disposable mesh copies, counted against the export budget;
+source libraries and native prefab placement records stay unchanged.
+
 ## Terrain state and undo
 
 A scene's `terrain_state` points at an immutable Text datablock containing a

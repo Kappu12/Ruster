@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import bpy
 from mathutils import Matrix
+from .model_geometry import placement_meshes
 
 # Only formats whose operators exist in this Blender build are offered.
 FORMATS = {
@@ -40,21 +41,26 @@ def available_formats():
 @contextmanager
 def realized_scene(roots, local_dependencies=False, pack_images=False):
     from .protection import model_error
+    from .scene import matrix_has_shear
     roots = list(roots)
     if not roots:raise ValueError('Select Rust prefab placements to export')
     sources, unique, vertices = [], set(), 0
+    transforms={}
     for root in roots:
         problem = model_error(root)
         if problem:raise ValueError(root.name + ': ' + problem)
         if root.get('ruster_marker') in {'SOUND','EFFECT','VOLUME'}:continue
         collection = root.instance_collection
         if not collection:raise ValueError(root.name + ': load its original Rust model before model export')
-        matrix = root.matrix_world @ Matrix.Translation(-collection.instance_offset)
-        for obj in collection.all_objects:
-            if obj.type != 'MESH':continue
-            sources.append((obj, matrix @ obj.matrix_world))
-            if obj.data.as_pointer() not in unique:
-                unique.add(obj.data.as_pointer());vertices += len(obj.data.vertices)
+        for obj,matrix in placement_meshes(root,transforms):
+            # Flattened objects cannot store shear in location/rotation/scale.
+            # Bake the full affine matrix into an isolated copy when necessary.
+            # Count those copies against the existing mesh allocation budget.
+            baked=matrix_has_shear(matrix)
+            key=(obj.data.as_pointer(),tuple(v for row in matrix for v in row) if baked else None)
+            sources.append((obj,matrix,key,baked))
+            if key not in unique:
+                unique.add(key);vertices += len(obj.data.vertices)
     if not sources:raise ValueError('Selected prefabs have no readable mesh geometry')
     if len(sources) > 50000 or vertices > 2000000:
         raise ValueError('Export exceeds the bounded model budget; export a smaller selection')
@@ -90,16 +96,19 @@ def realized_scene(roots, local_dependencies=False, pack_images=False):
     window = bpy.context.window
     original_scene = window.scene if window else None
     try:
-        for obj, matrix in sources:
-            key = obj.data.as_pointer()
+        for obj, matrix, key, baked in sources:
             if key not in meshes:
                 meshes[key] = obj.data.copy()
+                if baked:
+                    meshes[key].transform(matrix)
+                    if matrix.determinant()<0:meshes[key].flip_normals()
+                    meshes[key].update()
                 if local_dependencies:
                     for index, material in enumerate(meshes[key].materials):
                         meshes[key].materials[index]=local_material(material)
             copy = bpy.data.objects.new(obj.name, meshes[key])
             temporary.collection.objects.link(copy)
-            copy.matrix_world = matrix
+            copy.matrix_world = Matrix.Identity(4) if baked else matrix
             # Source assets can use per-object material overrides.
             for index, slot in enumerate(obj.material_slots):
                 if index < len(copy.material_slots):
