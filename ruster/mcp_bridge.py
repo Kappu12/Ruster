@@ -77,7 +77,7 @@ def set_transform(obj,position=None,rotation_degrees=None,scale=None):
     if position is not None:location=Vector(vector(position,'Position'))
     if rotation_degrees is not None:rotation=Euler(tuple(math.radians(v) for v in vector(rotation_degrees,'Rotation')),'XYZ').to_quaternion()
     if scale is not None:old_scale=Vector(vector(scale,'Scale',True))
-    original=obj.matrix_basis.copy()
+    original=placement.transform_state(obj)
     desired=Matrix.LocRotScale(location,rotation,old_scale)
     if not all(math.isfinite(v) for row in desired for v in row):raise ValueError('Transform exceeds Blender number range')
     obj.matrix_world=desired
@@ -94,7 +94,7 @@ def set_transform(obj,position=None,rotation_degrees=None,scale=None):
             if any(abs(v)<1e-7 for v in scl) or scene.matrix_has_shear(item.matrix_world):
                 raise ValueError('This transform introduces shear or zero scale; use uniform group scale')
     except Exception:
-        obj.matrix_basis=original;bpy.context.view_layer.update();raise
+        placement.restore_transform(obj,original);bpy.context.view_layer.update();raise
 
 
 def place_prefab(uid,position,rotation_degrees=None,scale=None):

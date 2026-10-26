@@ -14,6 +14,18 @@ from .core.rust_map import prefab_transform,update_transform
 from .ui_style import properties,wrapped
 
 _classes=[]
+TRANSFORM_CHANNELS=('rotation_mode','location','rotation_euler','rotation_quaternion','rotation_axis_angle','scale',
+    'delta_location','delta_rotation_euler','delta_rotation_quaternion','delta_scale')
+
+
+def transform_state(obj):
+    """Keep native channels exactly; matrix reassignment decomposes them again."""
+    return {name:(value if isinstance(value,str) else tuple(value))
+        for name in TRANSFORM_CHANNELS for value in (getattr(obj,name),)}
+
+
+def restore_transform(obj,state):
+    for name,value in state.items():setattr(obj,name,value)
 
 
 def select(objects):

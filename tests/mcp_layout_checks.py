@@ -65,7 +65,9 @@ def run(server, call, uid):
     near(bpy.data.objects[first].matrix_world.translation, [0, 2, 1])
     call('undo'); near(bpy.data.objects[first].matrix_world.translation, [2, 0, 0])
     call('redo'); near(bpy.data.objects[first].matrix_world.translation, [0, 2, 1])
+    call('transform_object',name=first,rotation_degrees=[13.7,-28.2,119.6],scale=[1.3,.7,2.2])
     before = {name: bpy.data.objects[name].matrix_basis.copy() for name in names}
+    channels={name:tuple(tuple(getattr(bpy.data.objects[name],field)) for field in ('location','rotation_euler','scale')) for name in names}
     real_transform = mcp_bridge.set_transform
     attempts = []
     def fail_second(obj, *args, **kwargs):
@@ -77,8 +79,9 @@ def run(server, call, uid):
         fail('transform_objects_relative', names=names, offset=[1, 2, 3])
         assert len(attempts) == 2
         assert all(bpy.data.objects[name].matrix_basis == matrix for name, matrix in before.items())
+        assert all(tuple(tuple(getattr(bpy.data.objects[name],field)) for field in ('location','rotation_euler','scale'))==value for name,value in channels.items())
     finally:mcp_bridge.set_transform = real_transform
-    call('transform_object', name=first, rotation_degrees=[0, 0, 45])
+    call('transform_object', name=first, rotation_degrees=[0, 0, 45],scale=[1,1,1])
     before = {name: bpy.data.objects[name].matrix_world.copy() for name in names}
     assert 'shear' in fail('transform_objects_relative', names=names, scale=[2, 1, 1])
     assert all(bpy.data.objects[name].matrix_world == matrix for name, matrix in before.items())

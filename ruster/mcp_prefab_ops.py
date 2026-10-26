@@ -110,13 +110,13 @@ def align(objects,axis,mode,target,bridge):
     if any(box is None for box in boxes):raise ValueError('Load original model geometry for every target before bounds alignment')
     def coordinate(box):return (box['min'][index]+box['max'][index])/2 if mode=='CENTER' else box['min' if mode=='MIN' else 'max'][index]
     target=coordinate(boxes[0]) if target is None else bridge.vector([target,0,0],'Alignment target')[0]
-    before={obj:obj.matrix_basis.copy() for obj in objects}
+    before={obj:placement.transform_state(obj) for obj in objects}
     try:
         for obj,box in zip(objects,boxes):
             pos=obj.matrix_world.translation.copy();pos[index]+=target-coordinate(box)
             bridge.set_transform(obj,position=list(pos))
     except Exception:
-        for obj,matrix in before.items():obj.matrix_basis=matrix
+        for obj,state in before.items():placement.restore_transform(obj,state)
         bpy.context.view_layer.update();raise
     return target
 

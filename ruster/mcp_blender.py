@@ -4,7 +4,7 @@ import math
 import bpy
 from mathutils import Euler, Matrix, Vector
 
-from . import app, scene, mcp_building, mcp_prefab_ops, construction
+from . import app, scene, mcp_building, mcp_prefab_ops, construction, placement
 
 READ = {'get_blender_context', 'get_viewport_state', 'measure_objects'}
 EDIT = {'set_viewport_state', 'set_cursor', 'transform_objects_relative',
@@ -94,13 +94,13 @@ def apply_matrices(objects, matrices, bridge):
     for matrix in matrices:
         if any(not math.isfinite(v) for row in matrix for v in row) or scene.matrix_has_shear(matrix):
             raise ValueError('Layout introduces shear, zero scale or an invalid transform; use uniform scale')
-    before = {obj: obj.matrix_basis.copy() for obj in objects}
+    before = {obj: placement.transform_state(obj) for obj in objects}
     try:
         for obj, matrix in zip(objects, matrices):
             location, rotation, scale = matrix.decompose()
             bridge.set_transform(obj, list(location), [math.degrees(v) for v in rotation.to_euler('XYZ')], list(scale))
     except Exception:
-        for obj, matrix in before.items():obj.matrix_basis = matrix
+        for obj, state in before.items():placement.restore_transform(obj,state)
         bpy.context.view_layer.update()
         raise
 

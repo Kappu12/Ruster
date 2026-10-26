@@ -293,11 +293,11 @@ def dispatch(server,kind,p,bridge):
         if not isinstance(items,list) or not 1<=len(items)<=200 or any(not isinstance(i,dict) for i in items):raise ValueError('Provide 1–200 object transforms')
         from .mcp_blender import editable_roots
         objects=editable_roots([i.get('name') for i in items],bridge)
-        before={o:o.matrix_basis.copy() for o in objects}
+        before={o:placement.transform_state(o) for o in objects}
         try:
             for obj,item in zip(objects,items):bridge.set_transform(obj,**{k:v for k,v in item.items() if k!='name'})
         except Exception:
-            for obj,matrix in before.items():obj.matrix_basis=matrix
+            for obj,state in before.items():placement.restore_transform(obj,state)
             bpy.context.view_layer.update();raise
         result={'objects':object_infos(server,objects,bridge)}
     elif kind=='group_objects':

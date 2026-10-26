@@ -61,7 +61,7 @@ def run():
         group.location.z += 2
         app.save_project(directory/'recovery.ruster', update_path=False)
         assert quitting.has_unsaved_changes()
-        assert bpy.context.scene.ruster.project_path == str(target)
+        assert Path(bpy.context.scene.ruster.project_path).samefile(target)
         native_save = app.project.save
         def fail(*args, **kwargs):raise OSError('Simulated full disk')
         app.project.save = fail
@@ -70,7 +70,7 @@ def run():
             except OSError:pass
             else:raise AssertionError('Failed save reported success')
             assert quitting.has_unsaved_changes()
-            assert bpy.context.scene.ruster.project_path == str(target)
+            assert Path(bpy.context.scene.ruster.project_path).samefile(target)
         finally:app.project.save = native_save
         app.save_project(target)
         expected = [(obj.name, obj.location.copy()) for obj in scene.prefab_roots()]
