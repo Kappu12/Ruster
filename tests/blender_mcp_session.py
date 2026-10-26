@@ -31,12 +31,12 @@ def run():
         refused('new_project','unsaved changes')
         refused('new_project','boolean',discard_unsaved='true')
         project=root/'first.ruster';call('save_project',path=str(project))
-        assert call('get_project_status')['path']==str(project) and not call('get_project_status')['unsaved_changes']
+        assert Path(call('get_project_status')['path']).samefile(project) and not call('get_project_status')['unsaved_changes']
         assert call('new_project')['prefab_count']==0
         # This actual file load must not retain a Window context override, old
         # selection RNA, or disconnect the authenticated command executor.
         assert call('open_project',path=str(project))['prefab_count']==1
-        assert call('get_project_status')['path']==str(project)
+        assert Path(call('get_project_status')['path']).samefile(project)
         assert call('ping')['pong'] and server.token.startswith('test-token-')
         first=scene.prefab_roots()[0];first.location.x+=3;bpy.context.view_layer.update()
         refused('open_project','unsaved changes',path=str(project))
@@ -46,7 +46,7 @@ def run():
         bpy.context.scene.ruster.busy=True
         refused('new_project','asset extraction',discard_unsaved=True)
         bpy.context.scene.ruster.busy=False
-        assert call('list_recent_projects')['projects'][0]['path']==str(project)
+        assert Path(call('list_recent_projects')['projects'][0]['path']).samefile(project)
         assert call('open_project',path=str(project),discard_unsaved=True)['prefab_count']==1
         assert scene.prefab_roots()[0].location.x==0
         saved=(live_preview.backend.PreviewSession,live_preview.preview_client.verify_module,live_preview.installation,live_preview.preview_client.discover)
