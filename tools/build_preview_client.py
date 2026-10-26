@@ -92,11 +92,12 @@ def protocol_cases():
     valid = encode_snapshot(7, [row])
     def corrupt(offset, fmt, value):
         data = bytearray(valid);struct.pack_into(fmt, data, offset, value);return bytes(data)
-    return [(valid, 0), (encode_snapshot(8, []), 0), (encode_snapshot(2**63-1, [row]), 0),
+    large=encode_snapshot(9,[{**row,'key':17+index} for index in range(16384)])
+    return [(valid, 0), (encode_snapshot(8, []), 0), (encode_snapshot(2**63-1, [row]), 0), (large,0),
         (valid[:19], 1), (b'NOTLIVE!'+valid[8:], 1), (valid+b'extra', 1),
         (corrupt(len(valid)-16, '<f', 0.), 1), (corrupt(len(valid)-4, '<f', 0.), 1),
         (corrupt(len(valid)-40, '<f', float('nan')), 1), (corrupt(8, '<Q', 0), 1),
-        (corrupt(8, '<Q', 2**63), 1), (corrupt(16, '<I', 2001), 1),
+        (corrupt(8, '<Q', 2**63), 1), (corrupt(16, '<I', 2001), 1), (corrupt(16,'<I',0xffffffff),1),
         (corrupt(20, '<Q', 0), 1), (corrupt(28, '<I', 0), 1), (corrupt(32, '<I', 4097), 1),
         (valid[:36]+b'\xff'+valid[37:], 1), (valid[:43]+b'..'+valid[45:], 1),
         (valid[:16]+struct.pack('<I', 2)+valid[20:]+valid[20:], 1)]

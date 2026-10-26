@@ -45,7 +45,10 @@ namespace Ruster.Preview
                 {
                     if (Encoding.ASCII.GetString(reader.ReadBytes(8)) != "RUSLIVE1") throw new InvalidDataException("Invalid preview protocol");
                     var revision = reader.ReadInt64(); var count = reader.ReadUInt32();
-                    if (revision <= 0 || count > 2000) throw new InvalidDataException("Invalid preview revision or count");
+                    // Validate against the remaining record bytes before any
+                    // allocation; there is no fixed placement-count ceiling.
+                    if (revision <= 0 || count > (input.Length - input.Position) / 56)
+                        throw new InvalidDataException("Invalid preview revision or count");
                     var rows = new Placement[count]; var keys = new HashSet<ulong>();
                     for (int i = 0; i < rows.Length; i++)
                     {

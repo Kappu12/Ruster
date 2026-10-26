@@ -383,7 +383,10 @@ bool baseline=false;
 std::vector<Placement> decode(const std::vector<uint8_t>& data,uint64_t& revision) {
     if(data.size()<20||data.size()>16*1024*1024||memcmp(data.data(),"RUSLIVE1",8))throw std::runtime_error("Invalid preview snapshot");
     size_t offset=8;revision=take<uint64_t>(data,offset);uint32_t count=take<uint32_t>(data,offset);
-    if(!revision||revision>INT64_MAX||count>2000)throw std::runtime_error("Invalid preview revision or count");std::vector<Placement> rows;std::map<uint64_t,bool> keys;
+    // A count must fit the actual bytes, not a fixed composition-size limit.
+    // Each record needs at least its 16-byte header and ten float32 values.
+    if(!revision||revision>INT64_MAX||count>(data.size()-20)/56)throw std::runtime_error("Invalid preview revision or count");
+    std::vector<Placement> rows;rows.reserve(count);std::map<uint64_t,bool> keys;
     for(uint32_t i=0;i<count;i++) {
         Placement p;p.key=take<uint64_t>(data,offset);p.uid=take<uint32_t>(data,offset);auto length=take<uint32_t>(data,offset);
         if(!p.key||!p.uid||keys.count(p.key)||length>4096||offset+length>data.size())throw std::runtime_error("Invalid preview placement");

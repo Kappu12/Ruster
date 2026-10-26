@@ -18,7 +18,7 @@ def project_status():
 
 def preview_status(log_lines=20):
     from .mcp_building import bounded_int
-    from .core.preview_protocol import MAX_PLACEMENTS,MAX_SNAPSHOT
+    from .core.preview_protocol import MAX_SNAPSHOT
     bounded_int(log_lines,0,100,'Log line count')
     live_preview.refresh_status()
     job=live_preview._job
@@ -26,7 +26,7 @@ def preview_status(log_lines=20):
     info=dict(live_preview.status())
     port=job.port if job and job.active else state.port
     info.update(active=bool(job and job.active),address=f'127.0.0.1:{port}',connect_command=f'connect 127.0.0.1:{port}',
-        placement_count=len(scene.prefab_roots()),placement_limit=MAX_PLACEMENTS,snapshot_byte_limit=MAX_SNAPSHOT,
+        placement_count=len(scene.prefab_roots()),placement_limit=None,snapshot_byte_limit=MAX_SNAPSHOT,
         server=live_preview._server_status,client=live_preview._client_status,
         error=live_preview._error,scene_error=live_preview._snapshot_error,
         client_module_loaded=live_preview._module_loaded,client_check=live_preview._probe_message,

@@ -23,6 +23,20 @@ def placement(**changes):
             'euler': (0., 90., 0.), **changes}
 
 
+def test_preview_accepts_large_compositions_without_a_placement_count_cap():
+    rows=[placement(key=index+1) for index in range(16384)]
+    payload=protocol.encode_snapshot(3,rows)
+    assert struct.unpack_from('<I',payload,16)[0]==16384
+    world=RustMap.read(protocol.preview_map(rows[:2501]))
+    assert len(world.prefabs)==2501
+
+
+def test_large_scene_still_obeys_snapshot_byte_validation(monkeypatch):
+    monkeypatch.setattr(protocol,'MAX_SNAPSHOT',20)
+    with pytest.raises(ValueError,match='snapshot is too large'):
+        protocol.encode_snapshot(1,[placement()])
+
+
 def safe_probe(tmp_path):
     return client.ClientProbe(pid=123, executable=str(tmp_path/'RustClient.exe'), created=100,
         command_line='"'+str(tmp_path/'RustClient.exe')+'"', parent_name='explorer.exe',
@@ -157,9 +171,8 @@ def test_invalid_snapshots_cannot_reach_either_runtime(changes):
     with pytest.raises(ValueError):protocol.encode_snapshot(1, [placement(**changes)])
 
 
-def test_duplicate_and_oversized_snapshots_are_rejected():
+def test_duplicate_placement_keys_are_rejected():
     with pytest.raises(ValueError):protocol.encode_snapshot(1, [placement(), placement()])
-    with pytest.raises(ValueError):protocol.encode_snapshot(1, [placement(key=i+1) for i in range(2001)])
 
 
 def test_initial_map_contains_original_placements_and_void_layers():

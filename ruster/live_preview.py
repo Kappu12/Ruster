@@ -12,7 +12,6 @@ from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
 
 from .core import live_preview as backend, preview_client, settings
-from .core.preview_protocol import MAX_PLACEMENTS
 from .ui_style import ICONS, action, properties, wrapped, section
 
 _classes = []
@@ -56,7 +55,6 @@ def placement_rows():
     from . import scene
     from .assets import catalog
     roots = scene.prefab_roots()
-    if len(roots) > MAX_PLACEMENTS:raise ValueError('Live preview supports at most 2,000 prefab placements')
     if not roots:return
     with closing(catalog.read_connection(scene.cache_dir())) as db:
         ids = {int(root['ruster_uid']) for root in roots}

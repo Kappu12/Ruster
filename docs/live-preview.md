@@ -163,8 +163,11 @@ point above available prefab colliders. Use owner permissions and Rust's F1
 
 Both companions claim the authored baked placements instead of adding
 duplicates. A newly introduced asset that Rust cannot load dynamically reports
-an error; restart preview with that asset in the initial composition. There is a
-2,000 placement limit. Updates stage replacements before removing previous
+an error; restart preview with that asset in the initial composition. There is no
+fixed placement-count cap. The binary snapshot size guard remains 16 MiB, and
+actual scene performance depends on memory and Rust's update work. Readers
+validate the count against the bytes present before allocating record arrays.
+Updates stage replacements before removing previous
 objects; a failed creation preserves the previous scene. Both readers use the
 same bounded binary snapshot format. Terrain, paths, navmesh rebuilding, puzzle
 serialization and full monument gameplay configuration are outside this preview.

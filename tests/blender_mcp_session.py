@@ -69,9 +69,11 @@ def run():
             live_preview.installation=lambda:root/'synthetic-game'
             live_preview.preview_client.discover=no_client
             refused('start_live_preview','Game port',port=True)
+            for _ in range(2500):scene.root_object([wire.encode(2,0,123456)],bpy.context.scene.collection)
             started=call('start_live_preview',port=29720,owner_id='76561198000000000')
             assert started['active'] and started['status']=='STARTING' and started['progress']==.5
-            assert jobs[0].port==29720 and jobs[0].owner=='76561198000000000' and len(jobs[0].rows)==1
+            assert jobs[0].port==29720 and jobs[0].owner=='76561198000000000' and len(jobs[0].rows)==2501
+            assert started['placement_count']==2501 and started['placement_limit'] is None
             assert not jobs[0].options['update_server'] and started['connect_command']=='connect 127.0.0.1:29720'
             refused('start_live_preview','already running')
             refused('send_live_preview_command','become ready',command='status')

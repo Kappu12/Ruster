@@ -8,15 +8,12 @@ from .project import atomic_write
 from .rust_map import RustMap
 from . import wire
 
-MAX_PLACEMENTS = 2000
 MAGIC = b'RUSLIVE1'
 MAX_SNAPSHOT = 16 * 1024 * 1024
 MAX_REVISION = 2**63-1
 
 
 def validate_placements(placements):
-    if len(placements) > MAX_PLACEMENTS:
-        raise ValueError('Live preview supports at most 2,000 placements')
     seen = set()
     for row in placements:
         key, uid, path = row['key'], row['uid'], row['path']
