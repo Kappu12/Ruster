@@ -17,6 +17,27 @@ jobs:
       - run: python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
       - run: python -m pytest -q
       - run: python -m compileall -q ruster tools bootstrap.py launch.py
+  package:
+    # Release tags build their distributables in package.yml after these checks.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    needs: formats
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+          - os: ubuntu-latest
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build and test application package
+        run: python tools/package.py --output-name "Ruster-${{ matrix.target }}-check"
   blender:
     runs-on: ubuntu-latest
     timeout-minutes: 25

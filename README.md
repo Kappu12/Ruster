@@ -77,7 +77,8 @@ Start an automation session by reading `ruster://guide/building` and calling `ge
 
 Project tools expose the current path and unsaved state, recent projects, and
 `open_project`/`new_project`. Save current work first; discarding changes requires
-`discard_unsaved=True`. Stop an active preview before switching projects.
+`discard_unsaved=True`. An active preview stays running across project switches
+in the same Ruster window, clearing the old scene and syncing the new project.
 `start_live_preview`, `stop_live_preview` and `get_live_preview_status` control the
 owned server and report progress, logs, connection details and client errors.
 Console and owner-ID tools queue commands on that server. Launch and Inject use
@@ -140,7 +141,7 @@ The packager downloads the pinned Blender archive, verifies its SHA256, installs
 
 ### Publish a version
 
-Ordinary branch pushes and pull requests run the unit, native Blender, and graphical tests without uploading application artifacts. To publish a version, update the application version in `ruster/__init__.py`, commit the changes, then push a new version tag such as `v1.2.3`:
+Ordinary branch pushes and pull requests run the unit, native Blender, and graphical tests, then build and test the Windows and Linux packages without uploading application artifacts. To publish a version, update the application version in `ruster/__init__.py`, commit the changes, then push a new version tag such as `v1.2.3`:
 
 ```sh
 git tag v1.2.3
