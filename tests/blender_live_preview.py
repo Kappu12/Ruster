@@ -108,13 +108,19 @@ def run():
                 def panel(self, *args, **kwargs):return self, self
             (root/'server.status').write_text('ERROR\nSynthetic missing asset-scene dependency\n')
             layout = Layout();live_preview.refresh_status()
-            saved_install, saved_read = live_preview.installation, live_preview.backend.read_bounded
+            saved_install, saved_read, saved_platform = live_preview.installation, live_preview.backend.read_bounded, live_preview.sys
             def no_io(*args, **kwargs):raise AssertionError('Preview draw performed I/O')
             live_preview.installation = live_preview.backend.read_bounded = no_io
             job.info = job.log_tail = no_io
             draw_context = SimpleNamespace(window_manager=SimpleNamespace(ruster_live_preview=state),
                 preferences=bpy.context.preferences, region=SimpleNamespace(width=320))
             try:
+                if sys.platform != 'win32':
+                    live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
+                    assert 'requires Windows x64' in ' '.join(layout.labels)
+                # Exercise Windows-only controls using cached synthetic state on
+                # every CI host, without changing Python's real host platform.
+                live_preview.sys = SimpleNamespace(platform='win32')
                 for clients, allowed, loaded in (([], False, False), ([SimpleNamespace()], True, False), ([SimpleNamespace()], False, True)):
                     live_preview._clients = clients;live_preview._client_allowed = allowed;live_preview._module_loaded = loaded
                     live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
@@ -131,6 +137,7 @@ def run():
                 live_preview._client_status = ''
             finally:
                 live_preview.installation, live_preview.backend.read_bounded = saved_install, saved_read
+                live_preview.sys = saved_platform
             assert 'restart your computer' in ' '.join(layout.labels)
             assert 'Server: ERROR' in ' '.join(layout.labels) and 'Synthetic missing asset-scene dependency' in ' '.join(layout.labels)
             live_preview.document_replaced();assert job.cleared and not job.stopped and job.active

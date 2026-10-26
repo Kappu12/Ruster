@@ -37,7 +37,11 @@ def test_large_scene_still_obeys_snapshot_byte_validation(monkeypatch):
         protocol.encode_snapshot(1,[placement()])
 
 
-def test_document_switch_clears_preview_and_recenters_without_replacing_session(tmp_path):
+def test_document_switch_clears_preview_and_recenters_without_replacing_session(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    # Only exercise file/session state here; never inspect or reserve real ports.
+    monkeypatch.setattr(server,'sys',SimpleNamespace(platform='win32'))
+    monkeypatch.setattr(server,'check_ports',lambda port:None)
     job=server.PreviewSession(tmp_path,28015,'',[placement(position=(400.,20.,60.))])
     initial=(job.directory/'initial.bin').read_bytes();identity=(job.identity,job.token,job.directory)
     assert job.origin==(400.,20.,60.)
