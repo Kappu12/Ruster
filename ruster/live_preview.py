@@ -325,12 +325,17 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         if not _clients:wrapped(layout, context, 'Keep Steam open. Launch without EAC and wait for the main menu.', icon='info')
         row = layout.row();row.enabled = not bool(_future)
         failed_module = _module_loaded and _client_status.startswith(('ERROR', 'BLOCKED'))
+        stopped_module = _module_loaded and _client_status.startswith('STOPPED')
+        paused_module = _module_loaded and _client_status.startswith('WAITING')
         if _clients:
             row.enabled = row.enabled and running and _client_allowed and not _module_loaded
-            action(row, 'ruster.inject_preview', text='Preview Unavailable' if failed_module else 'Preview Module Loaded' if _module_loaded else None)
+            action(row, 'ruster.inject_preview', text='Preview Unavailable' if failed_module else 'Preview Stopped' if stopped_module else 'Preview Paused' if paused_module else 'Preview Module Loaded' if _module_loaded else None)
         else:action(row, 'ruster.launch_preview_rust')
-        wrapped(layout, context, 'Module loaded; preview could not start. See the client error below.' if failed_module else _probe_message,
-            icon='error' if failed_module or (_clients and not _client_allowed and not _module_loaded) else 'info')
+        module_message = ('Module loaded; preview could not start. See the client error below.' if failed_module else
+            'Client preview stopped. Close Rust fully, then launch without EAC and inject in a fresh session.' if stopped_module else
+            'Client preview paused; updates resume when the local connection checks pass.' if paused_module else _probe_message)
+        wrapped(layout, context, module_message,
+            icon='error' if failed_module or stopped_module or (_clients and not _client_allowed and not _module_loaded) else 'info')
         if _clients and not running and not _module_loaded:
             wrapped(layout, context, 'Inject unlocks when the local server is Ready.', icon='busy')
         wrapped(layout, context, 'Active or unknown EAC blocks Inject.', icon='locked')
@@ -339,7 +344,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         if _error:wrapped(layout, context, _error, icon='error')
         if _snapshot_error:wrapped(layout, context, _snapshot_error, icon='error')
         if _server_status.startswith('ERROR'):wrapped(layout, context, 'Server: '+_server_status, icon='error')
-        if _client_status:wrapped(layout, context, 'Client: '+_client_status, icon='error' if _client_status.startswith(('ERROR', 'BLOCKED')) else 'info')
+        if _client_status:wrapped(layout, context, 'Client: '+_client_status, icon='error' if _client_status.startswith(('ERROR', 'BLOCKED', 'STOPPED')) else 'info')
         wrapped(layout, context, f'Rust F1: connect 127.0.0.1:{_job.port if active else state.port}')
         details = section(layout, 'ruster_preview_eac_checks', 'Setup and EAC Checks', 'locked')
         if details is not None:

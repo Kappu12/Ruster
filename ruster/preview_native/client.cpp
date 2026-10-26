@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <cwctype>
 #include <filesystem>
@@ -34,6 +35,8 @@ HHOOK hook;
 DWORD windowThread;
 HANDLE worker;
 std::mutex pendingMutex;
+std::mutex statusMutex;
+std::string lastStatus;
 std::vector<uint8_t> pending;
 bool ready=false;
 std::atomic<bool> initializationFailed{false};
@@ -41,6 +44,7 @@ std::atomic<bool> stopping{false}, stopped{false};
 std::atomic_flag callbackActive=ATOMIC_FLAG_INIT;
 uint64_t applied=0;
 uint64_t attempted=0;
+size_t appliedCount=0;
 constexpr UINT PREVIEW_MESSAGE=WM_APP+0x531;
 
 bool eacName(std::wstring name) {
@@ -92,27 +96,61 @@ bool serverFresh() {
     return age>=-20000000&&age<=150000000;
 }
 void status(const char* state,const std::string& message) noexcept {try {
+    std::lock_guard<std::mutex> lock(statusMutex);
+    std::string value=std::string(state)+"\n"+message+"\n";
+    if(value==lastStatus)return;
     auto path=file(L"client.status");auto temp=path+L".tmp";
     HANDLE out=CreateFileW(temp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(out==INVALID_HANDLE_VALUE)return;
-    std::string value=std::string(state)+"\n"+message+"\n";DWORD written;
-    WriteFile(out,value.data(),DWORD(value.size()),&written,nullptr);CloseHandle(out);
-    MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
+    DWORD written=0;
+    bool saved=WriteFile(out,value.data(),DWORD(value.size()),&written,nullptr)&&written==value.size();CloseHandle(out);
+    if(!saved)return;
+    if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return;
+    lastStatus=value;
+    // Keep transitions after the status file changes, so a later state cannot
+    // erase the reason an otherwise running session paused or stopped.
+    WIN32_FILE_ATTRIBUTE_DATA info{};auto log=file(L"client.log");
+    bool rotate=GetFileAttributesExW(log.c_str(),GetFileExInfoStandard,&info)
+        &&(info.nFileSizeHigh||info.nFileSizeLow>1024*1024);
+    out=CreateFileW(log.c_str(),rotate?GENERIC_WRITE:FILE_APPEND_DATA,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+        nullptr,rotate?CREATE_ALWAYS:OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(out!=INVALID_HANDLE_VALUE){
+        SYSTEMTIME now;GetSystemTime(&now);char stamp[32];
+        std::snprintf(stamp,sizeof(stamp),"%04u-%02u-%02uT%02u:%02u:%02uZ ",
+            unsigned(now.wYear),unsigned(now.wMonth),unsigned(now.wDay),unsigned(now.wHour),unsigned(now.wMinute),unsigned(now.wSecond));
+        auto line=std::string(stamp)+state+" "+message+"\r\n";
+        WriteFile(out,line.data(),DWORD(line.size()),&written,nullptr);CloseHandle(out);
+    }
 }catch(...) {}}
+struct PreviewFileUnavailable:std::runtime_error {using std::runtime_error::runtime_error;};
 std::vector<uint8_t> readBytes(const wchar_t* name,size_t maximum) {
     // CRT ifstreams omit FILE_SHARE_DELETE on Windows and can make an atomic
     // editor snapshot replacement fail while the game is reading its old file.
     struct File {HANDLE handle;~File(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}} input{
         CreateFileW(file(name).c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
             nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
-    if(input.handle==INVALID_HANDLE_VALUE)throw std::runtime_error("Preview file is unavailable");
+    if(input.handle==INVALID_HANDLE_VALUE)throw PreviewFileUnavailable("Preview file is unavailable (Windows error "+std::to_string(GetLastError())+")");
     LARGE_INTEGER length{};
-    if(!GetFileSizeEx(input.handle,&length)||length.QuadPart<0||uint64_t(length.QuadPart)>maximum)throw std::runtime_error("Preview file exceeds size limits");
+    if(!GetFileSizeEx(input.handle,&length))throw PreviewFileUnavailable("Cannot read preview file size");
+    if(length.QuadPart<0||uint64_t(length.QuadPart)>maximum)throw std::runtime_error("Preview file exceeds size limits");
     std::vector<uint8_t> data(static_cast<size_t>(length.QuadPart));DWORD read=0;
-    if(length.QuadPart&&(!ReadFile(input.handle,data.data(),DWORD(data.size()),&read,nullptr)||read!=data.size()))throw std::runtime_error("Incomplete preview file");
+    if(length.QuadPart&&(!ReadFile(input.handle,data.data(),DWORD(data.size()),&read,nullptr)||read!=data.size()))throw PreviewFileUnavailable("Incomplete preview file read");
     return data;
 }
 std::string readText(const wchar_t* name){auto data=readBytes(name,4096);return {data.begin(),data.end()};}
+bool queueSnapshot() {
+    std::vector<uint8_t> value;std::string waiting;
+    if(!serverFresh())waiting="Waiting for a fresh local server heartbeat; edits are paused and will resume automatically.";
+    else try{value=readBytes(L"scene.bin",16*1024*1024);}
+        catch(const PreviewFileUnavailable& error){waiting=std::string("Waiting for the editor snapshot: ")+error.what();}
+    if(!waiting.empty()){
+        {std::lock_guard<std::mutex> lock(pendingMutex);pending.clear();}
+        status("WAITING",waiting);return false;
+    }
+    if(value.size()<20)throw std::runtime_error("Incomplete preview snapshot");
+    {std::lock_guard<std::mutex> lock(pendingMutex);pending.swap(value);}
+    return true;
+}
 
 template<typename T>T take(const std::vector<uint8_t>& data,size_t& offset) {
     if(offset+sizeof(T)>data.size())throw std::runtime_error("Truncated preview data");
@@ -368,7 +406,7 @@ void remove(Instance instance) {
     api.gchandle_free(instance.handle);
 }
 void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
-void clear() {discard(objects);applied=0;attempted=0;}
+void clear() {discard(objects);applied=0;attempted=0;appliedCount=0;}
 bool retainedAlive() {
     for(auto& entry:objects){
         Object* value=api.gchandle_get_target(entry.second.handle);if(!value)return false;
@@ -379,7 +417,7 @@ bool retainedAlive() {
 }
 void forgetWorld() {
     for(auto& entry:objects)api.gchandle_free(entry.second.handle);
-    objects.clear();applied=0;attempted=0;baseline=false;
+    objects.clear();applied=0;attempted=0;appliedCount=0;baseline=false;
 }
 bool isNetworked(Object* object) {void* args[]={networkableType};return api.call(getComponent,object,args)!=nullptr;}
 void claimInitial() {
@@ -467,7 +505,7 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
         if(callbackActive.test_and_set())return CallNextHookEx(hook,code,wp,lp);
         try {
             if(GetCurrentThreadId()!=windowThread)throw std::runtime_error("Wrong Unity window thread");
-            if(stopping){if(ready)clear();stopped=true;status("STOPPED","Preview stopped. Restart your computer before launching Rust again after injection.");}
+            if(stopping){if(ready)clear();stopped=true;}
             else if(initializationFailed){}
             else {
             if(!ready)try{initialize();}catch(...){initializationFailed=true;throw;}
@@ -490,9 +528,12 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
                         attempted=revision;
                         auto rows=decode(data,revision);
                         apply(rows);
-                        applied=revision;status("READY","Live scene revision "+std::to_string(revision)+" applied ("+std::to_string(rows.size())+" placements).");
+                        applied=revision;appliedCount=rows.size();
                     }
                 }
+                // Restore Ready after a pause even when no edit was made.
+                // Preserve a failed revision's error until a newer edit arrives.
+                if(applied&&attempted==applied)status("READY","Live scene revision "+std::to_string(applied)+" applied ("+std::to_string(appliedCount)+" placements).");
             }
             }
         }catch(const std::exception& error){status("ERROR",error.what());}
@@ -516,13 +557,15 @@ DWORD WINAPI run(void*) {try {
     status("STARTING","Waiting for the Unity main thread and local preview map.");
     while(exists(L"active.flag")&&!exists(L"stop.flag")&&!exists(L"server.blocked")) {
         if(initializationFailed){UnhookWindowsHookEx(hook);return 8;}
-        if(!serverFresh()){status("ERROR","Local server heartbeat expired. Preview stopped. Restart your computer before launching Rust again after injection.");break;}
         if(!eacOff()){status("BLOCKED","EAC became active or unreadable. Preview has stopped.");UnhookWindowsHookEx(hook);return 4;}
-        auto value=readBytes(L"scene.bin",16*1024*1024);
-        if(value.size()<20)throw std::runtime_error("Incomplete preview snapshot");
-        {std::lock_guard<std::mutex> lock(pendingMutex);pending.swap(value);}
-        PostMessageW(window,PREVIEW_MESSAGE,0,0);Sleep(250);
+        // A missing/locked/replaced heartbeat pauses this iteration, never the
+        // worker. EAC and session-stop checks still run on every iteration, and
+        // the main-thread callback independently revalidates connection proof.
+        if(queueSnapshot())PostMessageW(window,PREVIEW_MESSAGE,0,0);
+        Sleep(250);
     }
+    if(exists(L"server.blocked"))status("BLOCKED","The local server blocked this preview session. See server.blocked in Preview Logs.");
+    else status("STOPPED","The Ruster preview session ended or Stop was requested. Close Rust fully before starting a new injected session.");
     stopping=true;PostMessageW(window,PREVIEW_MESSAGE,0,0);
     for(int i=0;i<40&&!stopped;i++)Sleep(50);
     UnhookWindowsHookEx(hook);return 0;
@@ -537,7 +580,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI RusterStart(void* argument) {
     if(worker)return 5;
     try {
     if(!argument||!eacOff())return 1;
-    stopping=false;stopped=false;baseline=false;applied=0;
+    stopping=false;stopped=false;baseline=false;applied=0;appliedCount=0;
     directory=static_cast<const wchar_t*>(argument);
     if(directory.size()>30000||!exists(L"active.flag")||exists(L"stop.flag")||!exists(L"scene.bin")||!exists(L"map.url")||!exists(L"session.token"))return 2;
     worker=CreateThread(nullptr,0,run,nullptr,0,nullptr);return worker?0:3;

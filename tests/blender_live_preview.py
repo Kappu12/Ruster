@@ -121,6 +121,12 @@ def run():
                 live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
                 assert 'Preview Unavailable' in layout.labels
                 assert 'preview could not start' in ' '.join(layout.labels)
+                live_preview._client_status = 'WAITING · Waiting for a fresh local server heartbeat'
+                live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
+                assert 'Preview Paused' in layout.labels and 'updates resume' in ' '.join(layout.labels)
+                live_preview._client_status = 'STOPPED · Synthetic session ended'
+                live_preview.RUSTER_PT_live_preview.draw(SimpleNamespace(layout=layout), draw_context)
+                assert 'Preview Stopped' in layout.labels and 'Close Rust fully' in ' '.join(layout.labels)
                 live_preview._client_status = ''
             finally:
                 live_preview.installation, live_preview.backend.read_bounded = saved_install, saved_read

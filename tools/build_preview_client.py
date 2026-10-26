@@ -67,7 +67,7 @@ def check_protocol(compiler, env):
             path.write_bytes(data)
             result = subprocess.run([str(binary), '--peer', str(path)], capture_output=True)
             if result.returncode != expected:raise RuntimeError('Native connection proof check failed: '+result.stderr.decode(errors='replace'))
-    print('Native decoder, pointer-sized handle polling/cleanup, API bindings, rollback and UDP ownership passed (no Rust process used)', flush=True)
+    print('Native decoder, pointer-sized handles, heartbeat/snapshot recovery, status history, API bindings, rollback and UDP ownership passed (no Rust process used)', flush=True)
 
 
 def peer_cases():

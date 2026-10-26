@@ -101,6 +101,13 @@ Status reads allow the companion to replace its heartbeat file concurrently usin
 A brief locked or missing heartbeat is retried while the previous verified report
 remains fresh. A failed read never extends that report's 15-second lease, and
 injection still requires a fresh read. A prolonged failure stops the owned server.
+Inside an already injected client, a missing, locked or expired heartbeat pauses
+edits and clears the queued snapshot. The worker keeps checking EAC and session
+stop markers, and resumes after fresh heartbeat and connection proof checks pass.
+A temporary editor snapshot lock also pauses polling. The panel distinguishes
+**Preview Paused** and **Preview Stopped** from a merely loaded module. Status
+transitions are timestamped in `client.log` (bounded to about 1 MiB), so later
+cleanup cannot erase an earlier interruption reason.
 
 The editor checks for scene changes about twice per second; capture batches yield
 to keep editing responsive. The server and client poll at 4 Hz. The intended edit

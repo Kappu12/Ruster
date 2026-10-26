@@ -163,13 +163,64 @@ void peerCheck() {
     }
     WSACleanup();
 }
+void heartbeatCheck(const std::filesystem::path& input) {
+    // Only disposable fixture files next to this standalone decoder's input.
+    // Never call RusterStart, the worker, EAC probing or any Unity API here.
+    auto root=input.parent_path()/L"heartbeat-fixture";
+    if(!std::filesystem::create_directory(root))throw std::runtime_error("Heartbeat fixture already exists");
+    struct Fixture {
+        std::filesystem::path path;std::wstring previous;
+        ~Fixture(){directory=previous;std::error_code ignored;std::filesystem::remove_all(path,ignored);}
+    } fixture{root,directory};
+    directory=root.wstring();lastStatus.clear();
+    std::vector<uint8_t> snapshot(20);memcpy(snapshot.data(),"RUSLIVE1",8);snapshot[8]=3;
+    {std::ofstream out(root/L"scene.bin",std::ios::binary);out.write(reinterpret_cast<const char*>(snapshot.data()),snapshot.size());}
+    pending={42};
+    if(queueSnapshot()||!pending.empty()||stopping||stopped)throw std::runtime_error("Missing heartbeat did not pause safely");
+    auto fresh=[&](){std::ofstream out(root/L"server.ready");out<<"synthetic heartbeat";};
+    fresh();
+    if(!queueSnapshot()||pending!=snapshot)throw std::runtime_error("Preview did not resume after its first heartbeat");
+    std::filesystem::rename(root/L"server.ready",root/L"held.ready");
+    if(queueSnapshot()||!pending.empty())throw std::runtime_error("Heartbeat replacement gap allowed a cached edit");
+    std::filesystem::rename(root/L"held.ready",root/L"server.ready");
+    if(!queueSnapshot()||pending!=snapshot)throw std::runtime_error("Heartbeat replacement permanently stopped polling");
+    HANDLE heartbeat=CreateFileW((root/L"server.ready").c_str(),FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
+    if(heartbeat==INVALID_HANDLE_VALUE)throw std::runtime_error("Fixture timestamp setup failed");
+    FILETIME time;GetSystemTimeAsFileTime(&time);ULARGE_INTEGER value{};value.LowPart=time.dwLowDateTime;value.HighPart=time.dwHighDateTime;
+    value.QuadPart-=200000000;time.dwLowDateTime=value.LowPart;time.dwHighDateTime=value.HighPart;
+    bool updated=SetFileTime(heartbeat,nullptr,nullptr,&time)!=FALSE;CloseHandle(heartbeat);
+    if(!updated||queueSnapshot()||!pending.empty())throw std::runtime_error("An expired heartbeat allowed edits");
+    fresh();
+    if(!queueSnapshot())throw std::runtime_error("An expired heartbeat permanently stopped polling");
+    HANDLE locked=CreateFileW((root/L"scene.bin").c_str(),GENERIC_READ,0,nullptr,OPEN_EXISTING,0,nullptr);
+    if(locked==INVALID_HANDLE_VALUE)throw std::runtime_error("Fixture snapshot lock failed");
+    bool queued=queueSnapshot();CloseHandle(locked);
+    if(queued||!pending.empty())throw std::runtime_error("A locked snapshot did not pause safely");
+    if(!queueSnapshot()||pending!=snapshot)throw std::runtime_error("A temporary snapshot lock permanently stopped polling");
+    // The history survives later status updates, while identical polls do not
+    // grow it at 4 Hz. A malformed snapshot still fails rather than applying.
+    status("READY","Synthetic recovered revision");auto bytes=std::filesystem::file_size(root/L"client.log");
+    status("READY","Synthetic recovered revision");
+    if(std::filesystem::file_size(root/L"client.log")!=bytes)throw std::runtime_error("Duplicate status flooded the transition log");
+    auto history=readText(L"client.log");
+    if(history.find("WAITING")==std::string::npos||history.find("READY Synthetic recovered revision")==std::string::npos)
+        throw std::runtime_error("Status changes erased the preview interruption history");
+    {std::ofstream out(root/L"client.log",std::ios::binary);out<<std::string(1024*1024+1,'x');}
+    status("WAITING","Synthetic bounded history");
+    if(std::filesystem::file_size(root/L"client.log")>4096||readText(L"client.log").find("Synthetic bounded history")==std::string::npos)
+        throw std::runtime_error("Status history exceeded its size bound");
+    {std::ofstream out(root/L"scene.bin",std::ios::binary);out<<"bad";}
+    bool failed=false;try{queueSnapshot();}catch(const std::runtime_error&){failed=true;}
+    if(!failed)throw std::runtime_error("Malformed snapshot accepted after recovery");
+    pending.clear();lastStatus.clear();
+}
 }
 int main(int argc,char** argv) {
     bool peerMode=argc==3&&std::string(argv[1])=="--peer";
     if(argc!=2&&!peerMode)return 2;
     if(!eacName(L"C:\\Game\\EasyAntiCheat_EOS.sys")||!eacName(L"EAC_Client.dll")||eacName(L"GameAssembly.dll"))return 3;
     try {
-        reflectionCheck();transactionCheck();peerCheck();
+        reflectionCheck();transactionCheck();peerCheck();heartbeatCheck(std::filesystem::path(argv[peerMode?2:1]));
         std::ifstream input(argv[peerMode?2:1],std::ios::binary);
         std::vector<uint8_t> data{std::istreambuf_iterator<char>(input),{}};
         if(peerMode) {
