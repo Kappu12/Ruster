@@ -37,6 +37,21 @@ def test_large_scene_still_obeys_snapshot_byte_validation(monkeypatch):
         protocol.encode_snapshot(1,[placement()])
 
 
+def test_document_switch_clears_preview_and_recenters_without_replacing_session(tmp_path):
+    job=server.PreviewSession(tmp_path,28015,'',[placement(position=(400.,20.,60.))])
+    initial=(job.directory/'initial.bin').read_bytes();identity=(job.identity,job.token,job.directory)
+    assert job.origin==(400.,20.,60.)
+    job.replace_document()
+    assert job.active and job.pending==[] and not job._origin_chosen and not job.cancel.is_set()
+    assert (job.identity,job.token,job.directory)==identity
+    assert (job.directory/'initial.bin').read_bytes()==initial
+    job.update([placement(position=(-800.,-40.,-90.))])
+    assert job.origin==(-800.,-40.,-90.) and job.pending[0]['position']==(0.,0.,0.)
+    job.cancel.set();previous=job.pending
+    job.replace_document()
+    assert job.pending is previous,'A stopped session was reactivated by a document change'
+
+
 def safe_probe(tmp_path):
     return client.ClientProbe(pid=123, executable=str(tmp_path/'RustClient.exe'), created=100,
         command_line='"'+str(tmp_path/'RustClient.exe')+'"', parent_name='explorer.exe',

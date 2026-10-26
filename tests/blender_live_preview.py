@@ -86,6 +86,7 @@ def run():
                 def log_tail(self, count):return ['synthetic log']
                 def update(self, rows):raise ValueError('synthetic snapshot rejection')
                 def request_stop(self):self.stopped = True;self.status = 'STOPPING'
+                def replace_document(self):self.cleared=True
                 def close(self):self.active = False
             job = FakeJob();live_preview._job = job;live_preview._last_snapshot = None
             live_preview.scene_changed(None)
@@ -132,7 +133,7 @@ def run():
                 live_preview.installation, live_preview.backend.read_bounded = saved_install, saved_read
             assert 'restart your computer' in ' '.join(layout.labels)
             assert 'Server: ERROR' in ' '.join(layout.labels) and 'Synthetic missing asset-scene dependency' in ' '.join(layout.labels)
-            live_preview.document_replaced();assert job.stopped
+            live_preview.document_replaced();assert job.cleared and not job.stopped and job.active
             assert live_preview._last_snapshot is None and live_preview._capture is None
             job.active = False;state.port = 29200
             live_preview.RUSTER_OT_preview_copy_ip.execute(operator, synthetic)

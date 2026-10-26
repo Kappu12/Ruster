@@ -60,6 +60,8 @@ def run():
             def info(self):return {'status':self.status,'message':'Synthetic server','revision':1,'progress':.5 if self.status=='STARTING' else None}
             def log_tail(self,count):return ['synthetic console result'][-count:]
             def request_stop(self):self.status='STOPPING'
+            def replace_document(self):self.rows=[]
+            def update(self,rows):self.rows=rows
             def close(self):raise AssertionError('MCP blocked waiting for server cleanup')
             send_command=live_preview.backend.PreviewSession.send_command
         def no_client(*args):raise AssertionError('MCP launched or inspected the real game client')
@@ -77,7 +79,12 @@ def run():
             assert not jobs[0].options['update_server'] and started['connect_command']=='connect 127.0.0.1:29720'
             refused('start_live_preview','already running')
             refused('send_live_preview_command','become ready',command='status')
-            refused('open_project','Stop live preview',path=str(project),discard_unsaved=True)
+            live_preview._module_loaded=True
+            assert call('open_project',path=str(project),discard_unsaved=True)['prefab_count']==1
+            assert live_preview._job is jobs[0] and jobs[0].active and jobs[0].rows==[]
+            assert live_preview._module_loaded,'Project loading discarded the loaded client module state'
+            live_preview.capture_snapshot()
+            assert len(jobs[0].rows)==1
             jobs[0].status='RUNNING'
             (jobs[0].directory/'client.status').write_text('ERROR\nSynthetic client initialization failure\n')
             status=call('get_live_preview_status',log_lines=3)
@@ -89,8 +96,11 @@ def run():
             assert call('grant_live_preview_owner',steam_id='76561198000000000')['queued']
             commands=[json.loads(p.read_text())['command'] for p in (jobs[0].directory/'commands').glob('*.json')]
             assert 'status' in commands and any(value.startswith('ownerid 76561198000000000') for value in commands)
+            assert call('new_project',discard_unsaved=True)['prefab_count']==0
+            assert live_preview._job is jobs[0] and jobs[0].active and jobs[0].rows==[]
+            assert live_preview._module_loaded
             assert call('stop_live_preview')['status']=='STOPPING'
-            refused('new_project','Stop live preview',discard_unsaved=True)
+            refused('new_project','finish stopping',discard_unsaved=True)
             jobs[0].active=False;jobs[0].status='STOPPED'
             assert call('new_project',discard_unsaved=True)['prefab_count']==0
         finally:

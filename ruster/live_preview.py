@@ -384,7 +384,7 @@ def shutdown():
 
 def document_replaced():
     global _capture, _last_snapshot, _snapshot_error, _dirty
-    if _job and _job.active:_job.request_stop()
+    if _job and _job.active:_job.replace_document()
     _capture = None;_last_snapshot = None;_snapshot_error = '';_dirty = True
 
 

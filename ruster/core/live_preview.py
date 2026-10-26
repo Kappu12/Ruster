@@ -449,6 +449,13 @@ class PreviewSession:
                 self.origin = composition_origin(source);self._origin_chosen = True
             self.pending = centered_placements(source, self.origin)
 
+    def replace_document(self):
+        """Clear this window's preview while keeping its server/session alive."""
+        if not self.active or self.cancel.is_set():return
+        with self.lock:
+            self.origin=(0.,0.,0.);self._origin_chosen=False
+            self.pending=[]
+
     def send_command(self, value):
         if self.status != 'RUNNING':raise ValueError('Wait for the local server to become ready')
         value = value.strip()

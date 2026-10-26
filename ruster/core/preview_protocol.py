@@ -78,7 +78,7 @@ def write_snapshot(directory, revision, placements):
 
 
 def composition_origin(placements):
-    """Choose one stable center for a preview session without editing the file."""
+    """Choose one stable center for the current document without editing it."""
     rows = canonical_placements(placements)
     if not rows:return (0., 0., 0.)
     return tuple((min(row['position'][axis] for row in rows)+max(row['position'][axis] for row in rows))/2 for axis in range(3))

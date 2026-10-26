@@ -46,8 +46,8 @@ def require_replacement(p,bridge):
     if type(p.get('discard_unsaved',False)) is not bool:raise ValueError('discard_unsaved must be boolean')
     bridge.require_idle()
     if bpy.context.scene.ruster.busy:raise ValueError('Wait for asset extraction to finish before switching projects')
-    if live_preview._job and live_preview._job.active:
-        raise ValueError('Stop live preview and wait for it to finish before switching projects')
+    if live_preview._job and live_preview._job.active and live_preview._job.status=='STOPPING':
+        raise ValueError('Wait for live preview to finish stopping before switching projects')
     if live_preview._future is not None and live_preview._future_kind!='probe':
         raise ValueError('Wait for the current Rust client operation before switching projects')
     if not p.get('discard_unsaved',False) and quitting.has_unsaved_changes():

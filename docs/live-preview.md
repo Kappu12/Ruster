@@ -6,8 +6,11 @@ Startup and shutdown are asynchronous; poll status for readiness or completion.
 Status includes the current placement count, connection command, setup progress,
 server/client errors and bounded log output. Console responses confirm queuing;
 read the logs for Rust's result. Launch and Inject stay explicit panel actions.
-`open_project` and `new_project` protect unsaved work and require an active preview
-to finish stopping before replacing its source composition.
+`open_project` and `new_project` protect unsaved work. In the same Ruster window,
+an active preview server and client bridge stay running across project switches.
+The previous scene is cleared and the new composition is synchronized and
+recentered without relaunching the server or reinjecting the client. Explicit
+Stop, closing Ruster and failed safety checks still end the preview session.
 
 The **Live Preview** panel has its own editor below **Placements** on the right,
 outside the viewport extension sidebar. The preview uses the actual Rust client
@@ -155,8 +158,9 @@ players join while retaining the loaded asset-scene templates. These markers
 never enter the authoring scene, exported composition, or live snapshots.
 The initial composition's placement
 center is translated to the origin in the preview snapshots; the project itself
-stays unchanged. That translation stays fixed during edits. Starting empty uses
-the first composition's center instead. Load the composition before starting so
+stays unchanged. That translation stays fixed during edits and resets when a
+different project is opened or started. Starting empty uses the first composition's
+center instead. Load the composition before starting so
 the map can preload its original asset scenes. The companion supplies a spawn
 point above available prefab colliders. Use owner permissions and Rust's F1
 `noclip` for free movement when the composition has no walkable surface.
