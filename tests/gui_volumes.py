@@ -11,11 +11,13 @@ from tests.blender_volumes import asset
 temporary=tempfile.TemporaryDirectory()
 os.environ['RUSTER_USER_DIR']=temporary.name
 draws=[]
-original=volumes.RUSTER_GT_volume.draw
-def checked(self,context):
-    try:original(self,context);draws.append(self.root.name)
+original=volumes.draw_bounds
+def checked():
+    try:
+        original()
+        if volumes.overlay_enabled(bpy.context):draws.extend(o.name for o in volumes.visible_volumes(bpy.context))
     except Exception:traceback.print_exc();os._exit(1)
-volumes.RUSTER_GT_volume.draw=checked
+volumes.draw_bounds=checked
 ruster.register()
 stage=0
 
@@ -43,14 +45,14 @@ def tick():
             elif stage==2:
                 assert len(set(draws))==3,draws
                 bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'volume-preview-before.png'))
-                point=location_3d_to_region_2d(region,area.spaces.active.region_3d,Vector((-7,0,0)))
+                point=location_3d_to_region_2d(region,area.spaces.active.region_3d,Vector((-9,0,0)))
                 window.event_simulate(type='MOUSEMOVE',value='NOTHING',x=region.x+int(point.x),y=region.y+int(point.y))
             elif stage==3:
-                point=location_3d_to_region_2d(region,area.spaces.active.region_3d,Vector((-7,0,0)))
+                point=location_3d_to_region_2d(region,area.spaces.active.region_3d,Vector((-9,0,0)))
                 for value in ('PRESS','RELEASE'):
                     window.event_simulate(type='LEFTMOUSE',value=value,x=region.x+int(point.x),y=region.y+int(point.y))
             elif stage==4:
-                assert bpy.context.object and bpy.context.object['ruster_uid']=='1','Volume surface was not selectable'
+                assert bpy.context.object and bpy.context.object['ruster_uid']=='1','Volume boundary was not selectable'
                 bpy.ops.screen.screenshot(filepath=str(Path(temporary.name)/'volume-preview.png'))
                 bpy.context.scene.ruster_show_volumes=False;draws.clear()
             elif stage==6:

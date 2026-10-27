@@ -42,6 +42,17 @@ def run():
                 assert round(max(v.z for v in vertices)-min(v.z for v in vertices))==32
             assert faces and edges
         roots=scene.prefab_roots()
+        # A project saved while previews were queued must recover repeated native
+        # volume bounds from its own metadata, with no Rust/cache dependency.
+        pending=scene.root_object([wire.encode(2,0,1)],bpy.context.scene.collection)
+        pending.location=(20,30,40);pending.scale=(4,5,6)
+        bpy.context.view_layer.update()
+        record=wire.serialize(studio.prefab_records([pending],Vector())[0])
+        volumes.restore_markers()
+        assert pending['ruster_marker']=='VOLUME' and volumes.meshes(pending)
+        assert pending['ruster_volume_shapes']==next(o for o in roots if o['ruster_uid']=='1')['ruster_volume_shapes']
+        assert wire.serialize(studio.prefab_records([pending],Vector())[0])==record
+        bpy.data.objects.remove(pending,do_unlink=True)
         before=[wire.serialize(r) for r in studio.prefab_records(roots,Vector())]
         fingerprint=quitting.fingerprint()
         bpy.context.scene.ruster_show_volumes=False
