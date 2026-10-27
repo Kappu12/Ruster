@@ -48,6 +48,25 @@ def run():
         # validates capture/encoding; it does not certify gameplay collision.
         for revision,rows in enumerate((baseline,changed,removed,restored),1):
             assert preview_protocol.encode_snapshot(revision,rows).startswith(b'RUSLIVE1')
+        # Solid vehicle barriers share the same native snapshot/undo path, with
+        # a 200 m vertical scale. This still does not simulate a vehicle impact.
+        uid=3000049339;db=catalog.connect(scene.cache_dir())
+        db.execute('INSERT INTO names VALUES(?,?)',(uid,'assets/test/invisible_collider.prefab'));db.commit();db.close()
+        solid=scene.root_object([wire.encode(2,0,uid)],bpy.context.scene.collection)
+        source=asset(uid,'BoxCollider');source['colliders'][0].update(center=[0,0,0],size=[1,1,1])
+        volumes.attach(solid,source,Path(directory));instance=solid['ruster_instance'];placement.select([solid])
+        baseline=live_preview.placements();bpy.ops.ed.undo_push(message='Solid collider before edit')
+        solid.location=(10,20,0);solid.rotation_euler=(0,0,.5);solid.scale=(8.2,2,200)
+        bpy.context.view_layer.update();bpy.ops.ed.undo_push(message='Solid collider after edit')
+        changed=live_preview.placements();row=next(r for r in changed if r['uid']==uid)
+        assert row['scale'][1]==200 and changed!=baseline
+        assert bpy.ops.ed.undo()=={'FINISHED'} and live_preview.placements()==baseline
+        assert bpy.ops.ed.redo()=={'FINISHED'} and live_preview.placements()==changed
+        placement.select([next(o for o in scene.prefab_roots() if o['ruster_instance']==instance)])
+        bpy.ops.ruster.delete(confirm=False);bpy.ops.ed.undo_push(message='Solid collider removed')
+        assert all(r['uid']!=uid for r in live_preview.placements())
+        assert bpy.ops.ed.undo()=={'FINISHED'} and any(r['uid']==uid for r in live_preview.placements())
+        assert preview_protocol.encode_snapshot(10,live_preview.placements()).startswith(b'RUSLIVE1')
         ruster.unregister()
     print('RUSTER_VOLUME_PREVIEW_SNAPSHOTS_OK',flush=True)
 

@@ -114,11 +114,103 @@ void transactionCheck() {
     if(!failed||objects.at(17).handle!=oldMovement||objects.at(18).handle!=oldNoBuild||retained.size()!=2||
         !activeObjects[reinterpret_cast<uintptr_t>(targetFake(oldMovement))])
         throw std::runtime_error("A failed collider retirement did not restore the previous scene");
+    auto solid=movement;solid.key=19;solid.uid=3000049339u;solid.path="assets/test/invisible_collider.prefab";
+    solid.scale={8.2f,200.f,2.f};apply({movement,noBuild,solid});
+    auto oldSolid=reinterpret_cast<uintptr_t>(targetFake(objects.at(19).handle));
+    solid.pos.x+=3;solid.rot={0,.70710677f,0,.70710677f};solid.scale.y=220;
+    apply({movement,noBuild,solid});
+    if(objects.at(19).uid!=3000049339u||activeObjects[oldSolid])
+        throw std::runtime_error("A solid vehicle barrier edit lost its native ID or retained old collision");
     apply({movement});apply({movement,noBuild});apply({movement});
     apply({});
     if(!objects.empty()||!retained.empty())throw std::runtime_error("Deletion leaked preview handles");
     apply({p});forgetWorld();
     if(!objects.empty()||!retained.empty())throw std::runtime_error("World cleanup lost upper handle bits");
+}
+struct LookupNode {std::wstring name;Vec pos;bool alive=true,scene=true,active=true,asset=false;};
+std::map<uintptr_t,LookupNode> lookupNodes;
+std::vector<Object*> sceneObjects;
+size_t lookupCalls=0,lookupReads=0,lifetimeCalls=0;
+uint32_t sceneCountOverride=0;
+bool duplicateLookup=false;
+Object* lookupInvoke(const Method* method,void* self,void** args,Object** error) {
+    if(method==findObjects) {
+        if(self||!args||*static_cast<int32_t*>(args[1])!=0||*static_cast<int32_t*>(args[2])!=0)
+            throw std::runtime_error("Lookup must exclude inactive templates and avoid scene-object sorting");
+        lookupCalls++;sceneObjects.clear();
+        for(auto& entry:lookupNodes)if(entry.second.active&&!entry.second.asset) {
+            auto value=reinterpret_cast<Object*>(entry.first);sceneObjects.push_back(value);
+            if(duplicateLookup&&entry.second.name==L"assets/test/volume.prefab")sceneObjects.push_back(value);
+        }
+        return reinterpret_cast<Object*>(600);
+    }
+    if(method==arrayGet){lookupReads++;return sceneObjects.at(*static_cast<int32_t*>(args[0]));}
+    if(method==getName)return reinterpret_cast<Object*>(&lookupNodes.at(reinterpret_cast<uintptr_t>(self)).name);
+    if(method==getPosition)return reinterpret_cast<Object*>(&lookupNodes.at(reinterpret_cast<uintptr_t>(self)).pos);
+    if(method==getScene)return static_cast<Object*>(self);
+    if(method==sceneValid)return reinterpret_cast<Object*>(&lookupNodes.at(reinterpret_cast<uintptr_t>(self)).scene);
+    if(method==getInstanceID){static int32_t id;id=int32_t(reinterpret_cast<uintptr_t>(self));return reinterpret_cast<Object*>(&id);}
+    if(method==objectAlive){lifetimeCalls++;return reinterpret_cast<Object*>(&lookupNodes.at(reinterpret_cast<uintptr_t>(args[0])).alive);}
+    return invokeFake(method,self,args,error);
+}
+void lookupCheck(const std::filesystem::path& input) {
+    auto root=input.parent_path()/L"initial-lookup-fixture";
+    if(!std::filesystem::create_directory(root))throw std::runtime_error("Lookup fixture already exists");
+    struct Fixture {
+        std::filesystem::path path;std::wstring previous;
+        ~Fixture(){resetInitialClaim();forgetWorld();api.runtime_invoke=invokeFake;directory=previous;std::error_code ignored;std::filesystem::remove_all(path,ignored);}
+    } fixture{root,directory};directory=root.wstring();
+    getName=reinterpret_cast<Method*>(13);getPosition=reinterpret_cast<Method*>(14);getScene=reinterpret_cast<Method*>(15);
+    sceneValid=reinterpret_cast<Method*>(16);findObjects=reinterpret_cast<Method*>(17);
+    arrayGet=reinterpret_cast<Method*>(18);getInstanceID=reinterpret_cast<Method*>(19);
+    api.runtime_invoke=lookupInvoke;
+    api.array_length=[](Object*){return sceneCountOverride?sceneCountOverride:uint32_t(sceneObjects.size());};
+    api.string_chars=[](Object* p){return reinterpret_cast<std::wstring*>(p)->c_str();};
+    api.string_length=[](Object* p){return int(reinterpret_cast<std::wstring*>(p)->size());};
+    for(uintptr_t i=2000;i<3200;i++)lookupNodes[i]={L"unrelated active object",{0,0,0}};
+    lookupNodes[4000]={L"assets/test/volume.prefab",{1,2,-3}};
+    lookupNodes[4001]={L"assets/test/volume.prefab",{1,2,-3}};
+    lookupNodes[4002]={L"assets/test/volume.prefab",{1,2,-3},true,true,false,false};
+    lookupNodes[4003]={L"assets/test/volume.prefab",{1,2,-3},true,true,true,true};
+    Placement p{17,3000049339u,"assets/test/volume.prefab",{1,2,-3},{0,0,0,1},{8.2f,200,2}};
+    auto second=p;second.key=18;duplicateLookup=true;
+    beginInitialClaim({p,second});
+    if(!initialClaim.array||retained.size()!=1||lookupCalls!=1)
+        throw std::runtime_error("Active lookup array was not retained once across batches");
+    if(advanceInitialClaim(1)||initialClaim.cursor!=1||!objects.empty())
+        throw std::runtime_error("Lookup exceeded its work slice or committed a partial claim");
+    size_t iterations=0;
+    while(!baseline&&iterations++<500) {
+        auto before=lookupReads;advanceInitialClaim(11);
+        if(lookupReads-before>11)throw std::runtime_error("Lookup exceeded the per-callback object bound");
+    }
+    if(!baseline||objects.size()!=2||retained.size()!=2||lookupCalls!=1||
+        objects.at(17).handle==objects.at(18).handle)
+        throw std::runtime_error("Batched lookup rescanned, leaked an array, or claimed a duplicate/template root");
+    forgetWorld();
+    beginInitialClaim({p,second});advanceInitialClaim(1);auto destroyedBefore=destroyed.size();resetInitialClaim();
+    if(!retained.empty()||destroyed.size()!=destroyedBefore)throw std::runtime_error("Cancelling lookup changed the baked scene or leaked handles");
+    lookupNodes.erase(4001);duplicateLookup=false;
+    beginInitialClaim({p,second});iterations=0;
+    while(initialClaim.prepared&&iterations++<500)advanceInitialClaim(32);
+    if(initialClaim.prepared||!retained.empty()||!objects.empty()||initialClaim.retry<=ClaimClock::now())
+        throw std::runtime_error("A missing initial placement did not release partial claims and back off");
+    // The scene-object guard stays in force even after removing asset templates
+    // from the query. An oversized native result is rejected before retention.
+    resetInitialClaim();sceneCountOverride=uint32_t(MAX_SCENE_OBJECTS+1);bool failed=false;
+    try{beginInitialClaim({p});}catch(const std::exception&){failed=true;}
+    if(!failed||!retained.empty())throw std::runtime_error("The active-scene object guard was removed or allocated retained state");
+    sceneCountOverride=0;resetInitialClaim();lookupNodes.clear();
+    for(uintptr_t i=0;i<600;i++) {
+        auto id=5000+i;lookupNodes[id]={L"retained root",{0,0,0}};
+        objects[i+1]={retainFake(reinterpret_cast<Object*>(id),false),p.uid,p.pos,p.rot,p.scale};
+    }
+    lifetimeCalls=0;aliveCursor=0;
+    if(!retainedAlive()||lifetimeCalls>ALIVE_BATCH)throw std::runtime_error("Steady-state object polling exceeded its work bound");
+    lookupNodes[5599].alive=false;bool detected=false;
+    for(int i=0;i<4;i++)if(!retainedAlive())detected=true;
+    if(!detected)throw std::runtime_error("Sliced lifetime polling never reached a later dead root");
+    forgetWorld();lookupNodes.clear();sceneObjects.clear();
 }
 struct FakeClass;
 struct FakeType {std::string name;FakeClass* klass=nullptr;};
@@ -260,7 +352,7 @@ int main(int argc,char** argv) {
     if(argc!=2&&!peerMode)return 2;
     if(!eacName(L"C:\\Game\\EasyAntiCheat_EOS.sys")||!eacName(L"EAC_Client.dll")||eacName(L"GameAssembly.dll"))return 3;
     try {
-        reflectionCheck();transactionCheck();peerCheck();heartbeatCheck(std::filesystem::path(argv[peerMode?2:1]));
+        reflectionCheck();transactionCheck();lookupCheck(std::filesystem::path(argv[peerMode?2:1]));peerCheck();heartbeatCheck(std::filesystem::path(argv[peerMode?2:1]));
         std::ifstream input(argv[peerMode?2:1],std::ios::binary);
         std::vector<uint8_t> data{std::istreambuf_iterator<char>(input),{}};
         if(peerMode) {

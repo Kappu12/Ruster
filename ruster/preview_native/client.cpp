@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -17,6 +18,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -281,7 +283,7 @@ struct Api {
 
 const Method *createPrefab,*getTransform,*setPosition,*setRotation,*setScale,*destroyObject;
 const Method *findPrefab,*getComponent,*findObjects,*getName,*getPosition,*getScene,*sceneValid,*arrayGet;
-const Method *setActive,*setName,*objectAlive;
+const Method *setActive,*setName,*objectAlive,*getInstanceID;
 const Method *syncPhysics;
 Object *gameObjectType=nullptr,*networkableType=nullptr;
 Object* manager=nullptr;
@@ -300,7 +302,7 @@ const std::vector<Binding>& bindings() {
         {"name", "UnityEngine.Object", "get_name", "System.String", false, {}, &getName},
         {"position", "UnityEngine.Transform", "get_position", "UnityEngine.Vector3", false, {}, &getPosition},
         {"valid scene", "UnityEngine.SceneManagement.Scene", "IsValid", "System.Boolean", false, {}, &sceneValid},
-        {"object search", "UnityEngine.Resources", "FindObjectsOfTypeAll", "UnityEngine.Object[]", true, {"System.Type"}, &findObjects},
+        {"active scene search", "UnityEngine.Object", "FindObjectsByType", "UnityEngine.Object[]", true, {"System.Type", "UnityEngine.FindObjectsInactive", "UnityEngine.FindObjectsSortMode"}, &findObjects},
         {"array element", "System.Array", "GetValue", "System.Object", false, {"System.Int32"}, &arrayGet},
         {"move", "UnityEngine.Transform", "set_position", "System.Void", false, {"UnityEngine.Vector3"}, &setPosition},
         {"rotate", "UnityEngine.Transform", "set_rotation", "System.Void", false, {"UnityEngine.Quaternion"}, &setRotation},
@@ -310,6 +312,7 @@ const std::vector<Binding>& bindings() {
         {"activate", "UnityEngine.GameObject", "SetActive", "System.Void", false, {"System.Boolean"}, &setActive},
         {"name placement", "UnityEngine.Object", "set_name", "System.Void", false, {"System.String"}, &setName},
         {"object lifetime", "UnityEngine.Object", "op_Implicit", "System.Boolean", true, {"UnityEngine.Object"}, &objectAlive},
+        {"instance identity", "UnityEngine.Object", "GetInstanceID", "System.Int32", false, {}, &getInstanceID},
         {"collider synchronization", "UnityEngine.Physics", "SyncTransforms", "System.Void", true, {}, &syncPhysics},
     };
     return result;
@@ -382,6 +385,26 @@ struct Placement {uint64_t key;uint32_t uid;std::string path;Vec pos;Quat rot;Ve
 struct Instance {GCHandle handle;uint32_t uid;Vec pos;Quat rot;Vec scale;};
 std::map<uint64_t,Instance> objects;
 bool baseline=false;
+using ClaimClock=std::chrono::steady_clock;
+constexpr size_t MAX_SCENE_OBJECTS=1000000,CLAIM_BATCH=1024,ALIVE_BATCH=256;
+constexpr auto MAIN_THREAD_SLICE=std::chrono::milliseconds(4);
+struct InitialClaim {
+    bool prepared=false,verifying=false;
+    GCHandle array=nullptr;
+    size_t count=0,cursor=0;
+    uint64_t verified=0;
+    std::vector<Placement> rows;
+    std::map<std::string,std::vector<size_t>> remaining;
+    std::map<uint64_t,Instance> found;
+    std::set<int32_t> used;
+    ClaimClock::time_point retry{};
+} initialClaim;
+uint64_t aliveCursor=0;
+void resetInitialClaim() {
+    if(initialClaim.array)api.gchandle_free(initialClaim.array);
+    for(auto& entry:initialClaim.found)api.gchandle_free(entry.second.handle);
+    initialClaim=InitialClaim{};
+}
 std::vector<Placement> decode(const std::vector<uint8_t>& data,uint64_t& revision) {
     if(data.size()<20||data.size()>16*1024*1024||memcmp(data.data(),"RUSLIVE1",8))throw std::runtime_error("Invalid preview snapshot");
     size_t offset=8;revision=take<uint64_t>(data,offset);uint32_t count=take<uint32_t>(data,offset);
@@ -417,9 +440,15 @@ void remove(Instance instance,bool deactivate=true) {
     api.gchandle_free(instance.handle);
 }
 void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
-void clear() {discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;}
+void clear() {resetInitialClaim();discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;aliveCursor=0;}
 bool retainedAlive() {
-    for(auto& entry:objects){
+    // A full hierarchy poll every 250 ms also creates periodic main-thread work.
+    // Check a bounded slice; all retained roots are revisited across callbacks.
+    auto deadline=ClaimClock::now()+MAIN_THREAD_SLICE;
+    auto it=objects.upper_bound(aliveCursor);
+    if(it==objects.end()){aliveCursor=0;it=objects.begin();}
+    for(size_t checked=0;it!=objects.end()&&checked<ALIVE_BATCH&&ClaimClock::now()<deadline;++it,++checked){
+        auto& entry=*it;aliveCursor=entry.first;
         Object* value=api.gchandle_get_target(entry.second.handle);if(!value)return false;
         void* args[]={value};Object* result=api.call(objectAlive,nullptr,args);
         if(!result||!*static_cast<bool*>(api.object_unbox(result)))return false;
@@ -427,47 +456,109 @@ bool retainedAlive() {
     return true;
 }
 void forgetWorld() {
+    resetInitialClaim();aliveCursor=0;
     for(auto& entry:objects)api.gchandle_free(entry.second.handle);
     objects.clear();applied=0;attempted=0;appliedCount=0;baseline=false;
 }
 bool isNetworked(Object* object) {void* args[]={networkableType};return api.call(getComponent,object,args)!=nullptr;}
-void claimInitial() {
-    auto data=readBytes(L"initial.bin",16*1024*1024);uint64_t revision;auto rows=decode(data,revision);
-    if(rows.empty()){baseline=true;return;}
-    void* args[]={gameObjectType};Object* all=api.call(findObjects,nullptr,args);
-    if(!all)throw std::runtime_error("Game object lookup is unavailable");
-    auto count=api.array_length(all);
-    if(count>1000000)throw std::runtime_error("Game object lookup exceeds preview limits");
-    std::map<std::string,std::vector<Object*>> byPath;
-    for(auto& p:rows)byPath[p.path];
-    for(uintptr_t i=0;i<count;i++) {
-        int index=int(i);void* indexArgs[]={&index};Object* obj=api.call(arrayGet,all,indexArgs);
-        if(!obj)continue;
-        auto name=api.text(api.call(getName,obj));auto found=byPath.find(name);if(found==byPath.end())continue;
-        Object* scene=api.call(getScene,obj);Object* valid=api.call(sceneValid,api.object_unbox(scene));
-        if(valid&&*static_cast<bool*>(api.object_unbox(valid)))found->second.push_back(obj);
-    }
-    std::map<uint64_t,Instance> claimed;
-    try {
-        for(auto& p:rows) {
+void beginInitialClaim(std::vector<Placement> rows) {
+    resetInitialClaim();initialClaim.rows=std::move(rows);
+    std::map<std::string,bool> networked;
+    for(size_t i=0;i<initialClaim.rows.size();++i) {
+        auto& p=initialClaim.rows[i];auto known=networked.find(p.path);
+        if(known==networked.end()) {
             Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
             Object* prefab=api.call(findPrefab,manager,lookup);
-            if(prefab&&isNetworked(prefab))continue;
-            Object* match=nullptr;auto& candidates=byPath[p.path];
-            for(auto it=candidates.begin();it!=candidates.end();++it){
-                Object* transform=api.call(getTransform,*it);Object* boxed=api.call(getPosition,transform);
-                Vec pos=*static_cast<Vec*>(api.object_unbox(boxed));
-                if(fabs(pos.x-p.pos.x)<.005&&fabs(pos.y-p.pos.y)<.005&&fabs(pos.z-p.pos.z)<.005){match=*it;candidates.erase(it);break;}
-            }
-            if(!match)throw std::runtime_error("Waiting for the initial map object: "+p.path);
-            if(!isNetworked(match)) {
-                auto handle=api.gchandle_new(match,false);
-                if(!handle)throw std::runtime_error("Could not retain an initial preview object");
-                claimed[p.key]={handle,p.uid,p.pos,p.rot,p.scale};
-            }
+            if(!prefab)throw std::runtime_error("Waiting for the initial prefab template: "+p.path);
+            known=networked.emplace(p.path,isNetworked(prefab)).first;
         }
-    }catch(...){for(auto& entry:claimed)api.gchandle_free(entry.second.handle);throw;}
-    objects.swap(claimed);baseline=true;
+        if(!known->second)initialClaim.remaining[p.path].push_back(i);
+    }
+    initialClaim.prepared=true;
+    if(initialClaim.remaining.empty()){initialClaim.verifying=true;return;}
+    // Resources.FindObjectsOfTypeAll includes every loaded asset/template in
+    // every preloaded pack, not just map instances. Keep the million-object
+    // guard, but apply it to active scene objects; exclude inactive template
+    // hierarchies and avoid Unity's unnecessary instance-ID sort.
+    int32_t excludeInactive=0,unsorted=0;
+    void* args[]={gameObjectType,&excludeInactive,&unsorted};
+    Object* all=api.call(findObjects,nullptr,args);
+    if(!all)throw std::runtime_error("Active scene object lookup is unavailable");
+    initialClaim.count=api.array_length(all);
+    if(initialClaim.count>MAX_SCENE_OBJECTS)
+        throw std::runtime_error("Active scene object lookup exceeds preview limits ("+std::to_string(initialClaim.count)+" > "+std::to_string(MAX_SCENE_OBJECTS)+")");
+    initialClaim.array=api.gchandle_new(all,false);
+    if(!initialClaim.array)throw std::runtime_error("Could not retain the active scene lookup");
+}
+bool advanceInitialClaim(size_t maximum=CLAIM_BATCH) {
+    auto& claim=initialClaim;
+    auto deadline=ClaimClock::now()+MAIN_THREAD_SLICE;
+    size_t work=0;
+    if(!claim.verifying) {
+        Object* all=api.gchandle_get_target(claim.array);
+        if(!all)throw std::runtime_error("Active scene lookup expired");
+        while(claim.cursor<claim.count&&work<maximum&&ClaimClock::now()<deadline) {
+            int32_t index=int32_t(claim.cursor++);++work;
+            void* indexArgs[]={&index};Object* obj=api.call(arrayGet,all,indexArgs);
+            if(!obj)continue;
+            void* liveArgs[]={obj};auto live=api.call(objectAlive,nullptr,liveArgs);
+            if(!live||!*static_cast<bool*>(api.object_unbox(live)))continue;
+            auto found=claim.remaining.find(api.text(api.call(getName,obj)));
+            if(found==claim.remaining.end())continue;
+            Object* scene=api.call(getScene,obj);Object* valid=api.call(sceneValid,api.object_unbox(scene));
+            if(!valid||!*static_cast<bool*>(api.object_unbox(valid)))continue;
+            int32_t id=*static_cast<int32_t*>(api.object_unbox(api.call(getInstanceID,obj)));
+            if(claim.used.count(id))continue;
+            Vec pos=*static_cast<Vec*>(api.object_unbox(api.call(getPosition,api.call(getTransform,obj))));
+            auto& candidates=found->second;
+            for(auto it=candidates.begin();it!=candidates.end();++it) {
+                auto& p=claim.rows[*it];
+                if(fabs(pos.x-p.pos.x)>=.005||fabs(pos.y-p.pos.y)>=.005||fabs(pos.z-p.pos.z)>=.005)continue;
+                auto handle=api.gchandle_new(obj,false);
+                if(!handle)throw std::runtime_error("Could not retain an initial preview object");
+                claim.found[p.key]={handle,p.uid,p.pos,p.rot,p.scale};claim.used.insert(id);
+                candidates.erase(it);if(candidates.empty())claim.remaining.erase(found);
+                break;
+            }
+            if(claim.remaining.empty()){claim.verifying=true;break;}
+        }
+        if(!claim.verifying&&claim.cursor==claim.count) {
+            auto missing=claim.remaining.begin()->first;
+            resetInitialClaim();initialClaim.retry=ClaimClock::now()+std::chrono::seconds(1);
+            status("WAITING","Waiting for the initial map object: "+missing);return false;
+        }
+        if(claim.verifying){api.gchandle_free(claim.array);claim.array=nullptr;}
+    }
+    if(claim.verifying) {
+        auto it=claim.found.upper_bound(claim.verified);
+        for(;it!=claim.found.end()&&work<maximum&&ClaimClock::now()<deadline;++it,++work) {
+            Object* obj=api.gchandle_get_target(it->second.handle);void* args[]={obj};
+            Object* alive=obj?api.call(objectAlive,nullptr,args):nullptr;
+            if(!alive||!*static_cast<bool*>(api.object_unbox(alive))) {
+                resetInitialClaim();initialClaim.retry=ClaimClock::now()+std::chrono::seconds(1);
+                status("WAITING","Initial scene changed during lookup; retrying");return false;
+            }
+            claim.verified=it->first;
+        }
+        if(it==claim.found.end()) {
+            objects.swap(claim.found);resetInitialClaim();baseline=true;aliveCursor=0;return true;
+        }
+    }
+    status("WAITING","Claiming initial scene: "+std::to_string(claim.found.size())+" placements matched; "+
+        std::to_string(claim.cursor)+" / "+std::to_string(claim.count)+" active objects scanned");
+    return false;
+}
+bool claimInitial() {
+    if(ClaimClock::now()<initialClaim.retry)return false;
+    try {
+        if(!initialClaim.prepared) {
+            auto data=readBytes(L"initial.bin",16*1024*1024);uint64_t revision;
+            beginInitialClaim(decode(data,revision));
+        }
+        return advanceInitialClaim();
+    }catch(...) {
+        resetInitialClaim();initialClaim.retry=ClaimClock::now()+std::chrono::seconds(5);throw;
+    }
 }
 
 void apply(const std::vector<Placement>& rows) {
@@ -535,6 +626,7 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
             if(!ready)try{initialize();}catch(...){initializationFailed=true;throw;}
             std::string connectionReason;
             if(!inPreviewWorld(connectionReason)){
+                resetInitialClaim();
                 // A delayed heartbeat or unavailable UDP table pauses edits.
                 // Keep ownership through transient failures; otherwise moved
                 // baseline objects could no longer be claimed after recovery.
@@ -542,7 +634,9 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
             }
             else {
                 if(baseline&&!retainedAlive())forgetWorld();
-                if(!baseline)claimInitial();
+                if(!baseline&&!claimInitial()) {
+                    callbackActive.clear();return CallNextHookEx(hook,code,wp,lp);
+                }
                 std::vector<uint8_t> data;{std::lock_guard<std::mutex> lock(pendingMutex);data=pending;}
                 if(!data.empty()) {
                     size_t offset=8;uint64_t revision=take<uint64_t>(data,offset);

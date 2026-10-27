@@ -166,7 +166,27 @@ point above available prefab colliders. Use owner permissions and Rust's F1
 `noclip` for free movement when the composition has no walkable surface.
 
 Both companions claim the authored baked placements instead of adding
-duplicates. A newly introduced asset that Rust cannot load dynamically reports
+duplicates. Initial client claiming searches active scene instances through
+Unity's unsorted `FindObjectsByType` API. It excludes asset templates and inactive
+preload hierarchies rather than enumerating every loaded asset with
+`Resources.FindObjectsOfTypeAll`. The latter can return over a million objects
+after all prefab packs load; retrying that global allocation on the game thread
+caused periodic stalls before the old guard rejected the result.
+
+The scene-only result retains the one-million-object bound and is cached across
+matching callbacks. Matching processes at most 1,024 objects or four milliseconds
+per callback, and retains only expected placement matches. The initial native
+Unity enumeration is one call, not part of that matching time budget. A missing
+placement releases partial claims and waits one second before another search;
+an error backs off for five seconds. Regular lifetime checks also use slices of
+at most 256 retained roots or four milliseconds. Connection/EAC validation still
+runs before game-thread work. No full asset scan runs every 250 milliseconds.
+
+A rebuilt DLL cannot replace an already loaded preview module safely. Keep the
+owned server running, restart the Rust client through the explicit no-EAC setup,
+and use Inject for the new build; Ruster never hot-patches or unloads the old DLL.
+
+A newly introduced asset that Rust cannot load dynamically reports
 an error; restart preview with that asset in the initial composition. There is no
 fixed placement-count cap. The binary snapshot size guard remains 16 MiB, and
 actual scene performance depends on memory and Rust's update work. Readers
