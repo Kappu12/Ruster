@@ -37,6 +37,13 @@ For repeated structures, use the layout tools:
 
 Group placements to move an assembly as a unit. **Composition Checks** helps locate overlapping copies, mirrored transforms, and other export issues.
 
+With **Volumes** and viewport overlays enabled, native volume bounds have faint
+fills and persistent outlines: green for safe zones, amber for no-build zones,
+red for movement/no-entry restrictions, and cyan for other triggers. Click an
+edge to select; repeat at a shared edge to cycle overlapping volumes. Hover
+brightens the type colour, and selection adds a stronger outline. The colours
+and fills only affect the editor preview; the original Rust prefab is preserved.
+
 Original prefab geometry stays read-only in the composition. Shape changes come from choosing and arranging whole assets. **Export Blender File** creates a separate scene with editable models and packed textures for rendering or further work in Blender.
 
 ## Choose an output

@@ -26,6 +26,8 @@ def run():
         cache=scene.cache_dir()/'prefabs';cache.mkdir(parents=True)
         for uid,kind in enumerate(('BoxCollider','SphereCollider','CapsuleCollider'),1):
             data=asset(uid,kind)
+            data['path']='assets/modding/volumes_and_triggers/'+(
+                'safezoneoverridebox','prevent_building_sphere','prevent_movment_volume')[uid-1]+'.prefab'
             (cache/f'{uid}.json.gz').write_bytes(gzip.compress(json.dumps(data).encode()))
             root=scene.root_object([wire.encode(2,0,uid)],bpy.context.scene.collection)
             assert scene.attach_visual(root)
@@ -41,7 +43,12 @@ def run():
             else:
                 assert round(max(v.z for v in vertices)-min(v.z for v in vertices))==32
             assert faces and edges
+            assert volumes.boundary(root)['triangles']
         roots=scene.prefab_roots()
+        assert {volumes.semantic_type(o) for o in roots}=={'SAFE_ZONE','NO_BUILD','NO_ENTRY'}
+        safe=next(o for o in roots if o['ruster_uid']=='1')
+        del safe['ruster_volume_type'];safe.name='User renamed this volume'
+        assert volumes.semantic_type(safe)=='SAFE_ZONE','Renaming changed offline semantic styling'
         # A project saved while previews were queued must recover repeated native
         # volume bounds from its own metadata, with no Rust/cache dependency.
         pending=scene.root_object([wire.encode(2,0,1)],bpy.context.scene.collection)

@@ -8,7 +8,7 @@ from bpy.app.handlers import persistent
 from bpy.props import BoolProperty,StringProperty
 from mathutils import Matrix, Quaternion, Vector
 from . import scene
-from .core import volume_picking
+from .core import volume_picking,volume_style
 
 _draw_handle=None
 _keymaps=[]
@@ -45,6 +45,7 @@ def attach(root, asset, base):
     root.instance_type='NONE';root.instance_collection=None
     root['ruster_visual']=False
     root['ruster_marker']='VOLUME'
+    root['ruster_volume_type']=volume_style.classify(asset['path'])
     root['ruster_volume_shapes']=json.dumps(shapes,separators=(',',':'))
     root['ruster_model_status']=('Volume · source collider preview' if shapes else
         'Volume · collider bounds unavailable; showing an origin marker')
@@ -58,13 +59,13 @@ def refresh_markers(context_scene):
     shown=context_scene.ruster_show_volumes
     # Saving can happen partway through the asynchronous preview queue. Recover
     # unresolved copies from a loaded peer of the SAME native prefab, offline.
-    sources={obj.get('ruster_uid'):obj.get('ruster_volume_shapes') for obj in context_scene.objects
+    sources={obj.get('ruster_uid'):(obj.get('ruster_volume_shapes'),semantic_type(obj)) for obj in context_scene.objects
         if obj.get('ruster_marker')=='VOLUME' and obj.get('ruster_volume_shapes','[]')!='[]'}
     for obj in context_scene.objects:
         if (obj.get('ruster_kind')=='PREFAB' and not obj.get('ruster_visual') and
                 not obj.get('ruster_marker') and not obj.instance_collection and obj.get('ruster_uid') in sources):
             obj['ruster_marker']='VOLUME'
-            obj['ruster_volume_shapes']=sources[obj['ruster_uid']]
+            obj['ruster_volume_shapes'],obj['ruster_volume_type']=sources[obj['ruster_uid']]
             obj['ruster_model_status']='Volume · source collider preview'
             obj.empty_display_type='SPHERE'
         if obj.get('ruster_marker')=='VOLUME':
@@ -162,13 +163,20 @@ def visible_volumes(context):
         obj.visible_get(view_layer=context.view_layer,viewport=context.space_data))
 
 
+def semantic_type(obj):
+    kind=obj.get('ruster_volume_type')
+    return kind if kind in volume_style.COLORS else volume_style.classify(obj.get('ruster_generated_name',''))
+
+
 def boundary(obj):
     key=obj.as_pointer()
     signature=(obj.get('ruster_volume_shapes','[]'),tuple(tuple(row) for row in obj.matrix_world))
     cached=_geometry.get(key)
     if cached is None or cached['signature']!=signature:
-        lines=[vertices[i] for vertices,_faces,edges in meshes(obj) for edge in edges for i in edge]
-        cached={'signature':signature,'lines':lines,'batch':None}
+        shapes=meshes(obj)
+        lines=[vertices[i] for vertices,_faces,edges in shapes for edge in edges for i in edge]
+        triangles=[vertices[i] for vertices,faces,_edges in shapes for face in faces for i in face]
+        cached={'signature':signature,'lines':lines,'triangles':triangles,'batch':None,'surface_batch':None}
         if len(_geometry)>4096:_geometry.clear()
         _geometry[key]=cached
     return cached
@@ -197,34 +205,41 @@ def candidates(context,point):
 
 
 def draw_bounds():
-    """Persistent, unfilled x-ray wires, independent of gizmo hover and depth."""
+    """Faint semantic fills and x-ray wires, independent of input/gizmo picking."""
     context=bpy.context
     if not overlay_enabled(context):return
     import gpu
     from gpu_extras.batch import batch_for_shader
     shader=gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-    theme=context.preferences.themes[0].view_3d
+    fill_shader=gpu.shader.from_builtin('UNIFORM_COLOR')
     hover=_hover.get(region_key(context))
-    blend,depth=gpu.state.blend_get(),gpu.state.depth_test_get()
+    blend,depth,mask=gpu.state.blend_get(),gpu.state.depth_test_get(),gpu.state.depth_mask_get()
     try:
-        gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('NONE')
+        gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('NONE');gpu.state.depth_mask_set(False)
+        entries=[(obj,boundary(obj),volume_style.state(semantic_type(obj),obj.select_get(),hover==obj.get('ruster_instance')))
+            for obj in visible_volumes(context)]
+        # Finish all fills before any outlines, so an enclosing volume's tint
+        # cannot wash out a nested boundary. No surface enters the picker.
+        fill_shader.bind()
+        for _obj,cached,style in entries:
+            if not cached['triangles']:continue
+            if cached['surface_batch'] is None:
+                cached['surface_batch']=batch_for_shader(fill_shader,'TRIS',{'pos':cached['triangles']})
+            fill_shader.uniform_float('color',(*style['fill_color'],style['fill_alpha']))
+            cached['surface_batch'].draw(fill_shader)
         shader.bind();shader.uniform_float('viewportSize',gpu.state.viewport_get()[2:])
-        for obj in visible_volumes(context):
-            cached=boundary(obj)
+        for _obj,cached,style in entries:
             if not cached['lines']:continue
             if cached['batch'] is None:cached['batch']=batch_for_shader(shader,'LINES',{'pos':cached['lines']})
-            selected=obj.select_get();highlight=hover==obj.get('ruster_instance')
-            color=theme.object_active if obj==context.view_layer.objects.active and selected else (
-                theme.object_selected if selected else ((.8,.95,1.) if highlight else (.28,.72,.82)))
-            width=(2.5 if selected or highlight else 1.25)*context.preferences.system.ui_scale
+            width=style['width']*context.preferences.system.ui_scale
             shader.uniform_float('lineWidth',width+2)
-            shader.uniform_float('color',(.015,.025,.035,.65))
+            shader.uniform_float('color',style['halo'])
             cached['batch'].draw(shader)
             shader.uniform_float('lineWidth',width)
-            shader.uniform_float('color',(*color,1. if selected or highlight else .65))
+            shader.uniform_float('color',(*style['color'],style['line_alpha']))
             cached['batch'].draw(shader)
     finally:
-        gpu.state.blend_set(blend);gpu.state.depth_test_set(depth)
+        gpu.state.blend_set(blend);gpu.state.depth_test_set(depth);gpu.state.depth_mask_set(mask)
 
 
 class RUSTER_OT_hover_volume(bpy.types.Operator):

@@ -24,7 +24,10 @@ project=os.environ.get('RUSTER_VOLUME_PROJECT');draws=[];original=volumes.draw_b
 
 def checked():
     try:
+        import gpu
+        before=(gpu.state.blend_get(),gpu.state.depth_test_get(),gpu.state.depth_mask_get())
         original()
+        assert before==(gpu.state.blend_get(),gpu.state.depth_test_get(),gpu.state.depth_mask_get()),'Volume fill leaked GPU state'
         if volumes.overlay_enabled(bpy.context):draws.append(tuple(o.name for o in volumes.visible_volumes(bpy.context)))
     except Exception:traceback.print_exc();os._exit(1)
 
@@ -35,10 +38,13 @@ if project:
     source_hash=hashlib.sha256(Path(project).read_bytes()).hexdigest();app.open_path(Path(project))
 else:
     studio.new_prefab()
-    for uid,scale in ((1,133.25),(2,12),(3,12)):
+    for uid,scale in ((1,133.25),(2,12),(3,12),(4,12)):
         data=asset(uid,'BoxCollider');data['colliders'][0].update(center=[0,0,0],size=[1,1,1])
+        data['path']='assets/modding/volumes_and_triggers/'+('prevent_building_cube' if uid==1 else
+            ('safezoneoverridebox' if uid==4 else 'prevent_movment_volume'))+'.prefab'
         root=scene.root_object([wire.encode(2,0,uid)],bpy.context.scene.collection)
         volumes.attach(root,data,Path(temporary.name));root.scale=(scale,scale,64.25 if uid==1 else scale)
+        if uid==4:root.location=(-22,0,0)
 bpy.context.window_manager.keyconfigs.update()
 state={}
 
@@ -58,7 +64,14 @@ def run():
         return tuple(p)
     def click(p,**kwargs):
         event('MOUSEMOVE','NOTHING',p);event('LEFTMOUSE','PRESS',p,**kwargs);event('LEFTMOUSE','RELEASE',p,**kwargs)
-    def shot(name):bpy.ops.screen.screenshot(filepath=str(output/(name+'.png')))
+    def shot(name):
+        path=output/(name+'.png');bpy.ops.screen.screenshot(filepath=str(path));return path
+    def pixel(path,p):
+        capture=bpy.data.images.load(str(path),check_existing=False)
+        try:
+            index=((region.y+int(p[1]))*capture.size[0]+region.x+int(p[0]))*4
+            return tuple(round(c*255) for c in capture.pixels[index:index+3])
+        finally:bpy.data.images.remove(capture)
     def resolve(instance):return next(o for o in scene.prefab_roots() if o['ruster_instance']==instance)
     event('ESC');yield .4
     space.show_gizmo=False
@@ -66,12 +79,21 @@ def run():
     view.view_distance=180;view.view_perspective='ORTHO';space.clip_start=.1;space.clip_end=1000
     bpy.context.scene.ruster_show_volumes=True;space.overlay.show_overlays=True;bpy.context.view_layer.update()
     roots=list(volumes.visible_volumes(bpy.context))
-    assert len(roots)==(118 if project else 3),[(o.name,o.get('ruster_uid')) for o in roots]
+    assert len(roots)==(118 if project else 4),[(o.name,o.get('ruster_uid')) for o in roots]
     assert all(volumes.boundary(o)['lines'] for o in roots),'Missing native collider descriptions'
     state['baseline']=records();state['fingerprint']=quitting.fingerprint()
     placement.select([]);event('MOUSEMOVE','NOTHING',(10,10));draws.clear();area.tag_redraw();yield .5
     assert draws and len(draws[-1])==len(roots),'Bounds did not draw without hover/gizmos'
-    shot('volumes-outside-unhovered')
+    filled=shot('volumes-outside-unhovered')
+    assert all(volumes.boundary(o)['surface_batch'] is not None for o in roots),'Persistent fills did not draw'
+    if not project:
+        assert {volumes.semantic_type(o) for o in roots}=={'SAFE_ZONE','NO_BUILD','NO_ENTRY'}
+        sample=point((-21,1,0));tinted=pixel(filled,sample);enclosing=pixel(filled,point((-13,1,0)))
+        bpy.context.scene.ruster_show_volumes=False;yield .3
+        clear=pixel(shot('volumes-fill-comparison-disabled'),sample)
+        assert sum(abs(a-b) for a,b in zip(tinted,clear))>6,('Persistent fill was not visible',tinted,clear)
+        assert tinted[1]-tinted[0]>enclosing[1]-enclosing[0]+3,('Nested safe-zone fill lost its type colour',tinted,enclosing)
+        bpy.context.scene.ruster_show_volumes=True;yield .3
     inner=next(o for o in roots if o.get('ruster_uid')==('3521578167' if project else '2') and
         max(o.scale)<100 and (not project or o.matrix_world.translation.x<0))
     instance=inner['ruster_instance'];lines=volumes.boundary(inner)['lines'];hit=None
