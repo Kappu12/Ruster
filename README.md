@@ -40,7 +40,8 @@ Group placements to move an assembly as a unit. **Composition Checks** helps loc
 With **Volumes** and viewport overlays enabled, native volume bounds have faint
 fills and persistent outlines: green for safe zones, amber for no-build zones,
 red for movement/no-entry restrictions, and cyan for other triggers. Click an
-edge to select; repeat at a shared edge to cycle overlapping volumes. Hover
+edge or filled face to select; repeat to cycle overlapping volumes. Edges and
+smaller volumes have priority over enclosing boxes. Hover
 brightens the type colour, and selection adds a stronger outline. The colours
 and fills only affect the editor preview; the original Rust prefab is preserved.
 

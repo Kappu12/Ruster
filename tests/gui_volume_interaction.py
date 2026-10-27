@@ -101,6 +101,16 @@ def run():
         p=point((a+b)/2)
         if 20<p[0]<region.width-20 and 20<p[1]<region.height-20 and inner in volumes.candidates(bpy.context,p):hit=p;break
     assert hit,'No pickable projected inner boundary'
+    space.show_gizmo=True;yield .3
+    assert volumes.hover_watch_present(window),'Passive hover observer was not installed'
+    event('MOUSEMOVE','NOTHING',hit);yield .3
+    assert volumes._hover.get(volumes.region_key(bpy.context)) in {o['ruster_instance'] for o in volumes.candidates(bpy.context,hit)},'Native gizmos swallowed volume edge hover'
+    event('MOUSEMOVE','NOTHING',(10,10));event('MOUSEMOVE','NOTHING',hit);yield .1
+    assert volumes._hover.get(volumes.region_key(bpy.context)) in {o['ruster_instance'] for o in volumes.candidates(bpy.context,hit)},'Coalescing dropped the final edge hover'
+    if not project:
+        body=point((0,0,0));volumes._cycle=None;volumes._last_press=None;click(body);yield .3
+        assert bpy.context.object['ruster_uid']=='2','Clicking the filled middle did not select the inner volume'
+        volumes._cycle=None;volumes._last_press=None
     click(hit);yield .3
     hits=volumes.candidates(bpy.context,hit)
     shot('volume-pick-result')
@@ -110,8 +120,11 @@ def run():
         click(hit);yield .3
         assert bpy.context.object['ruster_uid']=='3','Repeated click did not cycle coincident bounds'
         click(hit);yield .3
+        assert bpy.context.object['ruster_uid']=='1','Overlap cycling did not reach the enclosing face'
+        click(hit);yield .3
         assert bpy.context.object['ruster_uid']=='2'
-        assert not volumes.candidates(bpy.context,point((0,0,0))),'Filled interior is still a selection target'
+        body_hits=volumes.candidates(bpy.context,point((0,0,0)))
+        assert body_hits[0]['ruster_uid'] in {'2','3'} and body_hits[-1]['ruster_uid']=='1','Enclosing fill swallowed nested volumes'
     placement.select([]);volumes._cycle=None;click(hit,shift=True);yield .3
     chosen=bpy.context.object['ruster_instance'];assert resolve(chosen).select_get()
     click(hit,shift=True);yield .3
@@ -143,7 +156,7 @@ def run():
     view.view_location=resolve(instance).matrix_world.translation;view.view_distance=50
     bpy.ops.wm.tool_set_by_id(name='builtin.move');yield .5
     shot('volumes-move-gizmo')
-    bpy.ops.wm.tool_set_by_id(name='builtin.select_box');space.show_gizmo=False
+    bpy.ops.wm.tool_set_by_id(name='builtin.select_box');space.show_gizmo=True
     view.view_perspective='PERSP';view.view_location=(0,0,0);view.view_distance=20
     center=(region.width//2,region.height//2)
     event('MOUSEMOVE','NOTHING',center);draws.clear();yield .4
@@ -172,6 +185,12 @@ def run():
     volumes._cycle=None;click(inside_hit);yield .3
     assert bpy.context.object in volumes.candidates(bpy.context,inside_hit)
     shot('volumes-inside-selected')
+    if not project:
+        view.view_location=(0,0,0);view.view_distance=3;yield .3
+        body=(region.width//2,region.height//2);volumes._cycle=None;volumes._last_press=None
+        click(body);yield .3
+        assert bpy.context.object['ruster_uid']=='2','Face selection failed with the eye inside the volume itself'
+        inside_hit=body
     bpy.context.scene.ruster_show_volumes=False;draws.clear();yield .4
     assert not draws and not volumes.candidates(bpy.context,inside_hit)
     assert records()==state['baseline'] and quitting.fingerprint()==state['fingerprint']

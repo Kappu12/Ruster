@@ -7,6 +7,8 @@ import bpy
 from bpy.app.handlers import persistent
 from bpy.props import BoolProperty,StringProperty
 from mathutils import Matrix, Quaternion, Vector
+from mathutils.bvhtree import BVHTree
+from bpy_extras import view3d_utils
 from . import scene
 from .core import volume_picking,volume_style
 
@@ -15,6 +17,9 @@ _keymaps=[]
 _geometry={}
 _hover={}
 _cycle=None
+_last_press=None
+_hover_generation=0
+_pending_hover={}
 
 
 def attach(root, asset, base):
@@ -88,8 +93,8 @@ def visibility_changed(_self,context):
 
 @persistent
 def restore_markers(*_args):
-    global _cycle
-    _geometry.clear();_hover.clear();_cycle=None
+    global _cycle,_last_press
+    _geometry.clear();_hover.clear();_cycle=None;_last_press=None
     for context_scene in bpy.data.scenes:refresh_markers(context_scene)
 
 
@@ -176,7 +181,9 @@ def boundary(obj):
         shapes=meshes(obj)
         lines=[vertices[i] for vertices,_faces,edges in shapes for edge in edges for i in edge]
         triangles=[vertices[i] for vertices,faces,_edges in shapes for face in faces for i in face]
-        cached={'signature':signature,'lines':lines,'triangles':triangles,'batch':None,'surface_batch':None}
+        cached={'signature':signature,'lines':lines,'triangles':triangles,'batch':None,'surface_batch':None,'bvh':None}
+        extents=[max(v[i] for v in triangles)-min(v[i] for v in triangles) for i in range(3)] if triangles else (0,0,0)
+        cached['size']=math.prod(extents)
         if len(_geometry)>4096:_geometry.clear()
         _geometry[key]=cached
     return cached
@@ -191,17 +198,27 @@ def candidates(context,point):
     matrix=context.region_data.perspective_matrix
     width,height=context.region.width,context.region.height
     radius=8*context.preferences.system.ui_scale
-    hits=[]
+    hits=[];faces=[]
+    origin=view3d_utils.region_2d_to_origin_3d(context.region,context.region_data,point,clamp=context.space_data.clip_end)
+    direction=view3d_utils.region_2d_to_vector_3d(context.region,context.region_data,point)
     for obj in visible_volumes(context):
         if obj.hide_select:continue
-        lines=boundary(obj)['lines']
+        cached=boundary(obj);lines=cached['lines']
         clips=[matrix @ v.to_4d() for v in lines]
         segments=[segment for a,b in zip(clips[::2],clips[1::2])
             if (segment:=volume_picking.project_segment(a,b,width,height)) is not None]
         hit=volume_picking.wire_hit(point,segments,radius)
-        if hit:hits.append((*hit,obj))
-    # Keep every nearby wire reachable, including coincident/nested bounds.
-    return [obj for _distance,_depth,obj in sorted(hits,key=lambda h:(h[0],h[1],h[2].name))]
+        if hit:hits.append((*hit,obj));continue
+        if not cached['triangles']:continue
+        if cached['bvh'] is None:
+            vertices=cached['triangles']
+            cached['bvh']=BVHTree.FromPolygons(vertices,[(i,i+1,i+2) for i in range(0,len(vertices),3)],all_triangles=True)
+        _location,_normal,_index,distance=cached['bvh'].ray_cast(origin,direction,context.space_data.clip_end*2)
+        if distance is not None:faces.append((cached['size'],distance,obj))
+    # Edges have first priority. Interior clicks prefer the most specific volume;
+    # repeated clicks still reach enclosing boxes and coincident surfaces.
+    return [obj for _distance,_depth,obj in sorted(hits,key=lambda h:(h[0],h[1],h[2].name))]+[
+        obj for _size,_distance,obj in sorted(faces,key=lambda h:(h[0],h[1],h[2].name))]
 
 
 def draw_bounds():
@@ -218,8 +235,8 @@ def draw_bounds():
         gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('NONE');gpu.state.depth_mask_set(False)
         entries=[(obj,boundary(obj),volume_style.state(semantic_type(obj),obj.select_get(),hover==obj.get('ruster_instance')))
             for obj in visible_volumes(context)]
-        # Finish all fills before any outlines, so an enclosing volume's tint
-        # cannot wash out a nested boundary. No surface enters the picker.
+        # Finish all fills before any outlines, so enclosing tint cannot wash
+        # out a nested boundary. Picking is analytical, never a GPU/modal gizmo.
         fill_shader.bind()
         for _obj,cached,style in entries:
             if not cached['triangles']:continue
@@ -248,12 +265,69 @@ class RUSTER_OT_hover_volume(bpy.types.Operator):
     bl_options={'INTERNAL'}
 
     def invoke(self,context,event):
+        if hover_watch_present(context.window):return {'PASS_THROUGH'}
         if not overlay_enabled(context):return {'PASS_THROUGH'}
         hits=candidates(context,(event.mouse_region_x,event.mouse_region_y))
         key=region_key(context);instance=hits[0].get('ruster_instance') if hits else None
         if _hover.get(key)!=instance:
             _hover[key]=instance;context.area.tag_redraw()
         return {'PASS_THROUGH'}
+
+
+def hover_watch_present(window):
+    return any(op.bl_idname in {'ruster.watch_volume_hover','RUSTER_OT_watch_volume_hover'} for op in window.modal_operators)
+
+
+class RUSTER_OT_watch_volume_hover(bpy.types.Operator):
+    """Observe hover before native gizmos consume mouse-move keymap events."""
+    bl_idname='ruster.watch_volume_hover'
+    bl_label='Watch Volume Hover'
+    bl_options={'INTERNAL'}
+
+    def invoke(self,context,event):
+        if hover_watch_present(context.window):return {'CANCELLED'}
+        self.generation=_hover_generation
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self,context,event):
+        if self.generation!=_hover_generation:return {'CANCELLED'}
+        if event.type=='MOUSEMOVE':
+            _pending_hover[context.window.as_pointer()]=(event.mouse_x,event.mouse_y)
+        # Never consume a button, wheel, navigation event or gizmo drag.
+        return {'PASS_THROUGH'}
+
+
+def refresh_pending_hover():
+    pending=dict(_pending_hover);_pending_hover.clear()
+    for window in bpy.context.window_manager.windows:
+        point=pending.get(window.as_pointer())
+        if point is None:continue
+        x,y=point
+        for area in window.screen.areas:
+            if area.type!='VIEW_3D' or not (area.x<=x<area.x+area.width and area.y<=y<area.y+area.height):continue
+            region=next((r for r in area.regions if r.type=='WINDOW'),None)
+            if region is None:continue
+            over_ui=any(r.type not in {'WINDOW','TOOL_PROPS'} and r.width>1 and r.height>1 and
+                r.x<=x<r.x+r.width and r.y<=y<r.y+r.height for r in area.regions)
+            with bpy.context.temp_override(window=window,area=area,region=region):
+                context=bpy.context
+                key=region_key(context)
+                hits=[] if over_ui else candidates(context,(x-region.x,y-region.y))
+                instance=hits[0].get('ruster_instance') if hits else None
+                if _hover.get(key)!=instance:_hover[key]=instance;area.tag_redraw()
+    # Coalesce motion without losing the final event when the mouse stops.
+    return .03
+
+
+def ensure_hover_watch():
+    for window in bpy.context.window_manager.windows:
+        area=next((a for a in window.screen.areas if a.type=='VIEW_3D'),None)
+        if area and not hover_watch_present(window):
+            region=next((r for r in area.regions if r.type=='WINDOW'),None)
+            if region:
+                with bpy.context.temp_override(window=window,area=area,region=region):bpy.ops.ruster.watch_volume_hover('INVOKE_DEFAULT')
+    return 1.
 
 
 class RUSTER_OT_select_volume(bpy.types.Operator):
@@ -263,17 +337,19 @@ class RUSTER_OT_select_volume(bpy.types.Operator):
     instance:StringProperty(options={'SKIP_SAVE'})
 
     def invoke(self,context,event):
-        global _cycle
+        global _cycle,_last_press
         if not overlay_enabled(context):return {'PASS_THROUGH'}
+        point=(event.mouse_region_x,event.mouse_region_y);now=time.monotonic();key=region_key(context)
+        if event.value=='CLICK' and _last_press and _last_press[0]==key and now-_last_press[1]<1. and math.dist(point,_last_press[2])<=4:
+            return {'FINISHED'}
         if self.instance:
             root=next((obj for obj in visible_volumes(context) if obj.get('ruster_instance')==self.instance),None)
         else:
-            point=(event.mouse_region_x,event.mouse_region_y)
             hits=candidates(context,point)
             if not hits:
-                _cycle=None;return {'PASS_THROUGH'}
+                _cycle=None;_last_press=None;return {'PASS_THROUGH'}
             ids=tuple(obj.get('ruster_instance') for obj in hits)
-            now=time.monotonic();index=0;key=region_key(context)
+            index=0
             if (_cycle and _cycle[0]==key and _cycle[1]==ids and now-_cycle[2]<3. and
                     math.dist(point,_cycle[3])<=4 and not event.shift):index=(_cycle[4]+1)%len(hits)
             _cycle=(key,ids,now,point,index)
@@ -285,6 +361,7 @@ class RUSTER_OT_select_volume(bpy.types.Operator):
         root.select_set(not selected if event.shift else True)
         if root.select_get():context.view_layer.objects.active=root
         _hover[region_key(context)]=root.get('ruster_instance')
+        if event.value in {'PRESS','DOUBLE_CLICK'}:_last_press=(key,now,point)
         context.area.tag_redraw()
         return {'FINISHED'}
 
@@ -292,35 +369,40 @@ class RUSTER_OT_select_volume(bpy.types.Operator):
 def register():
     global _draw_handle
     bpy.types.Scene.ruster_show_volumes=BoolProperty(name='Volumes',default=True,
-        description='Show native volume bounds. Click edges to select; repeat to cycle overlaps. Visibility does not affect saving/export',
+        description='Show native volume bounds. Click edges or filled faces; repeat to cycle overlaps. Visibility does not affect saving/export',
         update=visibility_changed)
-    for cls in (RUSTER_OT_select_volume,RUSTER_OT_hover_volume):bpy.utils.register_class(cls)
+    for cls in (RUSTER_OT_select_volume,RUSTER_OT_hover_volume,RUSTER_OT_watch_volume_hover):bpy.utils.register_class(cls)
     _draw_handle=bpy.types.SpaceView3D.draw_handler_add(draw_bounds,(),'WINDOW','POST_VIEW')
     config=bpy.context.window_manager.keyconfigs.addon
     if config:
         km=config.keymaps.new(name='3D View',space_type='VIEW_3D')
         for shift in (False,True):
-            # The active Select Box tool may consume PRESS while deciding
-            # whether a drag begins. CLICK runs after that decision, and leaves
-            # native transform gizmos first refusal of their own press/drag.
-            for value in ('CLICK','DOUBLE_CLICK'):
+            # Native gizmos get first refusal. Handle selection on press, with
+            # a click fallback for tools that reserve the initial press.
+            for value in ('PRESS','CLICK','DOUBLE_CLICK'):
                 item=km.keymap_items.new('ruster.select_volume','LEFTMOUSE',value,shift=shift,head=True)
                 _keymaps.append((km,item))
         item=km.keymap_items.new('ruster.hover_volume','MOUSEMOVE','ANY',any=True)
         _keymaps.append((km,item))
     for handlers in (bpy.app.handlers.load_post,bpy.app.handlers.undo_post,bpy.app.handlers.redo_post):
         handlers.append(restore_markers)
+    if not bpy.app.background:
+        bpy.app.timers.register(ensure_hover_watch,first_interval=.1,persistent=True)
+        bpy.app.timers.register(refresh_pending_hover,first_interval=.03,persistent=True)
 
 
 def unregister():
-    global _draw_handle,_cycle
+    global _draw_handle,_cycle,_last_press,_hover_generation
+    _hover_generation+=1
+    if bpy.app.timers.is_registered(ensure_hover_watch):bpy.app.timers.unregister(ensure_hover_watch)
+    if bpy.app.timers.is_registered(refresh_pending_hover):bpy.app.timers.unregister(refresh_pending_hover)
     for km,item in _keymaps:km.keymap_items.remove(item)
     _keymaps.clear()
     if _draw_handle is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_draw_handle,'WINDOW');_draw_handle=None
     for handlers in (bpy.app.handlers.load_post,bpy.app.handlers.undo_post,bpy.app.handlers.redo_post):
         if restore_markers in handlers:handlers.remove(restore_markers)
-    for cls in (RUSTER_OT_hover_volume,RUSTER_OT_select_volume):bpy.utils.unregister_class(cls)
+    for cls in (RUSTER_OT_watch_volume_hover,RUSTER_OT_hover_volume,RUSTER_OT_select_volume):bpy.utils.unregister_class(cls)
     del bpy.types.Scene.ruster_show_volumes
     descriptions.cache_clear()
-    _geometry.clear();_hover.clear();_cycle=None
+    _geometry.clear();_hover.clear();_pending_hover.clear();_cycle=None;_last_press=None
