@@ -172,10 +172,32 @@ fixed placement-count cap. The binary snapshot size guard remains 16 MiB, and
 actual scene performance depends on memory and Rust's update work. Readers
 validate the count against the bytes present before allocating record arrays.
 Updates stage replacements before removing previous
-objects; a failed creation preserves the previous scene. Both readers use the
-same bounded binary snapshot format. Terrain, paths, navmesh rebuilding, puzzle
+objects; a failed creation preserves the previous scene. Retired objects are
+deactivated before Unity's deferred destruction, and both sides synchronize
+physics before acknowledging the revision. This prevents old movement/no-build
+colliders from participating until frame-end destruction. Volume visibility is
+an editor overlay setting; snapshots still carry the original native prefab ID,
+position, rotation and scale, including deletion and undo/redo snapshots.
+
+Static compound prefabs whose children stay under their root can use ordinary
+placement updates. Whole monuments can also depend on terrain, navmeshes,
+map-time entity spawners and children that detach during `Awake`. Those cannot
+be synchronized by moving or destroying just the root. The server detects
+`DetachMonumentChildren` and populated `SceneToPrefabSpawner` hierarchies before
+staging live additions. It reports that these require map initialization.
+Such monuments present in the initial map stay fixed during that session;
+moving, resizing, replacing or deleting one rejects the snapshot before mutation.
+Save the desired layout and restart preview to rebuild the native map, or export
+the composition as a map for normal Rust loading. This does not promise complete
+monument gameplay: terrain, paths, navmesh rebuilding, puzzle
 serialization and full monument gameplay configuration are outside this preview.
 Rust's instanced rendering and special prefabs still need in-game validation.
+
+The volume update regressions exercise native snapshot capture, high unsigned
+prefab IDs, transform/rotation/scale replay, deletion, undo/redo, collider
+deactivation order and failed-retirement rollback using offline fixtures. The
+companion also compiles against the installed server assemblies. These checks
+do not prove player movement blocking or building denial in a running client.
 
 Sessions, downloads, logs, and the managed server live under Ruster's user-data
 `live-preview` folder. Existing Rust installations, maps, server profiles and saves

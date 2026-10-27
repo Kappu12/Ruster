@@ -10,7 +10,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.2")]
+    [Info("RusterPreview", "Ruster", "0.3.3")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -24,6 +24,7 @@ namespace Oxide.Plugins
             public void Restore() { if(obj!=null) { obj.transform.SetPositionAndRotation(position,rotation); obj.transform.localScale=scale; } }
         }
         readonly Dictionary<ulong,GameObject> objects=new Dictionary<ulong,GameObject>();
+        readonly Dictionary<ulong,Placement> mapOnly=new Dictionary<ulong,Placement>();
         string directory; SessionConfig config;
         long revision,attemptedStamp; double nextHeartbeat; bool initialized;
         bool Active() { return File.Exists(Path.Combine(directory,"active.flag"))&&!File.Exists(Path.Combine(directory,"stop.flag")); }
@@ -67,6 +68,7 @@ namespace Oxide.Plugins
                     var obj=candidates.FirstOrDefault(o=>o!=null&&o.name==p.path&&(o.transform.position-position).sqrMagnitude<0.0001f);
                     if(obj==null)throw new Exception("Cannot claim initial map placement "+p.path);
                     candidates.Remove(obj);claimed.Add(p.key,obj);
+                    if(MapOnly(obj)||MapOnly(GameManager.server.FindPrefab(p.path)))mapOnly.Add(p.key,p);
                 }
                 if(!Active())return;
                 // Claim only after the entire initial scene has matched.
@@ -167,6 +169,14 @@ namespace Oxide.Plugins
         }
         static Vector3 Vector(float[] value){return new Vector3(value[0],value[1],value[2]);}
         static Quaternion Rotation(Placement p){return new Quaternion(p.rotation[0],p.rotation[1],p.rotation[2],p.rotation[3]);}
+        static bool MapOnly(GameObject obj)
+        {
+            // These native scripts move children outside the root's ownership,
+            // or require Rust's map initialization pass to spawn their entities.
+            // A root transform/destroy is not a complete monument transaction.
+            return obj!=null&&(obj.GetComponentInChildren<DetachMonumentChildren>(true)!=null||
+                obj.GetComponentsInChildren<SceneToPrefabSpawner>(true).Any(s=>s.EntitiesToSpawn.Count>0));
+        }
         static void Transform(GameObject obj,Placement p)
         {
             obj.transform.SetPositionAndRotation(Vector(p.position),Rotation(p));obj.transform.localScale=Vector(p.scale);
@@ -175,8 +185,17 @@ namespace Oxide.Plugins
         }
         void Apply(Snapshot snapshot)
         {
+            foreach(var entry in mapOnly)
+                if(!entry.Value.SamePlacement(snapshot.placements.FirstOrDefault(p=>p.key==entry.Key)))
+                    throw new Exception("Compound monument cannot be live-transformed or deleted: "+entry.Value.path+
+                        ". Save the new layout and restart preview to rebuild its native map entities.");
             foreach(var p in snapshot.placements)
-                if(StringPool.Get(p.uid)!=p.path||GameManager.server.FindPrefab(p.path)==null)throw new Exception("Rust cannot load "+p.path+"; restart preview with this asset in the initial map");
+            {
+                var prefab=GameManager.server.FindPrefab(p.path);
+                if(StringPool.Get(p.uid)!=p.path||prefab==null)throw new Exception("Rust cannot load "+p.path+"; restart preview with this asset in the initial map");
+                if(!mapOnly.ContainsKey(p.key)&&MapOnly(prefab))throw new Exception("Compound monument requires map initialization: "+p.path+
+                    ". Add it to the saved composition before starting preview, or export a map and reload it.");
+            }
             var staged=new Dictionary<ulong,GameObject>();var restored=new List<TransformState>();var next=new Dictionary<ulong,GameObject>();
             try
             {
@@ -218,6 +237,7 @@ namespace Oxide.Plugins
             var retired=objects.Where(e=>!next.ContainsKey(e.Key)||next[e.Key]!=e.Value).Select(e=>e.Value).ToArray();
             objects.Clear();foreach(var entry in next)objects.Add(entry.Key,entry.Value);
             foreach(var obj in retired)Destroy(obj);
+            Physics.SyncTransforms();
             revision=snapshot.revision;
             Write("server.revision",revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Write("server.status","READY\nServer scene revision "+revision+" ("+objects.Count+" placements)");
@@ -227,6 +247,9 @@ namespace Oxide.Plugins
             if(obj==null)return;
             try
             {
+                // Destroy is deferred. Disable physics/trigger participation now,
+                // before advertising this snapshot as applied.
+                obj.SetActive(false);
                 foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))
                     if(entity!=null&&!entity.IsDestroyed)try{entity.Kill();}catch(Exception error){PrintError(error.Message);}
             }
@@ -236,7 +259,8 @@ namespace Oxide.Plugins
         {
             initialized=false;
             if(!string.IsNullOrWhiteSpace(directory)){Delete("server.ready");Delete("client.connected");}
-            foreach(var obj in objects.Values)Destroy(obj);objects.Clear();
+            foreach(var obj in objects.Values)Destroy(obj);objects.Clear();mapOnly.Clear();
+            Physics.SyncTransforms();
         }
         void Unload(){Cleanup();}
     }

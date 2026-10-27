@@ -282,6 +282,7 @@ struct Api {
 const Method *createPrefab,*getTransform,*setPosition,*setRotation,*setScale,*destroyObject;
 const Method *findPrefab,*getComponent,*findObjects,*getName,*getPosition,*getScene,*sceneValid,*arrayGet;
 const Method *setActive,*setName,*objectAlive;
+const Method *syncPhysics;
 Object *gameObjectType=nullptr,*networkableType=nullptr;
 Object* manager=nullptr;
 bool signature(const Method* method,const char* result,const std::vector<const char*>& params) {
@@ -309,6 +310,7 @@ const std::vector<Binding>& bindings() {
         {"activate", "UnityEngine.GameObject", "SetActive", "System.Void", false, {"System.Boolean"}, &setActive},
         {"name placement", "UnityEngine.Object", "set_name", "System.Void", false, {"System.String"}, &setName},
         {"object lifetime", "UnityEngine.Object", "op_Implicit", "System.Boolean", true, {"UnityEngine.Object"}, &objectAlive},
+        {"collider synchronization", "UnityEngine.Physics", "SyncTransforms", "System.Void", true, {}, &syncPhysics},
     };
     return result;
 }
@@ -403,13 +405,19 @@ std::vector<Placement> decode(const std::vector<uint8_t>& data,uint64_t& revisio
     }
     if(offset!=data.size())throw std::runtime_error("Unexpected snapshot data");return rows;
 }
-void remove(Instance instance) {
-    try {Object* value=api.gchandle_get_target(instance.handle);if(value){void* args[]={value};api.call(destroyObject,nullptr,args);}}
+void active(Object* value,bool enabled) {void* args[]={&enabled};api.call(setActive,value,args);}
+void remove(Instance instance,bool deactivate=true) {
+    try {Object* value=api.gchandle_get_target(instance.handle);if(value){
+        // Unity Destroy is deferred until frame end. Retired movement/no-build
+        // colliders must stop participating before the revision is acknowledged.
+        if(deactivate)active(value,false);
+        void* args[]={value};api.call(destroyObject,nullptr,args);
+    }}
     catch(...){api.gchandle_free(instance.handle);throw;}
     api.gchandle_free(instance.handle);
 }
 void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
-void clear() {discard(objects);applied=0;attempted=0;appliedCount=0;}
+void clear() {discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;}
 bool retainedAlive() {
     for(auto& entry:objects){
         Object* value=api.gchandle_get_target(entry.second.handle);if(!value)return false;
@@ -491,16 +499,29 @@ void apply(const std::vector<Placement>& rows) {
             void* nameArgs[]={path};api.call(setName,obj,nameArgs);
             bool active=true;void* activation[]={&active};api.call(setActive,obj,activation);
         }
-    }catch(...){discard(staged);throw;}
+    }catch(...){discard(staged);api.call(syncPhysics,nullptr);throw;}
+    // First deactivate the entire retired set. A rejected deactivation restores
+    // the old scene and discards staged clones, just like a failed create.
+    std::vector<Object*> disabled;
+    try {
+        for(auto& entry:objects)if(!present.count(entry.first)||staged.count(entry.first)) {
+            Object* value=api.gchandle_get_target(entry.second.handle);
+            if(value){active(value,false);disabled.push_back(value);}
+        }
+    }catch(...) {
+        for(Object* value:disabled)try{active(value,true);}catch(...){}
+        discard(staged);api.call(syncPhysics,nullptr);throw;
+    }
     for(auto it=objects.begin();it!=objects.end();) {
         if(!present.count(it->first)||staged.count(it->first)){
             // A Unity destroy failure must not leak a retained handle or skip
             // cleanup of the rest of this bounded transaction.
-            try{remove(it->second);}catch(...){}
+            try{remove(it->second,false);}catch(...){}
             it=objects.erase(it);
         }else ++it;
     }
     objects.merge(staged);
+    api.call(syncPhysics,nullptr);
 }
 
 LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {

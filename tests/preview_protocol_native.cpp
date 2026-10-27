@@ -14,6 +14,9 @@ std::vector<uintptr_t> destroyed;
 uintptr_t nextHandle=0x0000025600000002ULL;
 uintptr_t nextObject=1000;
 bool rejectScale=false;
+uintptr_t rejectDeactivate=0;
+std::map<uintptr_t,bool> activeObjects;
+int physicsSyncs=0;
 RuntimeHandle retainFake(Object* obj,bool){auto handle=reinterpret_cast<RuntimeHandle>(nextHandle++);retained[handle]=obj;return handle;}
 Object* targetFake(RuntimeHandle handle){return retained.at(handle);}
 void freeFake(RuntimeHandle handle){retained.erase(handle);}
@@ -29,9 +32,19 @@ Object* invokeFake(const Method* method,void* self,void** args,Object**) {
         return reinterpret_cast<Object*>(nextObject++);
     }
     if(method==setScale&&rejectScale)throw std::runtime_error("Synthetic setter rejection");
+    if(method==setActive){
+        auto id=reinterpret_cast<uintptr_t>(self);bool enabled=*static_cast<bool*>(args[0]);
+        if(!enabled&&id==rejectDeactivate)throw std::runtime_error("Synthetic collider retirement rejection");
+        activeObjects[id]=enabled;
+    }
+    if(method==syncPhysics)physicsSyncs++;
     if(method==getTransform)return static_cast<Object*>(self);
     if(method==objectAlive){static bool alive=true;return reinterpret_cast<Object*>(&alive);}
-    if(method==destroyObject)destroyed.push_back(reinterpret_cast<uintptr_t>(args[0]));
+    if(method==destroyObject){
+        auto id=reinterpret_cast<uintptr_t>(args[0]);
+        if(activeObjects[id])throw std::runtime_error("Deferred destroy left an active stale collider");
+        destroyed.push_back(id);
+    }
     return nullptr;
 }
 void transactionCheck() {
@@ -39,7 +52,8 @@ void transactionCheck() {
     createPrefab=reinterpret_cast<Method*>(3);getTransform=reinterpret_cast<Method*>(4);
     destroyObject=reinterpret_cast<Method*>(5);setPosition=reinterpret_cast<Method*>(6);
     setRotation=reinterpret_cast<Method*>(7);setScale=reinterpret_cast<Method*>(8);
-    setActive=reinterpret_cast<Method*>(9);setName=reinterpret_cast<Method*>(10);objectAlive=reinterpret_cast<Method*>(11);manager=reinterpret_cast<Object*>(99);
+    setActive=reinterpret_cast<Method*>(9);setName=reinterpret_cast<Method*>(10);objectAlive=reinterpret_cast<Method*>(11);
+    syncPhysics=reinterpret_cast<Method*>(12);manager=reinterpret_cast<Object*>(99);
     api.runtime_invoke=invokeFake;
     api.string_new=[](const char* p){return reinterpret_cast<Object*>(const_cast<char*>(p));};
     api.gchandle_new=reinterpret_cast<decltype(api.gchandle_new)>(retainFake);
@@ -53,6 +67,7 @@ void transactionCheck() {
     if(!retained.empty())throw std::runtime_error("Unity 6 GCHandle free lost upper pointer bits");
     auto original=reinterpret_cast<RuntimeHandle>(0x0000025600000001ULL);
     retained[original]=reinterpret_cast<Object*>(101);
+    activeObjects[101]=true;
     objects[17]={(decltype(Instance{}.handle))(uintptr_t)original,1,{0,0,0},{0,0,0,1},{1,1,1}};
     Placement p{17,123456,"assets/test/source.prefab",{1,2,-3},{0,0,0,1},{1,2,3}};
     Placement missing=p;missing.key=18;missing.path="assets/test/missing.prefab";
@@ -75,6 +90,31 @@ void transactionCheck() {
     rejectScale=false;
     if(!failed||objects.at(18).handle!=old||retained.size()!=2)
         throw std::runtime_error("A failed activation/transform damaged the old scene");
+    // Native movement/no-build identities use the same transaction. Exercise
+    // move/rotate/resize, then replay prior snapshots as editor undo and redo do.
+    auto movement=p;movement.uid=3521578167u;movement.path="assets/test/prevent_movment_volume.prefab";
+    auto noBuild=added;noBuild.uid=4190049974u;noBuild.path="assets/test/prevent_building_cube.prefab";
+    apply({movement,noBuild});
+    auto baseline=noBuild;
+    for(int edit=0;edit<3;edit++) {
+        auto oldObject=reinterpret_cast<uintptr_t>(targetFake(objects.at(18).handle));
+        int beforeSync=physicsSyncs;
+        if(edit==0)noBuild.pos.x+=10;
+        if(edit==1)noBuild.rot={0,.70710677f,0,.70710677f};
+        if(edit==2)noBuild.scale={133.25f,64.25f,133.25f};
+        apply({movement,noBuild});
+        if(activeObjects[oldObject]||physicsSyncs<=beforeSync||objects.at(18).uid!=4190049974u)
+            throw std::runtime_error("A volume edit retained old collision or lost its native identity");
+    }
+    apply({movement,baseline});apply({movement,noBuild});
+    auto oldMovement=objects.at(17).handle,oldNoBuild=objects.at(18).handle;
+    rejectDeactivate=reinterpret_cast<uintptr_t>(targetFake(oldNoBuild));failed=false;
+    try{apply({});}catch(const std::exception&){failed=true;}
+    rejectDeactivate=0;
+    if(!failed||objects.at(17).handle!=oldMovement||objects.at(18).handle!=oldNoBuild||retained.size()!=2||
+        !activeObjects[reinterpret_cast<uintptr_t>(targetFake(oldMovement))])
+        throw std::runtime_error("A failed collider retirement did not restore the previous scene");
+    apply({movement});apply({movement,noBuild});apply({movement});
     apply({});
     if(!objects.empty()||!retained.empty())throw std::runtime_error("Deletion leaked preview handles");
     apply({p});forgetWorld();

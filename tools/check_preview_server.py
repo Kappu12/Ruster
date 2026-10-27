@@ -19,11 +19,17 @@ def check(server):
     source = ROOT/'ruster/preview_native'
     with tempfile.TemporaryDirectory(dir=ROOT/'build', prefix='preview-managed-') as folder:
         folder = Path(folder);binary = folder/'decoder.dll'
-        command = ['dotnet', str(compiler), '-nologo', '-noconfig', '-nostdlib+', '-nowarn:0649']
+        command = ['dotnet', str(compiler), '-nologo', '-nostdlib+', '-nowarn:0649']
+        def compile_source(arguments):
+            # The installed server's references exceed Windows' command-line
+            # limit. Roslyn accepts the exact same arguments in a response file.
+            response=folder/'compile.rsp'
+            response.write_text('\n'.join(subprocess.list2cmdline([arg]) for arg in command[2:]+arguments))
+            subprocess.run(command[:2]+['-noconfig','@'+str(response)],check=True)
         references = [framework/name for name in ('System.Private.CoreLib.dll', 'System.Runtime.dll',
             'System.Console.dll', 'System.Collections.dll')]
-        subprocess.run(command+['-target:exe', '-out:'+str(binary)]+['-reference:'+str(p) for p in references]
-            +[str(source/'PreviewProtocol.cs'), str(ROOT/'tests/preview_protocol_managed.cs')], check=True)
+        compile_source(['-target:exe', '-out:'+str(binary)]+['-reference:'+str(p) for p in references]
+            +[str(source/'PreviewProtocol.cs'), str(ROOT/'tests/preview_protocol_managed.cs')])
         binary.with_suffix('.runtimeconfig.json').write_text(json.dumps({'runtimeOptions': {'tfm': 'net'+'.'.join(runtime.split('.')[:2]),
             'framework': {'name': 'Microsoft.NETCore.App', 'version': runtime}}}))
         path = folder/'snapshot.bin'
@@ -39,8 +45,8 @@ def check(server):
         # Compile the identical single-file plugin that the installer publishes.
         combined = folder/'RusterPreview.cs'
         combined.write_bytes((source/'RusterPreview.cs').read_bytes()+b'\n'+(source/'PreviewProtocol.cs').read_bytes())
-        subprocess.run(command+['-target:library', '-out:'+str(folder/'RusterPreview.dll')]
-            +['-reference:'+str(p) for p in byname.values()]+[str(combined)], check=True)
+        compile_source(['-target:library', '-out:'+str(folder/'RusterPreview.dll')]
+            +['-reference:'+str(p) for p in byname.values()]+[str(combined)])
     print('Server plugin compilation and managed protocol checks passed (no Rust process used)', flush=True)
 
 

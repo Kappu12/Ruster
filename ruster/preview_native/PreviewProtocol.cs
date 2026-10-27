@@ -31,6 +31,13 @@ namespace Ruster.Preview
         public uint uid;
         public string path;
         public float[] position, rotation, scale;
+        public bool SamePlacement(Placement other)
+        {
+            if(other==null||key!=other.key||uid!=other.uid||path!=other.path)return false;
+            for(int i=0;i<3;i++)if(position[i]!=other.position[i]||scale[i]!=other.scale[i])return false;
+            for(int i=0;i<4;i++)if(rotation[i]!=other.rotation[i])return false;
+            return true;
+        }
     }
     internal sealed class Snapshot
     {

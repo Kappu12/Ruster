@@ -28,6 +28,13 @@ class DecoderCheck
             {
                 var p=snapshot.placements[0];
                 if(p.key!=17||p.uid!=123456||p.position[2]!=-3||p.scale[1]!=2)return 4;
+                var same=new Placement{key=p.key,uid=p.uid,path=p.path,position=(float[])p.position.Clone(),
+                    rotation=(float[])p.rotation.Clone(),scale=(float[])p.scale.Clone()};
+                if(!p.SamePlacement(same)||p.SamePlacement(null))return 6;
+                same.position[0]+=1;if(p.SamePlacement(same))return 6;same.position[0]=p.position[0];
+                same.rotation[0]+=.1f;if(p.SamePlacement(same))return 6;same.rotation[0]=p.rotation[0];
+                same.scale[0]*=2;if(p.SamePlacement(same))return 6;same.scale[0]=p.scale[0];
+                same.uid++;if(p.SamePlacement(same))return 6;
             }
             Console.WriteLine(snapshot.revision+" "+snapshot.placements.Length);return 0;
         }
