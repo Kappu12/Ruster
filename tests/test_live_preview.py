@@ -23,6 +23,15 @@ def placement(**changes):
             'euler': (0., 90., 0.), **changes}
 
 
+def test_shutdown_after_startup_deadline_is_not_reported_as_a_startup_failure():
+    job=object.__new__(server.PreviewSession);job.cancel=threading.Event()
+    for status in ('RUNNING','STOPPING','STOPPED'):
+        job.status=status;job._check_startup_errors(time.monotonic()-1)
+    job.status='STARTING'
+    with pytest.raises(TimeoutError):job._check_startup_errors(time.monotonic()-1)
+    job.cancel.set();job._check_startup_errors(time.monotonic()-1)
+
+
 def test_preview_accepts_large_compositions_without_a_placement_count_cap():
     rows=[placement(key=index+1) for index in range(16384)]
     payload=protocol.encode_snapshot(3,rows)

@@ -406,12 +406,7 @@ class PreviewSession:
                 if time.monotonic() >= next_lease:
                     verified = self._check_readiness()
                     next_lease = time.monotonic()+(1. if verified else .2)
-                if self.status != 'RUNNING' and time.monotonic() > deadline:
-                    raise TimeoutError('The preview plugin did not become ready within 15 minutes. See server.log')
-                if self.status != 'RUNNING' and any('PlayerPrefsException' in line for line in self.log_tail(12)):
-                    raise RuntimeError('Rust server startup could not write its preferences. See server.log')
-                if self.status != 'RUNNING' and 'at World.GetCachedHeightMapResolution' in self._log_text(self.log):
-                    raise RuntimeError('Rust could not read the preview map height layer. See server.log')
+                self._check_startup_errors(deadline)
         except InterruptedError:final_message = 'Preview setup cancelled'
         except Exception as error:final_status, final_message = 'FAILED', str(error)
         finally:
@@ -425,6 +420,17 @@ class PreviewSession:
                 except Exception as error:
                     final_status, final_message = 'FAILED', final_message+'; cleanup: '+str(error)
             self.note(final_status, final_message)
+
+    def _check_startup_errors(self, deadline):
+        # A stop can arrive during this monitor iteration, long after startup's
+        # deadline. Do not turn a requested shutdown into a false startup failure.
+        if self.status != 'STARTING' or self.cancel.is_set():return
+        if time.monotonic() > deadline:
+            raise TimeoutError('The preview plugin did not become ready within 15 minutes. See server.log')
+        if any('PlayerPrefsException' in line for line in self.log_tail(12)):
+            raise RuntimeError('Rust server startup could not write its preferences. See server.log')
+        if 'at World.GetCachedHeightMapResolution' in self._log_text(self.log):
+            raise RuntimeError('Rust could not read the preview map height layer. See server.log')
 
     def _spawn(self, arguments, **kwargs):
         with self.process_lock:
