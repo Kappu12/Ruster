@@ -93,6 +93,44 @@ Console and owner-ID tools queue commands on that server. Launch and Inject use
 the Live Preview panel's explicit client actions and EAC verification.
 After updating Ruster, refresh the MCP client's tool list/reconnect the adapter.
 
+### Run an agent without a desktop window
+
+Start the persistent headless host from CMD in the extracted application folder:
+
+```bat
+Ruster.cmd --headless --rust-install "C:\Program Files (x86)\Steam\steamapps\common\Rust"
+```
+
+On Linux use `./Ruster.sh --headless --rust-install "/path/to/Rust"`. From source,
+use `python launch.py --headless --blender "/path/to/blender"`. Add an existing
+`.ruster`, `.prefab`, or `.map` path as the positional argument to open it at startup.
+The Rust path is saved for later runs; Steam detection is also available.
+
+Wait for `RUSTER_HEADLESS_READY` in the terminal. Its JSON includes an MCP client
+configuration using the bundled Python and the correct profile. Add that
+configuration to your agent. Alternatively, run the stdio adapter with
+`python mcp_server.py --headless` using Python with the MCP dependencies installed.
+The adapter connects to the running host; it does not launch a second editor.
+
+Headless mode uses a separate `headless` subdirectory of the normal user data
+folder and port **9878** by default. `--user-dir` (or `RUSTER_USER_DIR`) selects
+another profile; give the same directory to the MCP adapter. `--mcp-port` selects
+another listener port. Use a distinct directory and port for each concurrent
+session. A profile lock prevents two headless hosts from writing the same cache
+and credentials. The desktop keeps its existing settings and default port 9877.
+
+Agents can search the catalog, load models, place/group/transform prefabs,
+measure bounds, switch projects, save `.ruster`, and export compositions/models.
+`get_editor_status` reports `headless: true` and `unavailable_tools`: viewport
+images/navigation and undo/redo need the desktop. Use explicit saved checkpoints
+and atomic batches. Asset loading and the owned live-preview server continue
+through the host's main-thread pump; desktop Rust-client actions remain in the UI.
+
+Save through MCP before stopping the host with **Ctrl+C**; shutdown does not
+automatically save an unfinished composition. No window or display server is
+required. The development-only `--background` flag still performs registration
+and exits; use `--headless` for a persistent agent session.
+
 ## Run from source
 
 Use Python 3.13 and the Blender version pinned in [engine.lock.json](engine.lock.json), currently Blender 5.2.3. Set `RUSTER_BLENDER` to that Blender executable, or make `blender` available on your `PATH`.
@@ -116,7 +154,7 @@ Pass an existing project or import file as the positional argument:
 python launch.py "/path/to/composition.ruster"
 ```
 
-The launcher uses a separate Blender process and a Ruster-specific configuration directory. Startup output is written to `logs/startup.log` in the user data folder.
+The launcher uses a separate Blender process and a Ruster-specific configuration directory. Desktop startup output is written to `logs/startup.log` in the user data folder; headless output stays in the terminal and can be redirected to a file.
 
 ### Check changes
 

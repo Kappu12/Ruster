@@ -279,6 +279,7 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
 """
 BUILDING_GUIDE+='17. '+ROTATION_GUIDANCE+'\n'
+BUILDING_GUIDE+='18. Headless sessions: get_editor_status reports headless and unavailable_tools. Use catalog metadata, loaded bounds and validation to build and export. Viewport images/navigation and undo/redo require the desktop app. Save projects explicitly before stopping the host; use atomic batches and saved checkpoints.\n'
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')
 def building_guide()->str:

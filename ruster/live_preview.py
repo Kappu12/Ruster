@@ -173,7 +173,7 @@ def tick():
             if kind == 'probe':_clients = [];_client_allowed = False;_module_loaded = False;_probe_message = str(error)
             else:_error = str(error)
         _next_probe = time.monotonic()+3
-    if (not _future) and time.monotonic() >= _next_probe and not os.environ.get('RUSTER_PREVIEW_TEST_NO_DISCOVERY'):
+    if (not bpy.app.background) and (not _future) and time.monotonic() >= _next_probe and not os.environ.get('RUSTER_PREVIEW_TEST_NO_DISCOVERY'):
         try:submit('probe', probe_clients)
         except ValueError as error:_probe_message = str(error);_next_probe = time.monotonic()+5
     if _job and _job.active and _job.status not in ('STOPPING', 'STOPPED', 'FAILED'):

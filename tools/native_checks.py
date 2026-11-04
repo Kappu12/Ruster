@@ -50,6 +50,11 @@ def run_suite(executable, suite='background', app_root=None, xvfb=False):
             config=Path(profile)/'config';config.mkdir()
             env={**os.environ,'BLENDER_USER_CONFIG':str(config),'RUSTER_PREVIEW_TEST_NO_DISCOVERY':'1'}
             subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=150 if graphical else 120)
+    if not graphical:
+        import sys
+        print('Running persistent headless MCP round trip', flush=True)
+        subprocess.run([sys.executable, str(ROOT/'tests/headless_roundtrip.py'), str(executable), str(app_root or ROOT)],
+                       cwd=ROOT, check=True, timeout=150)
 
 
 def main():

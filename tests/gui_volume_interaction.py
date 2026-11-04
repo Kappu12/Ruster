@@ -46,7 +46,32 @@ else:
         volumes.attach(root,data,Path(temporary.name));root.scale=(scale,scale,64.25 if uid==1 else scale)
         if uid==4:root.location=(-22,0,0)
 bpy.context.window_manager.keyconfigs.update()
-state={}
+state={};capture={'points':None,'pixels':None}
+
+
+def capture_pixels():
+    """Read the drawn region, not an undefined window front buffer in a timer.
+
+    screen.screenshot can return black under Xvfb/software OpenGL. POST_PIXEL
+    has the actual viewport framebuffer bound and works on the desktop too.
+    """
+    if not capture['points'] or 'context' not in state:return
+    window,area,region=state['context']
+    if bpy.context.window!=window or bpy.context.area!=area or bpy.context.region!=region:return
+    try:
+        import gpu
+        framebuffer=gpu.state.active_framebuffer_get()
+        x,y,width,height=gpu.state.viewport_get();pixels=[]
+        for px,py in capture['points']:
+            assert 0<=px<width and 0<=py<height,('Pixel sample outside viewport',px,py,width,height)
+            buffer=framebuffer.read_color(x+int(px),y+int(py),1,1,3,0,'UBYTE')
+            buffer.dimensions=3
+            pixels.append(tuple(int(c) for c in buffer))
+        capture['pixels']=pixels;capture['points']=None
+    except Exception:traceback.print_exc();os._exit(1)
+
+
+capture_handle=bpy.types.SpaceView3D.draw_handler_add(capture_pixels,(),'WINDOW','POST_PIXEL')
 
 
 def records():return [wire.serialize(r).hex() for r in studio.prefab_records(scene.prefab_roots(),Vector())]
@@ -66,12 +91,12 @@ def run():
         event('MOUSEMOVE','NOTHING',p);event('LEFTMOUSE','PRESS',p,**kwargs);event('LEFTMOUSE','RELEASE',p,**kwargs)
     def shot(name):
         path=output/(name+'.png');bpy.ops.screen.screenshot(filepath=str(path));return path
-    def pixel(path,p):
-        capture=bpy.data.images.load(str(path),check_existing=False)
-        try:
-            index=((region.y+int(p[1]))*capture.size[0]+region.x+int(p[0]))*4
-            return tuple(round(c*255) for c in capture.pixels[index:index+3])
-        finally:bpy.data.images.remove(capture)
+    def pixels(points):
+        capture.update(points=points,pixels=None)
+        for _ in range(50):
+            area.tag_redraw();yield .1
+            if capture['pixels'] is not None:return capture['pixels']
+        raise AssertionError('Viewport did not draw the requested pixel samples')
     def resolve(instance):return next(o for o in scene.prefab_roots() if o['ruster_instance']==instance)
     event('ESC');yield .4
     space.show_gizmo=False
@@ -84,13 +109,15 @@ def run():
     state['baseline']=records();state['fingerprint']=quitting.fingerprint()
     placement.select([]);event('MOUSEMOVE','NOTHING',(10,10));draws.clear();area.tag_redraw();yield .5
     assert draws and len(draws[-1])==len(roots),'Bounds did not draw without hover/gizmos'
-    filled=shot('volumes-outside-unhovered')
+    shot('volumes-outside-unhovered')
     assert all(volumes.boundary(o)['surface_batch'] is not None for o in roots),'Persistent fills did not draw'
     if not project:
         assert {volumes.semantic_type(o) for o in roots}=={'SAFE_ZONE','NO_BUILD','NO_ENTRY'}
-        sample=point((-21,1,0));tinted=pixel(filled,sample);enclosing=pixel(filled,point((-13,1,0)))
+        sample=point((-21,1,0))
+        tinted,enclosing=yield from pixels([sample,point((-13,1,0))])
         bpy.context.scene.ruster_show_volumes=False;yield .3
-        clear=pixel(shot('volumes-fill-comparison-disabled'),sample)
+        shot('volumes-fill-comparison-disabled')
+        clear,=yield from pixels([sample])
         assert sum(abs(a-b) for a,b in zip(tinted,clear))>6,('Persistent fill was not visible',tinted,clear)
         assert tinted[1]-tinted[0]>enclosing[1]-enclosing[0]+3,('Nested safe-zone fill lost its type colour',tinted,enclosing)
         bpy.context.scene.ruster_show_volumes=True;yield .3
