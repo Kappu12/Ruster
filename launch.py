@@ -85,7 +85,15 @@ def main():
             signals = (signal.SIGTERM, *([signal.SIGBREAK] if hasattr(signal, 'SIGBREAK') else []))
             previous = {kind: signal.signal(kind, stop_child) for kind in signals}
             try:
-                code = process.wait()
+                # On Windows an infinite native wait defers Python's SIGBREAK
+                # handler, so Ctrl+Break never reaches the background engine.
+                # Return to the interpreter regularly to forward console events.
+                while True:
+                    try:
+                        code = process.wait(timeout=.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
             except KeyboardInterrupt:
                 stop_child()
                 try:code = process.wait(timeout=10)

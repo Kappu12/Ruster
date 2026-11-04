@@ -2,7 +2,6 @@
 import json
 import os
 import signal
-import threading
 import time
 
 import bpy
@@ -46,7 +45,11 @@ def pump(server, deadlines):
 def run(project=None):
     if not bpy.app.background:
         raise ValueError('Headless hosting requires Blender background mode')
-    stop = threading.Event()
+    stopping = False
+    def request_stop(_signum, _frame):
+        nonlocal stopping
+        # Signal handlers must not acquire locks held by the interrupted code.
+        stopping = True
     previous = {}
     try:
         with ProfileLock(settings.user_root()):
@@ -67,15 +70,15 @@ def run(project=None):
                 mcp_bridge.start(config['mcp_port'], manual_pump=True)
                 mcp_bridge.sync_state()
                 for kind in (signal.SIGINT, signal.SIGTERM, *([signal.SIGBREAK] if hasattr(signal, 'SIGBREAK') else [])):
-                    previous[kind] = signal.signal(kind, lambda _signum, _frame: stop.set())
+                    previous[kind] = signal.signal(kind, request_stop)
                 print('RUSTER_HEADLESS_READY ' + json.dumps({
                     'host': '127.0.0.1', 'port': config['mcp_port'], 'pid': os.getpid(),
                     'user_dir': str(settings.user_root()), 'mcp': mcp_bridge.client_config(),
                 }), flush=True)
                 deadlines = {}
-                while not stop.is_set() and mcp_bridge.running():
+                while not stopping and mcp_bridge.running():
                     pump(mcp_bridge._server, deadlines)
-                    stop.wait(.02)
+                    time.sleep(.02)
             except KeyboardInterrupt:
                 pass
             finally:

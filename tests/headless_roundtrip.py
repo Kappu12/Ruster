@@ -68,7 +68,11 @@ def stop(process, log_path):
         process.send_signal(signal.CTRL_BREAK_EVENT if sys.platform == 'win32' else signal.SIGTERM)
         try:process.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            process.kill(); process.wait(); raise
+            print(log_path.read_text(errors='replace'), flush=True)
+            if sys.platform == 'win32':
+                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10)
+            else:process.kill()
+            process.wait(); raise
     assert process.returncode == 0, (process.returncode, log_path.read_text(errors='replace'))
 
 
@@ -149,6 +153,11 @@ def run():
         port = free_port()
         process, log, command, env = start(directory, profile, port, source)
         try:
+            if sys.platform == 'win32':
+                # CMD automation must preserve failures without waiting at PAUSE.
+                invalid_cli = subprocess.run(['cmd.exe', '/d', '/c', str(APP / 'Ruster.cmd'),
+                    '--headless', '--mcp-port', '1'], input='', capture_output=True, text=True, timeout=10)
+                assert invalid_cli.returncode == 2, (invalid_cli.stdout, invalid_cli.stderr)
             # A second owner cannot alter credentials or settings of the first.
             before = (profile / 'settings.json').read_bytes()
             other = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
