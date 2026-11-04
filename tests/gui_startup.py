@@ -125,6 +125,14 @@ def step():
                 with bpy.context.temp_override(area=props):bpy.ops.screen.area_close()
                 bpy.ops.ruster.new('EXEC_DEFAULT')
             elif stage==10:
+                # New Prefab closes and splits editors over several UI ticks.
+                # Under software rendering, one test interval can run before
+                # the layout timer has converted the split into Properties.
+                if (not any(a.type=='PROPERTIES' for a in window.screen.areas)
+                        or any(a.ui_type=='TIMELINE' for a in window.screen.areas)):
+                    state['new_workspace_waits']=state.get('new_workspace_waits',0)+1
+                    assert state['new_workspace_waits']<30, 'New Prefab layout did not finish rebuilding'
+                    return .2
                 prefab_workspace(window)
                 assert not window.scene.objects
                 assert any(a.type=='PROPERTIES' for a in window.screen.areas), 'New Prefab did not restore the preview editor'
