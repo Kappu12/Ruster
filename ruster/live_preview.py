@@ -221,8 +221,8 @@ def start_preview(port=None,owner=None,update_server=None):
     ground_map=None
     if bpy.context.scene.ruster.native_ground:
         from . import editing
-        from .core.ground import validate_ground
-        world=editing.terrain().export_world();validate_ground(world);ground_map=world.write()
+        from .core.ground import native_world
+        ground_map=native_world(editing.terrain().export_world()).write()
     options={'ground_map':ground_map} if ground_map is not None else {}
     _job=backend.PreviewSession(settings.user_root()/'live-preview',port,owner,rows,update_server=update_server,
         client_install=path,catalog_path=scene.cache_dir()/'catalog.sqlite3',**options).start()

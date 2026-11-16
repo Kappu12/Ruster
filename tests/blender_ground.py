@@ -24,7 +24,7 @@ def run():
         bpy.context.view_layer.update();matrix=obj.matrix_world.copy()
         server=mcp_bridge.RusterMCPServer(9877,'fixture-token')
         result=server.dispatch('add_ground',{'size':384,'height':0,'biome':'Jungle','splat':'Forest'})
-        assert result['present'] and result['biome_channels_stored']==4
+        assert result['present'] and result['biome_channels_stored']==5
         assert bpy.ops.ruster.export_map.poll()
         assert (obj.matrix_world.translation-matrix.translation).length<1e-6
         assert len(scene.prefab_roots())==1

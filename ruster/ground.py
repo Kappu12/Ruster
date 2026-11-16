@@ -93,7 +93,7 @@ def export_map(path):
     from .map_prefabs import _validated_records
     errors,notes,records=_validated_records()
     if errors:raise ValueError('; '.join(errors[:5]))
-    world=editing.terrain().export_world();data.validate_ground(world)
+    world=data.native_world(editing.terrain().export_world())
     world.replace_prefabs(records)
     path=Path(path)
     if path.resolve()==Path(bpy.context.scene.ruster.source_map).resolve():raise ValueError('Export to a new map filename')

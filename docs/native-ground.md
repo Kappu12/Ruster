@@ -19,16 +19,19 @@ ground width is deliberately bounded independently of general Rust map limits.
 ## Game data
 
 Exports contain actual native terrain/height/water maps, eight splat channels,
-four biome channels, alpha and topology. Alpha makes the ground patch solid
+five biome channels, alpha and topology. Alpha shows the ground patch
 while hiding terrain outside its edges. Water starts below the ground. The
 initial solid patch has Field, Forest, Clutter, Tier0 and Mainland topology;
 these can be painted or erased.
 
-Rust stores Arid, Temperate, Tundra and Arctic weights. Jungle is the amount
-left over from 255. The UI exposes all five biomes while retaining four native
-channels; brushes normalize against that implicit Jungle channel. The planar
-grid layout follows [Facepunch's TerrainMap source](https://github.com/Facepunch/Rust.World/blob/master/Assets/Scripts/TerrainMap.cs),
-and the Jungle rule follows [RustEdit's paint documentation](https://rustedit.rusthq.com/terrain/paint-tools).
+Current Rust map files store five planar biome channels, including Jungle;
+their weights sum to 255. Rust's RGBA biome **textures** reconstruct Jungle
+from the other four channels, which is different from the native map byte
+layout. Ruster reads legacy four-channel data and expands it to five channels
+when exporting ground or baking a preview map, preserving other layers.
+The layout and explicit fifth channel were checked against the installed
+server's `TerrainBiomeMap.Setup`, `TerrainMap<T>.FromByteArray` and
+`TerrainBiome.COUNT`, then verified by sampling biome weights in the server.
 
 Export `.map` for ground, painted layers and prefab placements. Export `.prefab`
 or `.rusterprefab` for placements alone. The `.ruster` project stores both.

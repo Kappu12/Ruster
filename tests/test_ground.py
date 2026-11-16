@@ -1,16 +1,17 @@
 import numpy as np
 import pytest
-from ruster.core.ground import flat_ground, validate_ground
+from ruster.core.ground import flat_ground, validate_ground, native_world
 from ruster.core.terrain import Terrain
 from ruster.core.rust_map import RustMap, prefab_id
 from ruster.core import preview_protocol as protocol, map_images
 
 
-def test_native_jungle_is_four_channels_with_implicit_remainder():
+def test_native_jungle_has_explicit_fifth_map_channel():
     world=flat_ground(384,0,'Jungle','Forest')
     doc=validate_ground(RustMap.read(world.write()))
-    assert doc.grid('biome').shape==(4,512,512)
-    assert np.all(doc.grid('biome')==0)
+    assert doc.grid('biome').shape==(5,512,512)
+    assert np.all(doc.grid('biome')[:4]==0)
+    assert np.all(doc.grid('biome')[4]==255)
     assert np.all(doc.biome_weights()[4]==255)
     assert np.all(doc.grid('splat')[5]==255)
     assert np.all(doc.grid('splat').sum(axis=0)==255)
@@ -28,7 +29,7 @@ def test_ground_patch_has_native_solid_alpha_inside_and_no_topology_outside():
     assert np.all(doc.grid('water')==0)
 
 
-def test_jungle_can_be_painted_and_blended_without_fifth_native_channel():
+def test_jungle_can_be_painted_and_blended_in_native_channels():
     doc=Terrain(flat_ground(256,0,'Temperate'))
     original=doc.grid('biome').copy()
     doc.brush('PAINT',0,0,30,layer='biome',channel=4,strength=.5)
@@ -38,7 +39,7 @@ def test_jungle_can_be_painted_and_blended_without_fifth_native_channel():
     assert np.array_equal(doc.grid('biome')[:,0,0],original[:,0,0])
     doc.brush('PAINT',0,0,20,layer='biome',channel=0,strength=.5)
     assert 100<doc.grid('biome')[0,256,256]<140
-    assert len(doc.grid('biome'))==4
+    assert len(doc.grid('biome'))==5
     restored=Terrain(RustMap.read(doc.export_world().write()))
     assert np.array_equal(restored.biome_weights(),doc.biome_weights())
 
@@ -52,6 +53,22 @@ def test_preview_map_preserves_native_ground_and_source_bytes():
     assert [prefab_id(r) for r in actual.prefabs]==[123,456]
     assert world.write()==before
     validate_ground(actual)
+
+
+def test_legacy_four_channel_ground_upgrades_without_mutating_source():
+    world=flat_ground(384,0,'Jungle','Forest')
+    world.set_layer('biome',bytes(4*512*512));before=world.write()
+    result=native_world(world)
+    assert world.write()==before and result is not world
+    assert all(result.layers[n]==v for n,v in world.layers.items() if n!='biome')
+    assert np.all(validate_ground(result).grid('biome')[4]==255)
+    preview=RustMap.read(protocol.preview_map([],ground=before))
+    assert preview.layers==result.layers
+
+
+def test_explicit_native_biomes_cannot_be_all_zero():
+    world=flat_ground();world.set_layer('biome',bytes(5*512*512))
+    with pytest.raises(ValueError,match='must sum'):validate_ground(world)
 
 
 @pytest.mark.parametrize('kwargs',[{'size':float('nan')},{'size':-1},{'size':2001},

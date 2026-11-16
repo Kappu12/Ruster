@@ -65,7 +65,7 @@ Choose **Add Rust Ground** in Prefab Studio or the **Rust Ground** panel. Set th
 flat patch width and height, a containing world size, biome and ground texture.
 Existing prefabs keep their positions. The Ground panel provides viewport brushes
 for height, water, splat, biome, alpha and topology, with undo and project saving.
-Jungle uses the remainder of Rust's four native biome channels.
+Native maps include five biome channels with explicit Jungle weights.
 
 Export a **`.map`** to include native walkable ground and its painted layers.
 The `.prefab` format remains a placement-only export. Starting Live Preview uses

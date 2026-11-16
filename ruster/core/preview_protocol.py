@@ -106,8 +106,8 @@ def preview_map(placements, size=1000, *, preload=(), ground=None):
         'alpha': b'\0' * m*m,
     }
     if ground is not None:
-        from .ground import validate_ground
-        world=RustMap.read(ground);validate_ground(world)
+        from .ground import native_world
+        world=native_world(RustMap.read(ground))
         fields=[field for field in world.fields if field.number not in (3,4)]
     else:
         fields = [wire.encode(1, 0, size)]
