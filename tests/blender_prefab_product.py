@@ -36,13 +36,15 @@ def run():
             for name in ui_style.ACTIONS:
                 group, operator = name.split('.')
                 getattr(getattr(bpy.ops, group), operator).get_rna_type()
-            for name in ('new_map','generate_map','generate_island','terrain_stroke','path_add','generator_install','height_import','mask_import','map_view','surface_snap','scatter','paint_asset'):
+            for name in ('new_map','generate_map','generate_island','path_add','generator_install','height_import','mask_import','map_view','surface_snap','scatter','paint_asset'):
                 try:
                     getattr(bpy.ops.ruster, name).get_rna_type()
                 except KeyError:
                     pass
                 else:
                     raise AssertionError('World command remains registered: ' + name)
+            bpy.ops.ruster.add_ground.get_rna_type()
+            bpy.ops.ruster.terrain_stroke.get_rna_type()
             assert dict((item[0], item[1]) for item in preferences.SECTIONS if item)['RUSTER_ASSETS'] == 'Assets'
             assert dict((item[0], item[1]) for item in preferences.SECTIONS if item)['RUSTER_MCP'] == 'MCP'
             # Empty New Prefab is an immediate dismissal without a scene reset.

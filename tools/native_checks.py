@@ -13,6 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKGROUND_TESTS = (
+    'blender_ground.py',
     'blender_prefab_product.py', 'blender_project_close.py', 'blender_polish.py', 'blender_protection.py', 'blender_ui.py',
     'blender_mcp.py', 'blender_studio.py', 'blender_catalog.py',
     'blender_placeholders.py', 'blender_prefab_transforms.py',

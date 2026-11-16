@@ -213,7 +213,7 @@ def command(binary, identity, port, url, log):
 
 
 class PreviewSession:
-    def __init__(self, root, port=28015, owner='', placements=(), *, update_server=False, client_install=None, catalog_path=None):
+    def __init__(self, root, port=28015, owner='', placements=(), *, update_server=False, client_install=None, catalog_path=None, ground_map=None):
         if sys.platform != 'win32':raise ValueError('Live client preview currently requires Windows x64')
         self.port = port_number(port);self.owner = owner_id(owner);check_ports(port)
         self.root = Path(root).resolve();self.root.mkdir(parents=True, exist_ok=True)
@@ -231,9 +231,11 @@ class PreviewSession:
         self.process = None;self.http = None;self.thread = None
         self.cancel = threading.Event();self.lock = threading.Lock();self.events = deque(maxlen=80)
         self.revision = 1;self.url = '';initial = canonical_placements(placements)
-        self.origin = composition_origin(initial);self._initial = centered_placements(initial, self.origin)
-        self._origin_chosen = bool(initial)
-        self._map = preview_map(self._initial);self.token = secrets.token_hex(32)
+        self.ground_map=ground_map
+        self.origin = (0.,0.,0.) if ground_map is not None else composition_origin(initial)
+        self._initial = centered_placements(initial, self.origin)
+        self._origin_chosen = ground_map is not None or bool(initial)
+        self._map = preview_map(self._initial,ground=ground_map);self.token = secrets.token_hex(32)
         self.process_lock = threading.Lock();self.owned_job = None
         self.pending = None
         self._ready_until = 0.
@@ -367,7 +369,7 @@ class PreviewSession:
         from .preview_preload import plan
         self.note('STARTING', 'Preparing one preload marker for every prefab pack')
         self.preload = plan(self.client_install/'Bundles/AssetSceneManifest.json', self.install/'Bundles/AssetSceneManifest.json', self.catalog_path)
-        self._map = preview_map(self._initial, preload=self.preload)
+        self._map = preview_map(self._initial, preload=self.preload,ground=self.ground_map)
         atomic_write(self.directory/'preload.json', json.dumps({'packs': self.preload}, indent=2).encode())
 
     def _run(self):
@@ -459,7 +461,7 @@ class PreviewSession:
         """Clear this window's preview while keeping its server/session alive."""
         if not self.active or self.cancel.is_set():return
         with self.lock:
-            self.origin=(0.,0.,0.);self._origin_chosen=False
+            self.origin=(0.,0.,0.);self._origin_chosen=self.ground_map is not None
             self.pending=[]
 
     def send_command(self, value):

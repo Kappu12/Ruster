@@ -30,7 +30,9 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert {'search_prefabs','place_prefab','transform_object','get_scene_info','export_map'}<=tools.keys()
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
-                assert len(tools)==61
+                assert len(tools)==64
+                assert {'add_ground','paint_ground','get_ground_status'}<=tools.keys()
+                assert tools['get_ground_status'].annotations.readOnlyHint
                 assert {'get_project_status','list_recent_projects','new_project','open_project','get_live_preview_status',
                     'start_live_preview','stop_live_preview','send_live_preview_command','grant_live_preview_owner'}<=tools.keys()
                 assert tools['get_project_status'].annotations.readOnlyHint

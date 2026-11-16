@@ -50,6 +50,8 @@ class RUSTER_PT_start(bpy.types.Panel):
         row=layout.row(align=True)
         action(row,'ruster.prefab_import',text='Import Prefab…');action(row,'ruster.model_export',text='Export Models…')
         action(layout,'ruster.blend_export')
+        if not context.scene.ruster.native_ground:
+            layout.operator('ruster.add_ground',icon='MESH_PLANE')
 
 
 class RUSTER_MT_file(bpy.types.Menu):
@@ -62,6 +64,7 @@ class RUSTER_MT_file(bpy.types.Menu):
         action(layout,'ruster.save',text='Save Project As…',icon='save_as').save_as=True
         action(layout,'ruster.import_map')
         action(layout,'ruster.export_map')
+        layout.operator('ruster.add_ground',icon='MESH_PLANE')
         layout.separator()
         for op in ('ruster.prefab_import','ruster.prefab_export','ruster.blend_export','ruster.model_export'):action(layout,op)
         layout.separator()

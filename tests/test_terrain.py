@@ -77,7 +77,9 @@ def test_old_four_channel_biome_layout_is_retained():
     doc=Terrain(sample_world())
     doc.brush('PAINT',0,0,100,layer='biome',channel=3)
     assert doc.grid('biome').shape[0]==4
-    with pytest.raises(ValueError):doc.brush('PAINT',0,0,100,layer='biome',channel=4)
+    doc.brush('PAINT',0,0,100,layer='biome',channel=4,strength=1,falloff=0)
+    assert doc.grid('biome').shape[0]==4
+    assert doc.biome_weights()[4].max()==255
 
 
 def test_topology_add_remove_retains_unrelated_and_unknown_bits():

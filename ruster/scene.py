@@ -91,6 +91,7 @@ def create_terrain(world):
     obj = bpy.data.objects.new('Terrain', mesh)
     (bpy.data.collections.get('Terrain') or new_collection('Terrain')).objects.link(obj)
     obj['ruster_kind'] = 'TERRAIN'
+    if bpy.context.scene.ruster.native_ground:obj['ruster_ground_preview']=True
     obj['ruster_resolution'] = n
     obj.hide_select = True
     obj.data.materials.append(material('Terrain', (0.24, 0.33, 0.19, 1)))

@@ -149,7 +149,7 @@ def grant_live_preview_owner(steam_id:str)->dict:
 
 @mcp.tool(annotations=DESTRUCTIVE)
 def export_map(path:str,overwrite:bool=False)->dict:
-    """Export ONLY prefab placements floating in void to an absolute .map destination. No terrain or paths. Existing files require explicit overwrite=True."""
+    """Export current placements and optional native Rust ground to an absolute .map destination. Scenes without added ground remain prefab-only. Existing files require explicit overwrite=True."""
     return command('export_map',path=path,overwrite=overwrite)
 
 
@@ -270,13 +270,14 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 7. duplicate_objects makes one translated copy. array_objects makes count NEW copies using per-step world offset and XYZ rotation about the chosen roots' mean origin. Requests roll back on failure and allow at most 2000 new prefab placements/4000 hierarchy objects. delete_objects validates all targets before deletion. Undo/redo also affects manual edits.
 8. focus_view frames native axes, OBLIQUE, or explicit XYZ rotation_degrees without transforming models. get_viewport_image defaults to a clean image; include_overlays=True includes guides. Viewport/render settings are restored after capture. Bounds enclose render geometry, not collision shapes; they do not certify server gameplay.
 9. export_prefab/import_prefab exchange native RustEdit .prefab while preserving supported imported metadata. get_io_settings/set_io_settings expose only verified EXISTING imported IO scalar fields; wiring creation is unsupported. export_assembly uses explicit world origin when supplied, otherwise the single selected group's pivot or the mean placement position. import_assembly supports 2000 placements and preserves its requested position as group pivot. get_export_formats lists available GLB/FBX/OBJ and other model exporters; export_models uses bounded disposable copies and preserves source scene and selection.
-10. import_map_prefabs appends ONLY prefab placements from .map, ignoring terrain/paths. export_map writes ONLY current placements floating in void, with no terrain/path layers. validate_map checks compositions, save_project writes .ruster. Destinations are absolute; existing files require overwrite=True. Source models and selection survive exports.
+10. import_map_prefabs appends ONLY prefab placements from .map, ignoring terrain/paths. export_map writes prefab placements and, when added, native Rust ground layers. validate_map checks compositions and ground, save_project writes .ruster including source.map for ground. Destinations are absolute; existing files require overwrite=True. Source models and selection survive exports.
 11. get_blender_context inspects Blender version, mode, cursor and native snapping. get_viewport_state/set_viewport_state control view target, distance, rotation, projection, shading, overlays, X-ray, lens and clipping without moving prefabs. set_cursor sets world location and XYZ orientation (omitted rotation resets to zero). Viewport and cursor settings are UI state, not an undo step.
 12. transform_objects_relative applies world-axis scale, then XYZ rotation around a shared pivot, then world translation. Omitted pivot is the mean selected root origin; shear is rejected rather than approximated. radial_array_objects makes count NEW independent copies about an explicit world center/axis using a per-copy angle step; for a ring of 8 including the source use count=7, angle_degrees=45. Existing array limits, rollback and metadata preservation apply.
 13. distribute_objects uses the supplied names order; the first root stays fixed. ORIGIN makes signed origin steps; BOUNDS_GAP leaves the requested signed gap between successive loaded world bounds. snap_objects_to_grid rounds root origins to a world grid, half steps away from zero relative to origin. measure_objects reports origin distance and optionally axis-aligned render bounds separation, never certified collision clearance. Turn off live Radial Symmetry before batch layout of linked symmetry members.
-14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, mesh edits, material replacement, arbitrary Python, terrain tools, path tools or map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
+14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, prefab mesh edits, material replacement, arbitrary Python, path tools or procedural map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
 15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. An active live preview stays running in the same Ruster window: its old scene is cleared and the new project is synchronized/recentered. Project replacement is not undoable.
 16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
+17. add_ground adds one centred native terrain patch while preserving the composition. paint_ground brushes full-resolution height, splat, biome, alpha and topology data; get_ground_status inspects it. Jungle is the implicit remainder of four stored biome channels. Prefab exports omit ground; .map exports and preview startup include it. Restart preview after painting ground. The generated terrain mesh is a viewport preview, never a custom prefab asset.
 """
 BUILDING_GUIDE+='17. '+ROTATION_GUIDANCE+'\n'
 
@@ -471,6 +472,24 @@ def distribute_objects(names:list[str],spacing:float,axis:Literal['X','Y','Z']='
 def snap_objects_to_grid(names:list[str],step:float,origin:list[float]|None=None,axes:str='XYZ')->dict:
     """Atomically round 1–200 whole root origins to a world grid of step metres (positive). Origin defaults to [0,0,0]; axes contains unique X/Y/Z letters. Half steps round away from grid origin. Rotation/scale unchanged. Undo supported."""
     return command('snap_objects_to_grid',names=names,step=step,origin=origin if origin is not None else [0,0,0],axes=axes)
+
+
+@mcp.tool(annotations=READ)
+def get_ground_status()->dict:
+    """Inspect optional native Rust terrain, patch/world dimensions, paint channels and preview restart state."""
+    return command('get_ground_status')
+
+
+@mcp.tool(annotations=EDIT)
+def add_ground(size:float=512.,height:float=0.,biome:Literal['Arid','Temperate','Tundra','Arctic','Jungle']='Temperate',splat:Literal['Dirt','Snow','Sand','Rock','Grass','Forest','Stones','Gravel']='Grass',world_size:int=1000)->dict:
+    """Add one flat native Rust ground patch without moving prefab placements. Width 16–2000m, containing world 1000–2000m. Ground is not a prefab mesh: .map exports include native height/biome/splat/alpha/topology layers; prefab exports omit terrain. Undoable; existing ground is preserved."""
+    return command('add_ground',size=size,height=height,biome=biome,splat=splat,world_size=world_size)
+
+
+@mcp.tool(annotations=EDIT)
+def paint_ground(layer:Literal['terrain','water','splat','biome','topology','alpha'],center:list[float],radius:float,channel:str|int=0,strength:float=.5,falloff:float=.6,shape:Literal['CIRCLE','SQUARE']='CIRCLE',tool:Literal['PAINT','RAISE','LOWER','FLATTEN','SMOOTH']='PAINT',height:float=0.,invert:bool=False)->dict:
+    """Brush full-resolution native ground at world XY metres; Z is height. Biome/splat/topology channel accepts a name or index. Jungle is the implicit remainder of four native biome channels. Height brushes need a height tool. One undo step. Restart an active preview server after terrain edits."""
+    return command('paint_ground',layer=layer,center=center,radius=radius,channel=channel,strength=strength,falloff=falloff,shape=shape,tool=tool,height=height,invert=invert)
 
 
 def main():

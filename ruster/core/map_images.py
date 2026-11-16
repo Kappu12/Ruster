@@ -13,7 +13,7 @@ def preview(document,layer,channel=-1,max_size=1024):
     if layer not in LAYERS:raise FormatError('Unknown map preview layer')
     if type(max_size)!=int or not 16<=max_size<=2048:raise FormatError('Preview size must be 16–2048')
     if type(channel)!=int or channel< -1:raise FormatError('Invalid map channel')
-    grid=document.grid('terrain' if layer=='slope' else layer)
+    grid=document.biome_weights() if layer=='biome' else document.grid('terrain' if layer=='slope' else layer)
     n=grid.shape[-1];size=min(n,max_size)
     axis=np.linspace(0,n-1,size);x=axis[None,:];y=axis[:,None]
     result=np.ones((size,size,4),dtype=np.float32)

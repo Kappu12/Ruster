@@ -92,6 +92,7 @@ def fingerprint_steps():
     construction = (settings.object_snap, settings.snap_element, settings.angle_snap,
                     settings.symmetry, settings.sides, tuple(settings.center), settings.axis, settings.rotate_copies)
     document = (state.mode, state.title, state.project_path, state.source_map, state.map_size,
+                state.native_ground,state.ground_size,
                 sorted(objects), texts, construction, collections)
     return digest(document)
 

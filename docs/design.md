@@ -16,7 +16,7 @@ document before building; MCP exposes this dedicated resource file at
 | Make a triangle | **Do not create a new triangle mesh**, extrude/edit vertices, or cut another model into a triangle. An existing triangular Rust prefab, or a triangular arrangement made from original parts, is allowed. The same rule applies to cubes and every other custom primitive. |
 | Modify models/materials | Do not sculpt, boolean, bevel, remesh, deform, replace textures/materials, make linked models local, or add library overrides. Native model export makes disposable copies; it does not make custom geometry usable in Rust. |
 | Arbitrary Blender Python or operators | Not exposed through this MCP. Use typed Blender observation, viewport/cursor and whole-prefab layout tools so model protection and export validation remain effective. |
-| Terrain, paths and wiring | Outside the active prefab editor. Import/export supports prefab placements; existing verified imported IO scalar settings can be changed, but new wiring cannot be authored. |
+| Terrain, paths and wiring | Add Rust Ground creates native terrain data below a composition; its brushes edit height, splat, biome, alpha and topology layers. The terrain preview is generated from those layers, not exported as a mesh prefab. Ground is saved in `.map` and `.ruster`, not `.prefab`. Path authoring and new wiring remain outside this workflow; existing verified imported IO scalar settings can be changed. |
 
 Rust's standard custom-map prefab records contain an ID, position, rotation and
 scale, rather than arbitrary Blender mesh vertices or material graphs. Therefore

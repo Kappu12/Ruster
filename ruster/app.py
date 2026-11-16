@@ -58,6 +58,8 @@ class RUSTER_PG_project(bpy.types.PropertyGroup):
     asset_progress: FloatProperty(default=0,min=0,max=1,subtype='FACTOR',options={'SKIP_SAVE'})
     asset_progress_known: BoolProperty(default=False,options={'SKIP_SAVE'})
     terrain_state: PointerProperty(type=bpy.types.Text)
+    native_ground: BoolProperty(default=False)
+    ground_size: FloatProperty(default=512,min=16,max=2000)
     category:EnumProperty(name='Category',items=category_items,update=query_changed)
     favorites_only:BoolProperty(name='Favorites Only',default=False,update=query_changed)
     recent_only:BoolProperty(name='Recently Used',default=False,update=query_changed)
@@ -538,13 +540,18 @@ def open_path(path):
         bpy.ops.wm.open_mainfile(filepath=str(directory / 'scene.blend'), load_ui=False, use_scripts=False)
         state = bpy.context.scene.ruster
         state.project_path = str(path)
-        state.mode = 'PREFAB'
+        native_ground = manifest['mode']=='MAP' and state.native_ground
+        state.mode = 'MAP' if native_ground else 'PREFAB'
         state.title = manifest.get('title', path.stem)
-        state.source_map = ''
+        state.source_map = str(directory/'source.map') if native_ground else ''
         terrain_state = state.terrain_state
-        state.terrain_state = None
+        if not native_ground:state.terrain_state = None
         state.busy = _job is not None and _job.poll() is None
-        if manifest['mode'] == 'MAP':
+        if native_ground:
+            from .core.ground import validate_ground
+            from . import editing
+            editing.clear_cache();validate_ground(editing.terrain().export_world());editing.refresh()
+        elif manifest['mode'] == 'MAP':
             for obj in list(bpy.context.scene.objects):
                 if obj.get('ruster_kind') not in {'PREFAB','GROUP','VISUAL'}:
                     data = obj.data
@@ -712,19 +719,19 @@ class RUSTER_OT_import_map(bpy.types.Operator, ImportHelper):
 class RUSTER_OT_export(bpy.types.Operator, ExportHelper):
     bl_idname = 'ruster.export_map'
     bl_label = 'Export .map'
-    bl_description = 'Export prefab IDs and world transforms without terrain or paths'
+    bl_description = 'Export prefab placements and any added native Rust ground layers'
     filename_ext = '.map'
     filter_glob: StringProperty(default='*.map', options={'HIDDEN'})
 
     @classmethod
     def poll(cls, context):
-        return context.scene.ruster.mode == 'PREFAB'
+        return context.scene.ruster.mode in {'PREFAB','MAP'}
 
     def execute(self, context):
         try:
             from .map_prefabs import export_map
             export_map(self.filepath)
-            self.report({'INFO'}, 'Exported prefab placements')
+            self.report({'INFO'}, 'Exported Rust map data')
             return {'FINISHED'}
         except Exception as error:
             self.report({'ERROR'}, str(error))
@@ -736,7 +743,8 @@ class RUSTER_OT_validate(bpy.types.Operator):
     bl_label = 'Validate Map'
 
     def execute(self, context):
-        errors, notes = scene.validate()
+        from . import map_prefabs
+        errors, notes = map_prefabs.validate()
         def draw(popup, _context):
             for error in errors:
                 wrapped(popup.layout,_context,error,icon='error')
@@ -1093,6 +1101,8 @@ def register():
     mcp_bridge.register()
     from . import live_preview
     live_preview.register()
+    from . import ground
+    ground.register()
     ui.register()
     from . import preferences
     preferences.register()
@@ -1158,6 +1168,8 @@ def unregister():
     from . import mcp_bridge
     mcp_bridge.unregister()
     ui.unregister()
+    from . import ground
+    ground.unregister()
     from . import live_preview
     live_preview.unregister()
     from . import protection,browser

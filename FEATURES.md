@@ -1,4 +1,4 @@
-# Ruster 0.10.0 feature coverage
+# Ruster 0.11.0 feature coverage
 
 Ruster is a **prefab composition editor** built on Blender 5.2 LTS. This checklist
 covers the active product and its verification limits, not complete RustEdit or
@@ -26,12 +26,13 @@ Rust-engine parity.
 | Large imports | Empty placements first; uncached Blender preview libraries prepare in a separate owned process. Model attachment yields after 32 placements or an 8 ms budget, excluding an indivisible native library link. Repeated assets share libraries and native Blender naming; header counts are cached between redraws. |
 | LOD and meshes | First nonempty authored LOD; compact binary mesh buffers and streamed metadata; one requested model at a time; bounded preview textures. |
 | Projects | `.ruster` atomic saves and packed linked model previews; reopening without the original conversion cache; two-minute idle recovery; visible save state; project-aware New/Open, Quit/Ctrl+Q and Windows titlebar close, with Save/Don't Save/Cancel for unsaved changes. |
+| Native ground | Flat terrain patches, full-resolution height/biome/splat/alpha/topology brushes, undo, project persistence, native map exports and terrain-aware test-server startup. |
 | Native `.prefab` | RustEdit version-1 format and installed 1.2.19 checksum; unknown-field retention; byte-exact unchanged imports; metadata-preserving group export. |
 | Existing IO | Verified imported access, door, timer, frequency, turret, branch, counter, camera, elevator and phone scalar settings; supported endpoint movement with identity/order guards. New wiring is unsupported. |
-| `.map` interchange | Reads versions 9/10 and imports only prefab placements. Export writes current prefab IDs/TRS in a minimal version-10 file without terrain or paths. Import appends; opening starts a composition. |
+| `.map` interchange | Imports prefab placements. Exports placements and added native ground layers; prefab-only scenes retain minimal version-10 exports. |
 | Assemblies | Reusable `.rusterprefab` references/transforms; group import/export with preserved cursor pivot and rollback on import failure. |
 | Model formats | Available GLB/glTF, FBX, OBJ, PLY, STL, USD variants and Alembic; direct Export Blender File (.blend) creates a regular standalone scene with editable meshes/materials and packed textures. Disposable copies preserve protected originals. |
-| MCP | 52 typed tools; authenticated local listener and bundled stdio adapter; paginated discovery/selection; batch placement/transforms/inspection; linear and radial arrays, pivot transforms, ordered origin/bounds spacing, grid/plane snapping and measurements; native prefab, assembly, model and prefab-only map interchange; existing IO settings; Blender context, cursor and native viewport state/shading controls; clean viewport images, explicit assembly anchors, validation and undo/redo. |
+| MCP | 64 typed tools; authenticated local listener and bundled stdio adapter; paginated discovery/selection; batch placement/transforms/inspection; linear and radial arrays, pivot transforms, ordered origin/bounds spacing, grid/plane snapping and measurements; native prefab, assembly, model and prefab-only map interchange; existing IO settings; Blender context, cursor and native viewport state/shading controls; clean viewport images, explicit assembly anchors, validation and undo/redo. |
 | MCP guidance | `ruster://guide/building`, `ruster://guide/design` (dedicated docs/design.md resource file), `build_rust_composition` and `audit_rust_composition`; sourced Rust building rules, no arbitrary Python or mesh editing API. |
 | Validation | Shared `.map`/`.prefab`/assembly guards for finite/nonzero transforms, original identity, parents, constraints and grouped shear. Composition checks and selection of overlapping copies, mirrors and scaled imported IO. Selection/batch limits, safe destinations and bounded model-export copies. Long thin native IO placements retain exact unchanged records. |
 | Packaging | Windows/Linux x64 runtime bundles, pinned archive checksum verification and prefab-product/MCP integration checks; macOS source launch with a compatible Blender, standalone package pending. |
@@ -56,10 +57,12 @@ batches allow at most 100 unique IDs. Geometry export and MCP batch/import limit
 also bound work; see [README.md](README.md). GPU/shared allocations are separate.
 Unsupported models remain reported placeholders and retain placement records.
 
-Active UI/MCP workflows do not register terrain editing, world/path tools or seed
-generation. Their source and legacy tests remain inactive; prefab-only `.map`
-exports do not preserve a complete world's layers or create a playable world.
-Legacy `.ruster` map projects recover their prefab composition.
+Native ground can be added and painted without replacing the prefab composition.
+Ground `.ruster` projects preserve their complete terrain layers, and `.map`
+exports and preview startup include them. Ground previews approximate Rust's
+terrain shading; client rendering, ecology and collisions need a game test.
+General world/path tools and procedural seed generation remain inactive.
+Legacy map projects without native ground still recover their prefab composition.
 
 Further work includes broader current-game asset coverage, exact engine shaders,
 particles/animation and collision behavior, live-server validation, new wiring and

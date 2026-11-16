@@ -37,6 +37,7 @@ _generation = 0
 _capture = None
 _capture_generation = 0
 _capture_rows = []
+_ground_state = None
 _ui_signature = None
 RESTART_NOTICE = preview_client.RESTART_NOTICE
 
@@ -77,6 +78,15 @@ def placements():
 
 
 def status():return _status
+
+
+def ground_state():
+    state=bpy.context.scene.ruster
+    return (state.native_ground,state.source_map,state.terrain_state.name if state.terrain_state else '')
+
+
+def ground_changed():
+    return bool(_job and _job.active and _ground_state is not None and ground_state()!=_ground_state)
 
 
 def submit(kind, function, *args):
@@ -194,7 +204,7 @@ class RUSTER_PG_live_preview(bpy.types.PropertyGroup):
 
 def start_preview(port=None,owner=None,update_server=None):
     """Shared explicit UI/MCP action; starts only the owned server job."""
-    global _job, _last_snapshot, _error, _dirty, _snapshot_error, _capture, _next_status
+    global _job, _last_snapshot, _error, _dirty, _snapshot_error, _capture, _next_status, _ground_state
     if _job and _job.active:raise ValueError('Live preview is already running')
     if bpy.context.window_manager.is_interface_locked:raise ValueError('Wait for the current editor operation to finish')
     state=bpy.context.window_manager.ruster_live_preview
@@ -208,8 +218,15 @@ def start_preview(port=None,owner=None,update_server=None):
     path=installation();rows=placements()
     config=settings.load();config['preview_port']=port;config['preview_owner']=owner;settings.save(config)
     from . import scene
+    ground_map=None
+    if bpy.context.scene.ruster.native_ground:
+        from . import editing
+        from .core.ground import validate_ground
+        world=editing.terrain().export_world();validate_ground(world);ground_map=world.write()
+    options={'ground_map':ground_map} if ground_map is not None else {}
     _job=backend.PreviewSession(settings.user_root()/'live-preview',port,owner,rows,update_server=update_server,
-        client_install=path,catalog_path=scene.cache_dir()/'catalog.sqlite3').start()
+        client_install=path,catalog_path=scene.cache_dir()/'catalog.sqlite3',**options).start()
+    _ground_state=ground_state()
     state.port,state.owner,state.update_server=port,owner,update_server
     _last_snapshot=rows;_error='';_snapshot_error='';_capture=None;_dirty=True;_next_status=0
     refresh_status()
@@ -326,6 +343,7 @@ class RUSTER_PT_live_preview(bpy.types.Panel):
         controls.enabled = not active or _job.status != 'STOPPING'
         action(controls, 'ruster.stop_live_preview' if active else 'ruster.start_live_preview')
         message = status()
+        if ground_changed():wrapped(layout,context,'Ground changed. Restart Live Preview to load the edited terrain.',icon='error')
         wrapped(layout, context, message['message'], icon='error' if message['status'] == 'FAILED' else 'busy' if active and not running else 'info')
         if message.get('pack_count'):wrapped(layout, context, f"Preload map: all {message['pack_count']} prefab packs", icon='info')
         if active and message.get('progress') is not None:
@@ -404,12 +422,12 @@ def after_load(_dummy):
 def reset_state():
     global _job, _future, _future_kind, _clients, _probe_message, _next_probe, _last_snapshot, _error
     global _snapshot_error, _client_allowed, _module_loaded, _client_status, _server_status, _logs, _status, _next_status
-    global _dirty, _generation, _capture, _capture_generation, _capture_rows, _ui_signature
+    global _dirty, _generation, _capture, _capture_generation, _capture_rows, _ui_signature, _ground_state
     _job = None;_future = None;_future_kind = '';_clients = [];_probe_message = 'Checking for Rust…'
     _next_probe = 0.;_last_snapshot = None;_error = '';_snapshot_error = ''
     _client_allowed = False;_module_loaded = False;_client_status = '';_server_status = '';_logs = ()
     _status = {'status': 'IDLE', 'message': 'Start a private local Rust preview server'};_next_status = 0.
-    _dirty = True;_generation = 0;_capture = None;_capture_generation = 0;_capture_rows = [];_ui_signature = None
+    _dirty = True;_generation = 0;_capture = None;_capture_generation = 0;_capture_rows = [];_ui_signature = None;_ground_state=None
 
 
 def register():

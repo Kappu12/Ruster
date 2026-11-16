@@ -90,10 +90,10 @@ def centered_placements(placements, origin):
     return canonical_placements(rows)
 
 
-def preview_map(placements, size=1000, *, preload=()):
-    """A void preview map: hidden terrain holes and no world scenery or paths."""
+def preview_map(placements, size=1000, *, preload=(), ground=None):
+    """Bake original placements into a void map or verified native ground layers."""
     placements = canonical_placements(placements)
-    if size != 1000:raise ValueError('The void preview map is fixed at 1,000 metres')
+    if ground is None and size != 1000:raise ValueError('The void preview map is fixed at 1,000 metres')
     if any('euler' not in row for row in placements):raise ValueError('Initial map placements require Euler rotation metadata')
     n, m = 513, 512
     layers = {
@@ -105,10 +105,15 @@ def preview_map(placements, size=1000, *, preload=()):
         'topology': b'\0\0\0\0' * m*m,
         'alpha': b'\0' * m*m,
     }
-    fields = [wire.encode(1, 0, size)]
-    for name, payload in layers.items():
-        fields.append(wire.encode(2, 2, wire.serialize([
-            wire.encode(1, 2, name.encode()), wire.encode(2, 2, payload)])))
+    if ground is not None:
+        from .ground import validate_ground
+        world=RustMap.read(ground);validate_ground(world)
+        fields=[field for field in world.fields if field.number not in (3,4)]
+    else:
+        fields = [wire.encode(1, 0, size)]
+        for name, payload in layers.items():
+            fields.append(wire.encode(2, 2, wire.serialize([
+                wire.encode(1, 2, name.encode()), wire.encode(2, 2, payload)])))
     # Baking the initial scene loads its original asset scenes on both sides.
     # Both companions claim these exact placements before applying any edits.
     # Markers are map records only: never part of the editable snapshots or

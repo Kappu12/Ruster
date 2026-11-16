@@ -205,14 +205,11 @@ class RUSTER_MT_commands(bpy.types.Menu):
         layout.menu('RUSTER_MT_layout')
         layout.menu('RUSTER_MT_symmetry')
         action(layout,'ruster.composition_check')
-        if context.scene.ruster.mode=='MAP':action(layout,'ruster.surface_snap')
         action(layout,'ruster.restore_models')
         layout.separator()
         action(layout,'wm.search_single_menu').menu_idname='RUSTER_MT_add'
         if context.scene.ruster.mode=='MAP':
-            layout.operator_menu_enum('ruster.path_add','kind',text='Add Path',icon=I['path'])
             tool_button(layout,context,'ruster.terrain_brush','Paint Terrain in Viewport','terrain_brush').name='ruster.terrain_brush'
-            tool_button(layout,context,'ruster.prefab_brush','Paint Prefabs in Viewport','prefab_brush').name='ruster.prefab_brush'
 
 
 class RUSTER_OT_commands(bpy.types.Operator):

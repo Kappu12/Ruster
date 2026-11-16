@@ -56,9 +56,9 @@ def run():
         actual=next(fields for fields in exported.prefabs if wire.get(fields,2)==147092032)
         assert wire.serialize(actual)==wire.serialize(io_record),'Guarded export rewrote untouched IO data'
         bpy.data.objects.remove(io_root,do_unlink=True)
-        # World tools stay inactive; native model edit modes are rejected above.
+        # Optional ground brushes never expose original model edit modes.
         vertices=len(visual.data.vertices);faces=len(visual.data.polygons)
-        for name in ('terrain_apply','terrain_stroke','generate_map','new_map','path_add'):
+        for name in ('generate_map','new_map','path_add'):
             try:getattr(bpy.ops.ruster,name).get_rna_type()
             except KeyError:pass
             else:raise AssertionError('World operator remains active: '+name)

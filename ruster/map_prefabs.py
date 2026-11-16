@@ -52,9 +52,10 @@ def import_map(path, *, replace=False, max_prefabs=None):
     finally:
         bpy.data.collections.remove(staging)
     state = bpy.context.scene.ruster
-    state.mode = 'PREFAB'
-    state.source_map = ''
-    state.terrain_state = None
+    if not state.native_ground:
+        state.mode = 'PREFAB'
+        state.source_map = ''
+        state.terrain_state = None
     if replace:
         state.title = path.stem
         state.map_size = world.size
@@ -130,7 +131,9 @@ def _validated_records():
     unpacked = [obj for obj in objects if obj.get('ruster_kind') == 'VISUAL']
     if unpacked:
         errors.append(f'{len(unpacked)} unpacked prefab model parts cannot export; restore the original prefab models')
-    custom = [obj for obj in objects if obj.type in {'MESH','CURVE','FONT'} and obj.get('ruster_kind') != 'VISUAL']
+    custom = [obj for obj in objects if obj.type in {'MESH','CURVE','FONT'} and obj.get('ruster_kind') != 'VISUAL'
+              and not (bpy.context.scene.ruster.native_ground and obj.get('ruster_ground_preview')
+                       and obj.get('ruster_kind') in {'TERRAIN','WATER'})]
     if custom:
         errors.append(f'{len(custom)} custom objects cannot be embedded in a Rust .map; save them in .ruster instead')
     if errors:
@@ -176,12 +179,18 @@ def placement_warnings(roots):
 
 def validate():
     """Validate protected prefab records and world transforms without world data."""
+    if bpy.context.scene.ruster.native_ground:
+        from . import ground
+        return ground.validate()
     errors, notes, _records = _validated_records()
     return errors, notes
 
 
 def export_map(path):
     """Write prefab IDs and world TRS, retaining unknown inner record fields."""
+    if bpy.context.scene.ruster.native_ground:
+        from . import ground
+        return ground.export_map(path)
     errors, _notes, records = _validated_records()
     if errors:
         raise ValueError('; '.join(errors[:5]))

@@ -147,7 +147,7 @@ def refresh(document=None,holes=True,water=True):
             pass
     overlay=bpy.context.scene.ruster_brush.display
     try:
-        grid=document.grid(overlay)
+        grid=document.biome_weights() if overlay=='biome' else document.grid(overlay)
         n=grid.shape[-1]
         ix=np.clip(np.rint((coordinates[:,0]/document.size+.5)*(n-1)).astype(int),0,n-1)
         iz=np.clip(np.rint((coordinates[:,1]/document.size+.5)*(n-1)).astype(int),0,n-1)
@@ -201,6 +201,7 @@ def refresh_water(document):
         obj=bpy.data.objects.new('Water',bpy.data.meshes.new('Water'))
         (bpy.data.collections.get('Terrain') or scene.new_collection('Terrain')).objects.link(obj)
         obj['ruster_kind']='WATER';obj.hide_select=True
+        if bpy.context.scene.ruster.native_ground:obj['ruster_ground_preview']=True
         obj.data.materials.append(scene.material('Rust Water',(.08,.28,.4,1)))
     obj.data.clear_geometry()
     obj.data.from_pydata(vertices.tolist(),[],faces)
@@ -647,12 +648,18 @@ def after_undo(_dummy):
 
 def register():
     global _tool_registered
-    # Keep only saved-data types. World tools are retained above for future use.
-    for cls in (RUSTER_PG_brush,RUSTER_PG_path):
+    # Ground editing shares the retained full-resolution brushes; path/world
+    # construction and procedural generation remain outside the prefab workflow.
+    for cls in (RUSTER_PG_brush,RUSTER_PG_path,RUSTER_OT_terrain_stroke,RUSTER_OT_terrain_sample,
+                RUSTER_OT_terrain_apply,RUSTER_OT_terrain_overlay,RUSTER_OT_terrain_detail):
         bpy.utils.register_class(cls);_classes.append(cls)
     from bpy.props import PointerProperty
     bpy.types.Scene.ruster_brush=PointerProperty(type=RUSTER_PG_brush)
     bpy.types.Object.ruster_path=PointerProperty(type=RUSTER_PG_path)
+    if not bpy.app.background:
+        bpy.utils.register_tool(RUSTER_WST_terrain,after={'builtin.select_box'},separator=True)
+        _tool_registered=True
+    for handlers in (bpy.app.handlers.undo_post,bpy.app.handlers.redo_post):handlers.append(after_undo)
 
 
 def unregister():

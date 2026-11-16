@@ -53,11 +53,24 @@ Original prefab geometry stays read-only in the composition. Shape changes come 
 | --- | --- |
 | `.ruster` | Save a Ruster project and resume editing it later. |
 | `.prefab` | Import or export a RustEdit prefab composition. |
-| `.map` | Import or export prefab placements. This workflow does not edit or export map terrain and paths. |
+| `.map` | Import prefab placements; export placements plus native terrain when Rust Ground has been added. |
 | `.blend` | Export a standalone Blender scene for rendering and model work. |
 | Other model formats | Export selected models through the exporters available in the bundled Blender build, including glTF, FBX, and OBJ. |
 
 Rust exports describe original prefab IDs and placement transforms. Model exports produce geometry for use in other applications. For imported RustEdit prefabs with IO data, the editor also exposes supported IO settings on the selected placement.
+
+### Add native Rust ground
+
+Choose **Add Rust Ground** in Prefab Studio or the **Rust Ground** panel. Set the
+flat patch width and height, a containing world size, biome and ground texture.
+Existing prefabs keep their positions. The Ground panel provides viewport brushes
+for height, water, splat, biome, alpha and topology, with undo and project saving.
+Jungle uses the remainder of Rust's four native biome channels.
+
+Export a **`.map`** to include native walkable ground and its painted layers.
+The `.prefab` format remains a placement-only export. Starting Live Preview uses
+the current native ground; restart it after changing terrain layers.
+See [native ground](docs/native-ground.md) for data and verification details.
 
 **Export Prefab** exports highlighted prefabs/groups. With nothing highlighted,
 it exports the whole composition as a RustEdit `.prefab`.

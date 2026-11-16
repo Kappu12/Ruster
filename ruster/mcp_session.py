@@ -26,6 +26,7 @@ def preview_status(log_lines=20):
     info=dict(live_preview.status())
     port=job.port if job and job.active else state.port
     info.update(active=bool(job and job.active),address=f'127.0.0.1:{port}',connect_command=f'connect 127.0.0.1:{port}',
+        terrain_restart_required=live_preview.ground_changed(),
         placement_count=len(scene.prefab_roots()),placement_limit=None,snapshot_byte_limit=MAX_SNAPSHOT,
         server=live_preview._server_status,client=live_preview._client_status,
         error=live_preview._error,scene_error=live_preview._snapshot_error,

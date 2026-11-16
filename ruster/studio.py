@@ -131,6 +131,7 @@ def new_prefab():
     state.mode, state.title = 'PREFAB', 'Untitled Prefab'
     state.project_path = state.source_map = ''
     state.terrain_state = None
+    state.native_ground = False
     scene.new_collection('Prefabs')
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:

@@ -109,6 +109,14 @@ class Terrain:
     def heights(self, layer='terrain'):
         return self.grid(layer)[0].astype(np.float64)/32766*1000-500
 
+    def biome_weights(self):
+        """Expose Jungle without adding a fifth channel to native four-channel maps."""
+        grid = self.grid('biome')
+        if len(grid) == 4:
+            jungle = np.maximum(255-grid.sum(axis=0, dtype=np.int32), 0).astype('u1')
+            return np.concatenate((grid, jungle[None]), axis=0)
+        return grid
+
     def sample_height(self, x, z):
         heights = self.grid('terrain')[0]
         n = heights.shape[0]
@@ -267,16 +275,19 @@ class Terrain:
                     height_grid[0][slices]=np.clip(height_grid[0][slices].astype(np.int32)+delta,0,32766)
                     self.changed('height')
         elif name in ('ground','splat','biome'):
-            if not 0<=channel<grid.shape[0]:
+            implicit_jungle = name == 'biome' and len(grid) == 4
+            if not 0<=channel<(5 if implicit_jungle else grid.shape[0]):
                 raise FormatError('This map does not contain the selected paint channel')
             values=grid[(slice(None),)+slices].astype(np.float64)
+            if implicit_jungle:
+                values=np.concatenate((values,np.maximum(255-values.sum(axis=0),0)[None]),axis=0)
             opacity=weight*strength
             if invert:
                 values[channel] *= 1-opacity
             else:
                 values *= 1-opacity
                 values[channel] += 255*opacity
-            grid[(slice(None),)+slices]=normalize_weights(values)
+            grid[(slice(None),)+slices]=normalize_weights(values)[:len(grid)]
         elif name=='topology':
             if not 0<=channel<=31:
                 raise FormatError('Invalid topology bit')
