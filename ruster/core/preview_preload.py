@@ -1,4 +1,4 @@
-"""Choose one map-only preload marker for every installed Rust asset scene."""
+"""Cover every client/server asset scene with shared map-only preload assets."""
 import json
 from pathlib import Path
 import re
@@ -47,11 +47,26 @@ def plan(client_manifest, server_manifest, catalog):
         rows = db.execute('SELECT uid,path FROM names LIMIT 100001').fetchall()
     if len(rows) > 100000:raise ValueError('Prefab catalog exceeds preload limits')
     names = {path.lower(): uid for uid, path in rows if isinstance(path, str) and type(uid) is int and 0 < uid < 2**32}
-    markers = []
-    for name in sorted(client.keys() | server.keys()):
-        candidates = client.get(name, set()) & server.get(name, set()) & names.keys()
+    shared = set.union(*client.values()) & set.union(*server.values()) & names.keys()
+    markers, selected = [], set()
+
+    def add(name, candidates):
         if not candidates:
             raise ValueError('Cannot preload every prefab pack: '+name+' has no shared catalog prefab. Update Rust, its local server and the asset catalog.')
-        path = min(candidates, key=representative)
-        markers.append({'scene': name, 'path': path, 'uid': names[path]})
+        path = min(candidates & selected or candidates, key=representative)
+        if path in selected:return
+        selected.add(path)
+        markers.append({'scene': name, 'path': path, 'uid': names[path],
+            'client_scenes': sorted(n for n, paths in client.items() if path in paths),
+            'server_scenes': sorted(n for n, paths in server.items() if path in paths)})
+
+    for name in sorted(client.keys() | server.keys()):
+        candidates = client.get(name, set()) & server.get(name, set()) & shared
+        if candidates:add(name, candidates)
+        else:
+            # Dedicated builds can merge a client-only scene into bootstrap or
+            # repartition same-named packs. Match asset paths across the whole
+            # peer manifest while still covering every scene on each side.
+            for packs in (client, server):
+                if name in packs:add(name, packs[name] & shared)
     return markers

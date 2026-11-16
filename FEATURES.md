@@ -1,4 +1,4 @@
-# Ruster 0.11.1 feature coverage
+# Ruster 0.11.2 feature coverage
 
 Ruster is a **prefab composition editor** built on Blender 5.2 LTS. This checklist
 covers the active product and its verification limits, not complete RustEdit or

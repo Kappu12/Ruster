@@ -37,6 +37,44 @@ def test_one_marker_per_pack_includes_autoload_and_full_monument(tmp_path):
     assert preload.plan(server,client,catalog) == markers
 
 
+def assert_complete_coverage(markers, client, server):
+    selected={m['path'] for m in markers}
+    for manifest, key in ((client,'client_scenes'),(server,'server_scenes')):
+        packs=preload.scenes(manifest)
+        assert all(paths & selected for paths in packs.values())
+        for marker in markers:
+            assert marker[key]==sorted(name for name,paths in packs.items() if marker['path'] in paths)
+    assert len(selected)==len(markers)
+
+
+def test_client_split_pack_can_be_merged_into_server_bootstrap(tmp_path):
+    client,server,catalog=fixture(tmp_path)
+    path='assets/deepsea/island.prefab'
+    rows=json.loads(client.read_text());rows['Scenes'].append({'Name':'AssetScene-deepsea.1','IncludedAssets':[path]})
+    client.write_text(json.dumps(rows))
+    rows=json.loads(server.read_text());rows['Scenes'][0]['IncludedAssets'].append(path)
+    server.write_text(json.dumps(rows))
+    with sqlite3.connect(catalog) as db:db.execute('INSERT INTO names VALUES(?,?)',(5,path))
+    markers=preload.plan(client,server,catalog)
+    assert_complete_coverage(markers,client,server)
+    marker=next(m for m in markers if m['uid']==5)
+    assert marker['client_scenes']==['AssetScene-deepsea.1']
+    assert marker['server_scenes']==['AssetScene-bootstrap']
+
+
+def test_same_named_packs_with_repartitioned_assets_cover_both_sides(tmp_path):
+    client,server,catalog=fixture(tmp_path)
+    rows=json.loads(client.read_text());rows['Scenes'][0]['IncludedAssets'].append('assets/props/large.prefab')
+    rows['Scenes'][1]['IncludedAssets']=['assets/bundled/prefabs/modding/cubes/concrete_cube.prefab']
+    client.write_text(json.dumps(rows))
+    rows=json.loads(server.read_text());rows['Scenes'][0]['IncludedAssets'].append('assets/bundled/prefabs/modding/cubes/concrete_cube.prefab')
+    rows['Scenes'][1]['IncludedAssets']=['assets/props/large.prefab']
+    server.write_text(json.dumps(rows))
+    markers=preload.plan(client,server,catalog)
+    assert_complete_coverage(markers,client,server)
+    assert {3471408108,3}<={m['uid'] for m in markers}
+
+
 @pytest.mark.parametrize('missing', ['server','catalog'])
 def test_missing_pack_never_silently_reduces_coverage(tmp_path, missing):
     client, server, catalog = fixture(tmp_path)
