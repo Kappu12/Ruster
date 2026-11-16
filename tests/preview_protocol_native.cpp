@@ -158,7 +158,7 @@ void lookupCheck(const std::filesystem::path& input) {
     if(!std::filesystem::create_directory(root))throw std::runtime_error("Lookup fixture already exists");
     struct Fixture {
         std::filesystem::path path;std::wstring previous;
-        ~Fixture(){resetInitialClaim();forgetWorld();api.runtime_invoke=invokeFake;directory=previous;std::error_code ignored;std::filesystem::remove_all(path,ignored);}
+        ~Fixture(){resetInitialClaim();forgetWorld();peerProven=false;api.runtime_invoke=invokeFake;directory=previous;std::error_code ignored;std::filesystem::remove_all(path,ignored);}
     } fixture{root,directory};directory=root.wstring();
     getName=reinterpret_cast<Method*>(13);getPosition=reinterpret_cast<Method*>(14);getScene=reinterpret_cast<Method*>(15);
     sceneValid=reinterpret_cast<Method*>(16);findObjects=reinterpret_cast<Method*>(17);
@@ -179,6 +179,12 @@ void lookupCheck(const std::filesystem::path& input) {
         throw std::runtime_error("Active lookup array was not retained once across batches");
     if(advanceInitialClaim(1)||initialClaim.cursor!=1||!objects.empty())
         throw std::runtime_error("Lookup exceeded its work slice or committed a partial claim");
+    Peer peer{std::string(64,'a'),"http://127.0.0.1:12345/map",123,23456,10000};
+    acceptConnection(peer);auto array=initialClaim.array;auto cursor=initialClaim.cursor;
+    pauseConnection("Synthetic temporary connection-proof gap");
+    peer.timestamp+=1000;acceptConnection(peer);
+    if(initialClaim.array!=array||initialClaim.cursor!=cursor||lookupCalls!=1||!objects.empty())
+        throw std::runtime_error("A temporary proof gap discarded scan progress or committed a partial scene");
     size_t iterations=0;
     while(!baseline&&iterations++<500) {
         auto before=lookupReads;advanceInitialClaim(11);
@@ -192,9 +198,23 @@ void lookupCheck(const std::filesystem::path& input) {
     if(!retained.empty()||destroyed.size()!=destroyedBefore)throw std::runtime_error("Cancelling lookup changed the baked scene or leaked handles");
     lookupNodes.erase(4001);duplicateLookup=false;
     beginInitialClaim({p,second});iterations=0;
-    while(initialClaim.prepared&&iterations++<500)advanceInitialClaim(32);
-    if(initialClaim.prepared||!retained.empty()||!objects.empty()||initialClaim.retry<=ClaimClock::now())
-        throw std::runtime_error("A missing initial placement did not release partial claims and back off");
+    while(initialClaim.array&&iterations++<500)advanceInitialClaim(32);
+    if(!initialClaim.prepared||initialClaim.found.size()!=1||retained.size()!=1||!objects.empty()||initialClaim.retry<=ClaimClock::now())
+        throw std::runtime_error("A late-loading placement discarded valid matches or committed a partial scene");
+    auto matchedHandle=initialClaim.found.begin()->second.handle;
+    pauseConnection("Synthetic heartbeat replacement gap");acceptConnection(peer);
+    if(initialClaim.found.size()!=1||retained.size()!=1)
+        throw std::runtime_error("A proof gap released a previously matched root");
+    lookupNodes[4001]={L"assets/test/volume.prefab",{1,2,-3}};
+    initialClaim.retry={};iterations=0;auto searches=lookupCalls;
+    while(!baseline&&iterations++<500)claimInitial();
+    if(!baseline||objects.size()!=2||objects.begin()->second.handle!=matchedHandle||retained.size()!=2||lookupCalls!=searches+1)
+        throw std::runtime_error("A late-loading placement did not finish without reclaiming earlier roots");
+    forgetWorld();
+    beginInitialClaim({p});advanceInitialClaim(1);auto destroyedBeforeWorldChange=destroyed.size();
+    peer.port++;acceptConnection(peer);
+    if(initialClaim.prepared||!retained.empty()||!objects.empty()||baseline||destroyed.size()!=destroyedBeforeWorldChange)
+        throw std::runtime_error("A different proven world reused previous claims or destroyed another world's objects");
     // The scene-object guard stays in force even after removing asset templates
     // from the query. An oversized native result is rejected before retention.
     resetInitialClaim();sceneCountOverride=uint32_t(MAX_SCENE_OBJECTS+1);bool failed=false;

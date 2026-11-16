@@ -367,7 +367,7 @@ void initialize() {
     ready=true;
 }
 
-bool inPreviewWorld(std::string& reason) {
+bool inPreviewWorld(std::string& reason,Peer* verified=nullptr) {
     reason="Join the local preview server using Copy IP.";
     if(!exists(L"client.connected"))return false;
     reason="Waiting for a fresh local server heartbeat.";
@@ -378,7 +378,9 @@ bool inPreviewWorld(std::string& reason) {
     reason="The local connection report is stale or belongs to another preview session.";
     if(!matchingPeer(peer,readText(L"session.token"),decimal(readText(L"server.pid")),readText(L"map.url"),now))return false;
     reason="Cannot verify that this Rust process owns the local server's peer UDP port.";
-    return ownsUdpPort(peer.port);
+    if(!ownsUdpPort(peer.port))return false;
+    if(verified)*verified=std::move(peer);
+    return true;
 }
 
 struct Placement {uint64_t key;uint32_t uid;std::string path;Vec pos;Quat rot;Vec scale;};
@@ -386,7 +388,7 @@ struct Instance {GCHandle handle;uint32_t uid;Vec pos;Quat rot;Vec scale;};
 std::map<uint64_t,Instance> objects;
 bool baseline=false;
 using ClaimClock=std::chrono::steady_clock;
-constexpr size_t MAX_SCENE_OBJECTS=1000000,CLAIM_BATCH=1024,ALIVE_BATCH=256;
+constexpr size_t MAX_SCENE_OBJECTS=1000000,CLAIM_BATCH=8192,ALIVE_BATCH=256;
 constexpr auto MAIN_THREAD_SLICE=std::chrono::milliseconds(4);
 struct InitialClaim {
     bool prepared=false,verifying=false;
@@ -400,6 +402,8 @@ struct InitialClaim {
     ClaimClock::time_point retry{};
 } initialClaim;
 uint64_t aliveCursor=0;
+Peer provenPeer{};
+bool peerProven=false;
 void resetInitialClaim() {
     if(initialClaim.array)api.gchandle_free(initialClaim.array);
     for(auto& entry:initialClaim.found)api.gchandle_free(entry.second.handle);
@@ -440,7 +444,7 @@ void remove(Instance instance,bool deactivate=true) {
     api.gchandle_free(instance.handle);
 }
 void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
-void clear() {resetInitialClaim();discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;aliveCursor=0;}
+void clear() {resetInitialClaim();discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;aliveCursor=0;peerProven=false;}
 bool retainedAlive() {
     // A full hierarchy poll every 250 ms also creates periodic main-thread work.
     // Check a bounded slice; all retained roots are revisited across callbacks.
@@ -461,6 +465,29 @@ void forgetWorld() {
     objects.clear();applied=0;attempted=0;appliedCount=0;baseline=false;
 }
 bool isNetworked(Object* object) {void* args[]={networkableType};return api.call(getComponent,object,args)!=nullptr;}
+void pauseConnection(const std::string& reason) {
+    // Missing/replaced reports pause work without discarding partial claims.
+    // No Unity mutation is permitted until the full proof passes again.
+    status("WAITING",reason);
+}
+void acceptConnection(const Peer& peer) {
+    if(peerProven&&(provenPeer.token!=peer.token||provenPeer.url!=peer.url||
+            provenPeer.server!=peer.server||provenPeer.port!=peer.port))forgetWorld();
+    provenPeer=peer;peerProven=true;
+}
+void refreshInitialLookup() {
+    int32_t excludeInactive=0,unsorted=0;
+    void* args[]={gameObjectType,&excludeInactive,&unsorted};
+    Object* all=api.call(findObjects,nullptr,args);
+    if(!all)throw std::runtime_error("Active scene object lookup is unavailable");
+    auto count=api.array_length(all);
+    if(count>MAX_SCENE_OBJECTS)
+        throw std::runtime_error("Active scene object lookup exceeds preview limits ("+std::to_string(count)+" > "+std::to_string(MAX_SCENE_OBJECTS)+")");
+    auto handle=api.gchandle_new(all,false);
+    if(!handle)throw std::runtime_error("Could not retain the active scene lookup");
+    if(initialClaim.array)api.gchandle_free(initialClaim.array);
+    initialClaim.array=handle;initialClaim.count=count;initialClaim.cursor=0;
+}
 void beginInitialClaim(std::vector<Placement> rows) {
     resetInitialClaim();initialClaim.rows=std::move(rows);
     std::map<std::string,bool> networked;
@@ -480,15 +507,7 @@ void beginInitialClaim(std::vector<Placement> rows) {
     // every preloaded pack, not just map instances. Keep the million-object
     // guard, but apply it to active scene objects; exclude inactive template
     // hierarchies and avoid Unity's unnecessary instance-ID sort.
-    int32_t excludeInactive=0,unsorted=0;
-    void* args[]={gameObjectType,&excludeInactive,&unsorted};
-    Object* all=api.call(findObjects,nullptr,args);
-    if(!all)throw std::runtime_error("Active scene object lookup is unavailable");
-    initialClaim.count=api.array_length(all);
-    if(initialClaim.count>MAX_SCENE_OBJECTS)
-        throw std::runtime_error("Active scene object lookup exceeds preview limits ("+std::to_string(initialClaim.count)+" > "+std::to_string(MAX_SCENE_OBJECTS)+")");
-    initialClaim.array=api.gchandle_new(all,false);
-    if(!initialClaim.array)throw std::runtime_error("Could not retain the active scene lookup");
+    refreshInitialLookup();
 }
 bool advanceInitialClaim(size_t maximum=CLAIM_BATCH) {
     auto& claim=initialClaim;
@@ -524,8 +543,12 @@ bool advanceInitialClaim(size_t maximum=CLAIM_BATCH) {
         }
         if(!claim.verifying&&claim.cursor==claim.count) {
             auto missing=claim.remaining.begin()->first;
-            resetInitialClaim();initialClaim.retry=ClaimClock::now()+std::chrono::seconds(1);
-            status("WAITING","Waiting for the initial map object: "+missing);return false;
+            // Late map assets do not invalidate already matched roots.
+            api.gchandle_free(claim.array);claim.array=nullptr;
+            claim.retry=ClaimClock::now()+std::chrono::seconds(1);
+            size_t missingCount=0;for(auto& entry:claim.remaining)missingCount+=entry.second.size();
+            status("WAITING","Waiting for "+std::to_string(missingCount)+" initial map objects ("+
+                std::to_string(claim.found.size())+" already matched): "+missing);return false;
         }
         if(claim.verifying){api.gchandle_free(claim.array);claim.array=nullptr;}
     }
@@ -555,6 +578,7 @@ bool claimInitial() {
             auto data=readBytes(L"initial.bin",16*1024*1024);uint64_t revision;
             beginInitialClaim(decode(data,revision));
         }
+        else if(!initialClaim.array&&!initialClaim.verifying)refreshInitialLookup();
         return advanceInitialClaim();
     }catch(...) {
         resetInitialClaim();initialClaim.retry=ClaimClock::now()+std::chrono::seconds(5);throw;
@@ -624,15 +648,12 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
             else if(initializationFailed){}
             else {
             if(!ready)try{initialize();}catch(...){initializationFailed=true;throw;}
-            std::string connectionReason;
-            if(!inPreviewWorld(connectionReason)){
-                resetInitialClaim();
-                // A delayed heartbeat or unavailable UDP table pauses edits.
-                // Keep ownership through transient failures; otherwise moved
-                // baseline objects could no longer be claimed after recovery.
-                status("WAITING",connectionReason);
+            std::string connectionReason;Peer connection;
+            if(!inPreviewWorld(connectionReason,&connection)){
+                pauseConnection(connectionReason);
             }
             else {
+                acceptConnection(connection);
                 if(baseline&&!retainedAlive())forgetWorld();
                 if(!baseline&&!claimInitial()) {
                     callbackActive.clear();return CallNextHookEx(hook,code,wp,lp);

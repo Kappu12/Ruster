@@ -174,11 +174,15 @@ after all prefab packs load; retrying that global allocation on the game thread
 caused periodic stalls before the old guard rejected the result.
 
 The scene-only result retains the one-million-object bound and is cached across
-matching callbacks. Matching processes at most 1,024 objects or four milliseconds
+matching callbacks. Matching processes at most 8,192 objects or four milliseconds
 per callback, and retains only expected placement matches. The initial native
 Unity enumeration is one call, not part of that matching time budget. A missing
-placement releases partial claims and waits one second before another search;
-an error backs off for five seconds. Regular lifetime checks also use slices of
+placement retains matched roots and waits one second before searching for the
+remaining placements; an error backs off for five seconds. Brief gaps in the
+connection proof pause claiming without discarding progress. A different proven
+server/session/map/peer port releases old claims, and all matched roots are
+checked again before the initial scene is committed. No edit is applied while
+connection verification is unavailable. Regular lifetime checks also use slices of
 at most 256 retained roots or four milliseconds. Connection/EAC validation still
 runs before game-thread work. No full asset scan runs every 250 milliseconds.
 
