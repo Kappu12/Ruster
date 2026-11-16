@@ -10,7 +10,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.3")]
+    [Info("RusterPreview", "Ruster", "0.3.4")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -138,6 +138,10 @@ namespace Oxide.Plugins
             if(!initialized||!Active()||player==null||player.net==null||player.net.connection==null)return null;
             var address=player.net.connection.ipaddress;
             if(address!="127.0.0.1"&&!address.StartsWith("127.0.0.1:",StringComparison.Ordinal))return null;
+            // Native-ground previews have a walkable surface. Do not spawn
+            // above the tallest canopy and inflict fall damage on entry.
+            if(TerrainMeta.AlphaMap!=null&&TerrainMeta.HeightMap!=null&&TerrainMeta.AlphaMap.GetAlpha(Vector3.zero)>.5f)
+                return new BasePlayer.SpawnPoint{pos=new Vector3(0,TerrainMeta.HeightMap.GetHeight(Vector3.zero)+1f,0),rot=Quaternion.identity};
             // Void maps have no beach spawn points. Spawn above the composition
             // without adding any platform or other geometry to the preview.
             var bounds=new Bounds(Vector3.zero,Vector3.zero);bool found=false;
@@ -250,6 +254,12 @@ namespace Oxide.Plugins
                 // Destroy is deferred. Disable physics/trigger participation now,
                 // before advertising this snapshot as applied.
                 obj.SetActive(false);
+                // Monument warmups schedule native callbacks on non-entity
+                // components too. Remove them before their transforms die.
+                var callbacks=new HashSet<Behaviour>(obj.GetComponentsInChildren<Behaviour>(true));
+                if(InvokeHandler.Instance!=null)InvokeHandler.Instance.CancelInvokes(callbacks);
+                foreach(var behaviour in obj.GetComponentsInChildren<MonoBehaviour>(true))
+                    if(behaviour!=null)behaviour.CancelInvoke();
                 foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))
                     if(entity!=null&&!entity.IsDestroyed)try{entity.Kill();}catch(Exception error){PrintError(error.Message);}
             }

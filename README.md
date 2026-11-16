@@ -129,7 +129,7 @@ Pass an existing project or import file as the positional argument:
 python launch.py "/path/to/composition.ruster"
 ```
 
-The launcher uses a separate Blender process and a Ruster-specific configuration directory. Startup output is written to `logs/startup.log` in the user data folder.
+The launcher uses a separate Blender process and a Ruster-specific configuration directory. Each launch keeps its own `logs/startup-*.log`; `logs/latest-startup.txt` points to the latest run, and `logs/startup.log` contains the latest completed run. Errors link to that run's own log.
 
 ### Check changes
 

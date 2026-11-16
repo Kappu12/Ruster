@@ -6,8 +6,27 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
+
+
+def startup_completed(log_path):
+    with Path(log_path).open('r',encoding='utf-8',errors='replace') as stream:
+        return any(line.startswith('RUSTER_READY ') for line in stream.read(65536).splitlines())
+
+
+def check_exit(code, log_path):
+    if not code:return 0
+    ready=startup_completed(log_path)
+    # Windows TerminateProcess (including Stop-Process during an update) uses
+    # -1. An editor that already started was stopped, not a failed startup.
+    if sys.platform=='win32' and code in (-1,0xFFFFFFFF) and ready:
+        with Path(log_path).open('a',encoding='utf-8') as stream:
+            stream.write('\nRUSTER_STOPPED: editor stopped after successful startup (exit -1).\n')
+        return 0
+    action='Ruster stopped unexpectedly' if ready else 'Ruster could not start'
+    raise OSError(f'{action} (exit {code}). Details: {log_path}')
 
 
 def find_blender(explicit=None):
@@ -56,19 +75,22 @@ def main():
             if path.suffix.lower() not in ('.map', '.prefab', '.ruster') or not path.is_file():
                 parser.error('Choose an existing .map, .prefab or .ruster file')
             command += ['--', str(path)]
-        log_path = user_root() / 'logs' / 'startup.log'
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logs=user_root()/'logs';logs.mkdir(parents=True,exist_ok=True)
+        descriptor,filename=tempfile.mkstemp(prefix='startup-',suffix='.log',dir=logs)
+        os.close(descriptor);log_path=Path(filename)
+        # Concurrent launches must never overwrite another editor's diagnostics.
+        (logs/'latest-startup.txt').write_text(str(log_path),encoding='utf-8')
         with log_path.open('w', encoding='utf-8') as log:
             code = subprocess.call(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-        if code:
-            raise OSError(f'Ruster could not start (exit {code}). Details: {log_path}')
-        return code
+        try:shutil.copyfile(log_path,logs/'startup.log')
+        except OSError:pass  # An older launcher can still have startup.log open.
+        return check_exit(code,log_path)
     except (FileNotFoundError, OSError) as error:
         if sys.stderr is not None:
             print(f'Ruster: {error}', file=sys.stderr)
         elif sys.platform == 'win32':
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, str(error), 'Ruster could not start', 0x10)
+            ctypes.windll.user32.MessageBoxW(None, str(error), 'Ruster application error', 0x10)
         return 1
 
 
