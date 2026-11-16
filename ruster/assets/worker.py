@@ -295,6 +295,7 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         seen.add(ident)
         components = {}
         component_keys={}
+        node_scripts=[]
         node_colliders=[]
         for pointer in component_pointers(go):
             if not pointer or not pointer.path_id:continue
@@ -303,7 +304,9 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
                 kind=component_reader.type.name
                 if kind=='AudioSource':sound_effect=True
                 elif kind in ('ParticleSystem','ParticleSystemRenderer'):particle_effect=True
-                elif kind=='MonoBehaviour':sound_components.append(component_reader)
+                elif kind=='MonoBehaviour':
+                    sound_components.append(component_reader)
+                    node_scripts.append(component_reader)
                 elif kind in ('Transform','RectTransform','MeshRenderer','MeshFilter','SkinnedMeshRenderer','LODGroup'):
                     components[kind]=component_reader.read()
                     component_keys[kind]=key(component_reader)
@@ -354,6 +357,20 @@ def export_prefab(env, root_reader, output, uid, asset_path, cache_signature='')
         # Keep the transform node and walk its children, without decoding the
         # hidden mesh or its materials. Off/On/TwoSided (0/1/2) remain visible.
         visible = renderer and getattr(renderer, 'm_Enabled', True) and getattr(renderer, 'm_CastShadows', 1) != 3
+        if visible and filter_:
+            for script_reader in node_scripts:
+                try:
+                    script=script_reader.read().m_Script
+                    runtime_flare=bool(script and script.path_id and
+                        script.deref().read().m_ClassName=='DistanceFlareLOD')
+                except (AttributeError,KeyError,TypeError):runtime_flare=False
+                if runtime_flare:
+                    # Unity's view-dependent additive flare is a billboard,
+                    # not part of the fixture. Blender otherwise draws its
+                    # full 12 m quad as an opaque glowing wall. Keep its node
+                    # and children, but omit this runtime-only render surface.
+                    node['preview_effect']='DISTANCE_FLARE';visible=False
+                    break
         if visible and filter_ and renderer_key not in excluded_renderers:
             try:
                 if filter_.m_Mesh.path_id:
@@ -532,6 +549,9 @@ def extract_batch(UnityPy, install, cache, ids):
             if is_volume(asset_path):signature+=':volumes-1'
             from ruster.core.spawn_previews import preview
             if preview(asset_path):signature+=':spawner-preview-1'
+            # Backward-compatible preview correction; invalidate light caches
+            # on request without requiring the running editor to restart.
+            if '/light_fixtures/' in asset_path:signature+=':render-effects-1'
             stamp = target / f'{uid}.stamp'
             output = target / f'{uid}.json.gz'
             if not (output.exists() and stamp.exists() and stamp.read_text() == signature):

@@ -81,6 +81,46 @@ def test_texture_cache_revision_changes_filename(tmp_path,monkeypatch):
     assert next(iter(first['materials'].values()))['texture']!=next(iter(second['materials'].values()))['texture']
 
 
+def test_runtime_distance_flare_does_not_become_a_glowing_wall(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();transform=root.read().m_Component[0].component.read()
+    fixture=transform.m_Children[0].read().m_GameObject.read()
+    fixture.m_Name='fixture'
+    # A flare may wrap a physical child: retain the transform and continue
+    # traversing, with the original child's local pose and mesh untouched.
+    flare_transform=Reader('Transform',S(m_LocalPosition=S(x=0,y=-.125,z=0),
+        m_LocalRotation=S(w=1,x=0,y=0,z=0),m_LocalScale=S(x=12,y=1.2,z=1),
+        m_Children=[transform.m_Children[0]]))
+    flare_filter=Reader('MeshFilter',S(m_Mesh=Pointer(Reader('Mesh',S()))))
+    flare_renderer=Reader('MeshRenderer',S(m_Enabled=True,m_Materials=[]))
+    script=Reader('MonoScript',S(m_ClassName='DistanceFlareLOD'))
+    behaviour=Reader('MonoBehaviour',S(m_Script=Pointer(script)))
+    flare=Reader('GameObject',S(m_Name='Distance Flare',m_IsActive=True,
+        m_Component=[ComponentPair(component=Pointer(c)) for c in
+            (flare_transform,flare_filter,flare_renderer,behaviour)]))
+    flare_transform.data.m_GameObject=Pointer(flare)
+    transform.m_Children=[Pointer(flare_transform)]
+    output=tmp_path/'light.json.gz'
+    assert not export_prefab(None,root,output,42,'assets/content/props/light_fixtures/light.prefab')
+    result=json.loads(gzip.decompress(output.read_bytes()))
+    flare_node=next(n for n in result['nodes'] if n['name']=='Distance Flare')
+    fixture_node=next(n for n in result['nodes'] if n['name']=='fixture')
+    assert flare_node['mesh'] is None and flare_node['preview_effect']=='DISTANCE_FLARE'
+    assert flare_node['scale']==[12,1.2,1] and flare_node['position']==[0,-.125,0]
+    assert fixture_node['mesh'] and fixture_node['parent']==result['nodes'].index(flare_node)
+    assert len(result['meshes'])==1 and not result['marker']
+
+
+def test_flare_name_alone_does_not_hide_a_physical_mesh(tmp_path,monkeypatch):
+    monkeypatch.setattr('UnityPy.helpers.MeshHelper.MeshHandler',MeshHandler)
+    root=graph();child=root.read().m_Component[0].component.read().m_Children[0].read().m_GameObject.read()
+    child.m_Name='Distance Flare'
+    output=tmp_path/'fixture.json.gz'
+    assert not export_prefab(None,root,output,42,'assets/light.prefab')
+    result=json.loads(gzip.decompress(output.read_bytes()))
+    assert next(n for n in result['nodes'] if n['name']=='Distance Flare')['mesh']
+
+
 def test_sound_only_prefab_is_a_marker_not_a_failed_mesh(tmp_path):
     transform=Reader('Transform',S(m_LocalPosition=S(x=0,y=0,z=0),m_LocalRotation=S(w=1,x=0,y=0,z=0),
         m_LocalScale=S(x=1,y=1,z=1),m_Children=[]))
