@@ -10,7 +10,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.5")]
+    [Info("RusterPreview", "Ruster", "0.3.6")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -40,6 +40,7 @@ namespace Oxide.Plugins
         EditTransaction edit;EditPump pump;Snapshot waiting;bool editScheduled;double nextProgress;
         string directory; SessionConfig config;
         long revision,attemptedStamp; double nextHeartbeat; bool initialized;
+        GameObject previewSpawn;int previousDeveloper;bool diagnostics;
         bool Active() { return File.Exists(Path.Combine(directory,"active.flag"))&&!File.Exists(Path.Combine(directory,"stop.flag")); }
         static string ReadText(string path,long maximum)
         {
@@ -67,6 +68,7 @@ namespace Oxide.Plugins
                 if(ConVar.Server.ip!="127.0.0.1"||Network.Net.sv.secure)throw new Exception("Preview requires a loopback-only insecure server");
                 config=JsonConvert.DeserializeObject<SessionConfig>(ReadText(Path.Combine(directory,"config.json"),4096));
                 if(config==null||config.url!=World.Url||config.token==null||config.token.Length!=64)throw new Exception("Preview map URL or session identity does not match");
+                previousDeveloper=ConVar.Global.developer;ConVar.Global.developer=Math.Max(1,previousDeveloper);diagnostics=true;
                 // env.oceanlevel is a native replicated variable. Move the ocean
                 // out of view for this owned session; alpha holes hide terrain.
                 ConVar.Env.oceanlevel=-1000000f;
@@ -98,6 +100,8 @@ namespace Oxide.Plugins
                     World.SpawnedPrefabs.Remove("RusterPreviewWarmup");
                     Puts("Preloaded "+preloadCount+" prefab packs; removed hidden server markers.");
                 }
+                ClearDetachedWarmups();InstallPreviewSpawn();
+                timer.Once(.1f,ClearDetachedWarmups);timer.Once(2f,ClearDetachedWarmups);
                 if(!string.IsNullOrEmpty(config.owner)&&config.owner.Length==17&&config.owner.All(c=>c>='0'&&c<='9'))
                     ConsoleSystem.Run(ConsoleSystem.Option.Server,"ownerid "+config.owner+" \"Ruster preview owner\"");
                 initialized=true;Tick();timer.Every(0.25f,Tick);
@@ -152,7 +156,46 @@ namespace Oxide.Plugins
             catch(Exception error){Write("server.status","ERROR\n"+error.Message);}
         }
         void OnPlayerDisconnected(BasePlayer player,string reason)
-        {if(!string.IsNullOrWhiteSpace(directory))Delete("client.connected");}
+        {if(!string.IsNullOrWhiteSpace(directory)){Delete("client.connected");Write("client.disconnect",JsonConvert.SerializeObject(new{timestamp=DateTime.UtcNow.ToString("o"),reason}));}}
+        static bool WarmupPosition(Vector3 p)
+        {return p.x>=9000&&p.y<=-5000&&p.z>=9000&&p.z<=11000;}
+        void ClearDetachedWarmups()
+        {
+            if(string.IsNullOrWhiteSpace(directory)||!Active()||Network.Net.sv.secure||config.url!=World.Url)return;
+            var protectedRoots=new HashSet<Transform>(objects.Values.Where(o=>o!=null).Select(o=>o.transform));
+            var retired=new HashSet<GameObject>();
+            // Native monument scripts can detach children during Awake. They
+            // are outside the marker hierarchy but remain in its reserved
+            // distant underground area, still running invokes and spawners.
+            foreach(var behaviour in UnityEngine.Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude,FindObjectsSortMode.None))
+            {
+                if(behaviour==null||!behaviour.gameObject.scene.IsValid()||!WarmupPosition(behaviour.transform.position))continue;
+                var node=behaviour.transform;bool authored=false;
+                for(var parent=node;parent!=null;parent=parent.parent)if(protectedRoots.Contains(parent)){authored=true;break;}
+                if(authored||behaviour.GetComponentInParent<BasePlayer>()!=null)continue;
+                while(node.parent!=null&&WarmupPosition(node.parent.position))node=node.parent;
+                retired.Add(node.gameObject);
+            }
+            foreach(var obj in retired)Destroy(obj);
+            if(retired.Count>0)Puts("Removed "+retired.Count+" detached preload roots and their scheduled callbacks.");
+        }
+        void InstallPreviewSpawn()
+        {
+            var manager=ServerMgr.Instance;if(manager==null)throw new Exception("Preview spawn manager is unavailable");
+            // Carbon can publicize server fields; support both visibilities
+            // while still requiring the exact verified name and array type.
+            var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Public;
+            var fields=new[]{typeof(ServerMgr).GetField("proceduralSpawnPoints",flags),typeof(ServerMgr).GetField("fallbackProceduralSpawnPoints",flags)};
+            if(fields.Any(f=>f==null||f.FieldType!=typeof(GameObject[])||f.IsInitOnly))throw new Exception("This Rust build does not expose the expected spawn caches");
+            // FindSpawnPoint runs before OnPlayerRespawn for a first-time
+            // connection. Marker destruction can leave dead entries in its
+            // cached tag arrays, so give both caches a live owned fallback.
+            previewSpawn=new GameObject("RusterPreviewSpawn");previewSpawn.tag="spawnpoint";
+            float height=TerrainMeta.HeightMap==null?1f:TerrainMeta.HeightMap.GetHeight(Vector3.zero)+1f;
+            previewSpawn.transform.position=new Vector3(0,height,0);
+            foreach(var field in fields)field.SetValue(manager,new[]{previewSpawn});
+            Write("server.spawn",JsonConvert.SerializeObject(new{source="Owned preview fallback",position=new[]{0f,height,0f},nativeSpawnCachesRefreshed=true}));
+        }
         object OnPlayerRespawn(BasePlayer player,BasePlayer.SpawnPoint original)
         {
             if(!initialized||!Active()||player==null||player.net==null||player.net.connection==null)return null;
@@ -324,10 +367,12 @@ namespace Oxide.Plugins
         void Cleanup()
         {
             initialized=false;
+            if(diagnostics){ConVar.Global.developer=previousDeveloper;diagnostics=false;}
             if(pump!=null)pump.Dispose();pump=null;waiting=null;
             if(!string.IsNullOrWhiteSpace(directory)){Delete("server.ready");Delete("client.connected");}
             var owned=new HashSet<GameObject>(objects.Values);if(edit!=null){foreach(var obj in edit.staged.Values)owned.Add(obj);foreach(var obj in edit.retired)owned.Add(obj);}edit=null;
             foreach(var obj in owned)Destroy(obj);objects.Clear();mapOnly.Clear();current.Clear();templateKinds.Clear();templatePaths.Clear();
+            if(previewSpawn!=null)UnityEngine.Object.Destroy(previewSpawn);previewSpawn=null;
             Physics.SyncTransforms();
         }
         void Unload(){Cleanup();}

@@ -183,6 +183,23 @@ and no platform is added. Pack preload markers are tiny and placed at least
 `RusterPreviewWarmup` map category. The server removes its hidden instances before
 players join while retaining the loaded asset-scene templates. These markers
 never enter the authoring scene, exported composition, or live snapshots.
+Some monument scripts detach children while initializing. The server also
+removes those detached roots and cancels their scheduled callbacks inside the
+reserved underground preload area, preserving authored roots and players.
+During its initial scene claim, the native client deactivates unused preload
+roots in bounded slices; hidden lights and scripts otherwise remain active even
+when their parent marker is tiny and far away.
+
+Before accepting players, the companion replaces the native procedural and
+fallback spawn caches with a live, session-owned spawn point. This avoids
+first-player spawn resolution dereferencing cached objects removed during pack
+cleanup. The exact field names, array types and writable status are checked
+against the installed server; publicized Carbon fields are supported. An
+unsupported server build reports a startup error. Session-only developer logging
+records the underlying exception if a client is disconnected during readiness,
+and the companion writes disconnect reasons to `client.disconnect`. A successful
+server boot verifies cache installation, but a real first connection is still
+needed to confirm a reported first-join kick is resolved.
 The initial composition's placement
 center is translated to the origin in the preview snapshots; the project itself
 stays unchanged. That translation stays fixed during edits and resets when a

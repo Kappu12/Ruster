@@ -207,6 +207,8 @@ void lookupCheck(const std::filesystem::path& input) {
     lookupNodes[4001]={L"assets/test/volume.prefab",{1,2,-3}};
     lookupNodes[4002]={L"assets/test/volume.prefab",{1,2,-3},true,true,false,false};
     lookupNodes[4003]={L"assets/test/volume.prefab",{1,2,-3},true,true,true,true};
+    lookupNodes[5000]={L"assets/test/hidden-preload.prefab",{10000,-10000,10000}};
+    activeObjects[5000]=true;
     Placement p{17,3000049339u,"assets/test/volume.prefab",{1,2,-3},{0,0,0,1},{8.2f,200,2}};
     auto second=p;second.key=18;duplicateLookup=true;
     beginInitialClaim({p,second});
@@ -226,7 +228,7 @@ void lookupCheck(const std::filesystem::path& input) {
         if(lookupReads-before>11)throw std::runtime_error("Lookup exceeded the per-callback object bound");
     }
     if(!baseline||objects.size()!=2||retained.size()!=2||lookupCalls!=1||
-        objects.at(17).handle==objects.at(18).handle)
+        objects.at(17).handle==objects.at(18).handle||activeObjects[5000])
         throw std::runtime_error("Batched lookup rescanned, leaked an array, or claimed a duplicate/template root");
     forgetWorld();
     beginInitialClaim({p,second});advanceInitialClaim(1);auto destroyedBefore=destroyed.size();resetInitialClaim();
@@ -256,6 +258,12 @@ void lookupCheck(const std::filesystem::path& input) {
     try{beginInitialClaim({p});}catch(const std::exception&){failed=true;}
     if(!failed||!retained.empty())throw std::runtime_error("The active-scene object guard was removed or allocated retained state");
     sceneCountOverride=0;resetInitialClaim();lookupNodes.clear();
+    auto remote=p;remote.pos={10000,-10000,10000};
+    lookupNodes[6000]={L"assets/test/volume.prefab",remote.pos};activeObjects[6000]=true;
+    beginInitialClaim({remote});iterations=0;
+    while(!baseline&&iterations++<500)advanceInitialClaim(32);
+    if(!baseline||objects.size()!=1||!activeObjects[6000])throw std::runtime_error("Warmup cleanup deactivated an authored placement");
+    forgetWorld();lookupNodes.clear();
     for(uintptr_t i=0;i<600;i++) {
         auto id=5000+i;lookupNodes[id]={L"retained root",{0,0,0}};
         objects[i+1]={retainFake(reinterpret_cast<Object*>(id),false),p.uid,p.pos,p.rot,p.scale};

@@ -416,6 +416,7 @@ struct InitialClaim {
     uint64_t verified=0;
     std::vector<Placement> rows;
     std::map<std::string,std::vector<size_t>> remaining;
+    std::map<std::string,std::vector<Vec>> authored;
     std::map<uint64_t,Instance> found;
     std::set<int32_t> used;
     ClaimClock::time_point retry{};
@@ -514,6 +515,7 @@ void beginInitialClaim(std::vector<Placement> rows) {
     std::map<std::string,bool> networked;
     for(size_t i=0;i<initialClaim.rows.size();++i) {
         auto& p=initialClaim.rows[i];auto known=networked.find(p.path);
+        initialClaim.authored[p.path].push_back(p.pos);
         if(known==networked.end()) {
             Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
             Object* prefab=api.call(findPrefab,manager,lookup);
@@ -523,7 +525,6 @@ void beginInitialClaim(std::vector<Placement> rows) {
         if(!known->second)initialClaim.remaining[p.path].push_back(i);
     }
     initialClaim.prepared=true;
-    if(initialClaim.remaining.empty()){initialClaim.verifying=true;return;}
     // Resources.FindObjectsOfTypeAll includes every loaded asset/template in
     // every preloaded pack, not just map instances. Keep the million-object
     // guard, but apply it to active scene objects; exclude inactive template
@@ -533,23 +534,33 @@ void beginInitialClaim(std::vector<Placement> rows) {
 bool advanceInitialClaim(size_t maximum=CLAIM_BATCH) {
     auto& claim=initialClaim;
     auto deadline=ClaimClock::now()+MAIN_THREAD_SLICE;
-    size_t work=0;
+    size_t work=0,retiredWarmups=0;
     if(!claim.verifying) {
         Object* all=api.gchandle_get_target(claim.array);
         if(!all)throw std::runtime_error("Active scene lookup expired");
-        while(claim.cursor<claim.count&&work<maximum&&ClaimClock::now()<deadline) {
+        while(claim.cursor<claim.count&&work<maximum&&retiredWarmups<EDIT_BATCH&&ClaimClock::now()<deadline) {
             int32_t index=int32_t(claim.cursor++);++work;
             void* indexArgs[]={&index};Object* obj=api.call(arrayGet,all,indexArgs);
             if(!obj)continue;
             void* liveArgs[]={obj};auto live=api.call(objectAlive,nullptr,liveArgs);
             if(!live||!*static_cast<bool*>(api.object_unbox(live)))continue;
-            auto found=claim.remaining.find(api.text(api.call(getName,obj)));
-            if(found==claim.remaining.end())continue;
+            auto name=api.text(api.call(getName,obj));auto found=claim.remaining.find(name);
+            if(found==claim.remaining.end()&&name.rfind("assets/",0)!=0)continue;
             Object* scene=api.call(getScene,obj);Object* valid=api.call(sceneValid,api.object_unbox(scene));
             if(!valid||!*static_cast<bool*>(api.object_unbox(valid)))continue;
+            Vec pos=*static_cast<Vec*>(api.object_unbox(api.call(getPosition,api.call(getTransform,obj))));
+            if(pos.x>=9000&&pos.y<=-5000&&pos.z>=9000&&pos.z<=11000) {
+                // These instances exist only to load asset packs. Tiny scale
+                // does not stop their lights, LOD scripts or other callbacks.
+                // Keep authored roots protected even in the reserved area.
+                auto authored=claim.authored.find(name);bool owned=false;
+                if(authored!=claim.authored.end())for(auto& p:authored->second)
+                    if(fabs(pos.x-p.x)<.005&&fabs(pos.y-p.y)<.005&&fabs(pos.z-p.z)<.005){owned=true;break;}
+                if(!owned){active(obj,false);++retiredWarmups;continue;}
+            }
+            if(found==claim.remaining.end())continue;
             int32_t id=*static_cast<int32_t*>(api.object_unbox(api.call(getInstanceID,obj)));
             if(claim.used.count(id))continue;
-            Vec pos=*static_cast<Vec*>(api.object_unbox(api.call(getPosition,api.call(getTransform,obj))));
             auto& candidates=found->second;
             for(auto it=candidates.begin();it!=candidates.end();++it) {
                 auto& p=claim.rows[*it];
@@ -560,8 +571,8 @@ bool advanceInitialClaim(size_t maximum=CLAIM_BATCH) {
                 candidates.erase(it);if(candidates.empty())claim.remaining.erase(found);
                 break;
             }
-            if(claim.remaining.empty()){claim.verifying=true;break;}
         }
+        if(claim.cursor==claim.count&&claim.remaining.empty())claim.verifying=true;
         if(!claim.verifying&&claim.cursor==claim.count) {
             auto missing=claim.remaining.begin()->first;
             // Late map assets do not invalidate already matched roots.
