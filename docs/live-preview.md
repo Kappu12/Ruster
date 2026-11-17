@@ -127,6 +127,24 @@ delay is roughly 0.5–1 second, depending on scene size and server load. This i
 placement synchronization, independent of Rust's rendering frame rate; the delay
 has not been measured in a running Rust client.
 
+Large client updates use a queue instead of applying the whole revision in one
+callback. A callback checks at most 512 records and performs at most four scene
+mutations within a four-millisecond target. Unchanged placements bypass prefab
+loading and Unity calls. Staging, activation, collider retirement and rollback
+all yield between slices. Only the latest pending snapshot is retained while a
+revision finishes, so intermediate drag/agent edits cannot form an unbounded
+backlog. One expensive native prefab initialization or physics synchronization
+can exceed the target; Unity does not expose a way to interrupt that call.
+
+Only one client callback message may wait for the game thread. Active work is
+scheduled roughly every 16 ms; heartbeat, EAC and snapshot checks retain their
+250 ms cadence, and every callback still verifies the owned connection before
+mutating the scene. Idle callbacks no longer copy an already applied snapshot;
+retained-root polling runs in bounded slices once a second. Status and history
+file writes run on the worker thread, including waiting/ready transitions while
+idle. These changes reduce bridge work; they do not impose Rust render settings
+or prove a particular gameplay frame rate.
+
 ## Current limits and validation
 
 This is an experimental implementation, not a claim of verified current-game

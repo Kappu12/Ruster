@@ -13,6 +13,7 @@ std::map<RuntimeHandle,Object*> retained;
 std::vector<uintptr_t> destroyed;
 uintptr_t nextHandle=0x0000025600000002ULL;
 uintptr_t nextObject=1000;
+size_t prefabLookups=0,instantiations=0;
 bool rejectScale=false;
 uintptr_t rejectDeactivate=0;
 std::map<uintptr_t,bool> activeObjects;
@@ -22,11 +23,13 @@ Object* targetFake(RuntimeHandle handle){return retained.at(handle);}
 void freeFake(RuntimeHandle handle){retained.erase(handle);}
 Object* invokeFake(const Method* method,void* self,void** args,Object**) {
     if(method==findPrefab){
+        ++prefabLookups;
         if(self!=manager)throw std::runtime_error("Prefab lookup did not use the bootstrap instance");
         return strstr(reinterpret_cast<const char*>(args[0]),"missing")?nullptr:reinterpret_cast<Object*>(500);
     }
     if(method==getComponent)return nullptr;
     if(method==createPrefab){
+        ++instantiations;
         if(self||args[0]!=reinterpret_cast<Object*>(500)||static_cast<Vec*>(args[1])->z!=-3.f)
             throw std::runtime_error("Unity Instantiate received an invalid object/transform ABI");
         return reinterpret_cast<Object*>(nextObject++);
@@ -126,6 +129,38 @@ void transactionCheck() {
     if(!objects.empty()||!retained.empty())throw std::runtime_error("Deletion leaked preview handles");
     apply({p});forgetWorld();
     if(!objects.empty()||!retained.empty())throw std::runtime_error("World cleanup lost upper handle bits");
+}
+void queuedEditCheck() {
+    std::vector<Placement> rows;
+    for(uint64_t i=1;i<=1200;i++)rows.push_back({i,123456,"assets/test/source.prefab",{float(i),2,-3},{0,0,0,1},{1,2,3}});
+    beginApply(rows,41);size_t slices=0;
+    do {
+        auto created=instantiations,removed=destroyed.size();advanceApply(3);++slices;
+        if(instantiations-created>3||destroyed.size()-removed>3)throw std::runtime_error("Queued edit exceeded its mutation budget");
+    }while(editQueued&&slices<10000);
+    if(editQueued||objects.size()!=rows.size()||slices<400)throw std::runtime_error("Large edits were not spread across callbacks");
+    auto lookups=prefabLookups,created=instantiations;apply(rows);
+    if(prefabLookups!=lookups||instantiations!=created)throw std::runtime_error("An unchanged scene entered Unity prefab loading");
+    auto original=objects.at(1).handle;rows.back().pos.x+=5;
+    lookups=prefabLookups;created=instantiations;apply(rows);
+    if(prefabLookups-lookups!=1||instantiations-created!=1||objects.at(1).handle!=original)
+        throw std::runtime_error("A one-object edit processed or recreated unchanged placements");
+    std::map<uint64_t,GCHandle> before;
+    for(auto& entry:objects)before[entry.first]=entry.second.handle;
+    auto retainedBefore=retained.size();
+    for(size_t i=0;i<12;i++)rows[i].scale.x+=1;
+    rejectDeactivate=reinterpret_cast<uintptr_t>(targetFake(objects.at(12).handle));
+    beginApply(rows,42);slices=0;
+    while(editQueued&&slices++<10000)advanceApply(2);
+    rejectDeactivate=0;
+    if(editQueued||edit.error.empty()||retained.size()!=retainedBefore)throw std::runtime_error("Queued rollback did not finish or leaked roots");
+    for(auto& entry:objects)if(entry.second.handle!=before.at(entry.first)||!activeObjects[reinterpret_cast<uintptr_t>(targetFake(entry.second.handle))])
+        throw std::runtime_error("A late queued failure damaged the previously committed scene");
+    // Abandoning a world releases partial staging handles without attempting
+    // Unity operations in a different or unproven game world.
+    beginApply(rows,43);advanceApply(1);auto destroyedBefore=destroyed.size();forgetWorld();
+    if(editQueued||!objects.empty()||!retained.empty()||destroyed.size()!=destroyedBefore)
+        throw std::runtime_error("A world switch mutated an unproven world or leaked queued handles");
 }
 struct LookupNode {std::wstring name;Vec pos;bool alive=true,scene=true,active=true,asset=false;};
 std::map<uintptr_t,LookupNode> lookupNodes;
@@ -324,11 +359,12 @@ void heartbeatCheck(const std::filesystem::path& input) {
         std::filesystem::path path;std::wstring previous;
         ~Fixture(){directory=previous;std::error_code ignored;std::filesystem::remove_all(path,ignored);}
     } fixture{root,directory};
-    directory=root.wstring();lastStatus.clear();
+    directory=root.wstring();lastStatus.clear();statusMessages.clear();
     std::vector<uint8_t> snapshot(20);memcpy(snapshot.data(),"RUSLIVE1",8);snapshot[8]=3;
     {std::ofstream out(root/L"scene.bin",std::ios::binary);out.write(reinterpret_cast<const char*>(snapshot.data()),snapshot.size());}
     pending={42};
     if(queueSnapshot()||!pending.empty()||stopping||stopped)throw std::runtime_error("Missing heartbeat did not pause safely");
+    if(std::filesystem::exists(root/L"client.status"))throw std::runtime_error("Main-thread status publication performed disk I/O");
     auto fresh=[&](){std::ofstream out(root/L"server.ready");out<<"synthetic heartbeat";};
     fresh();
     if(!queueSnapshot()||pending!=snapshot)throw std::runtime_error("Preview did not resume after its first heartbeat");
@@ -351,20 +387,20 @@ void heartbeatCheck(const std::filesystem::path& input) {
     if(!queueSnapshot()||pending!=snapshot)throw std::runtime_error("A temporary snapshot lock permanently stopped polling");
     // The history survives later status updates, while identical polls do not
     // grow it at 4 Hz. A malformed snapshot still fails rather than applying.
-    status("READY","Synthetic recovered revision");auto bytes=std::filesystem::file_size(root/L"client.log");
-    status("READY","Synthetic recovered revision");
+    status("READY","Synthetic recovered revision");flushStatus();auto bytes=std::filesystem::file_size(root/L"client.log");
+    status("READY","Synthetic recovered revision");flushStatus();
     if(std::filesystem::file_size(root/L"client.log")!=bytes)throw std::runtime_error("Duplicate status flooded the transition log");
     auto history=readText(L"client.log");
     if(history.find("WAITING")==std::string::npos||history.find("READY Synthetic recovered revision")==std::string::npos)
         throw std::runtime_error("Status changes erased the preview interruption history");
     {std::ofstream out(root/L"client.log",std::ios::binary);out<<std::string(1024*1024+1,'x');}
-    status("WAITING","Synthetic bounded history");
+    status("WAITING","Synthetic bounded history");flushStatus();
     if(std::filesystem::file_size(root/L"client.log")>4096||readText(L"client.log").find("Synthetic bounded history")==std::string::npos)
         throw std::runtime_error("Status history exceeded its size bound");
     {std::ofstream out(root/L"scene.bin",std::ios::binary);out<<"bad";}
     bool failed=false;try{queueSnapshot();}catch(const std::runtime_error&){failed=true;}
     if(!failed)throw std::runtime_error("Malformed snapshot accepted after recovery");
-    pending.clear();lastStatus.clear();
+    pending.clear();lastStatus.clear();statusMessages.clear();
 }
 }
 int main(int argc,char** argv) {
@@ -372,7 +408,7 @@ int main(int argc,char** argv) {
     if(argc!=2&&!peerMode)return 2;
     if(!eacName(L"C:\\Game\\EasyAntiCheat_EOS.sys")||!eacName(L"EAC_Client.dll")||eacName(L"GameAssembly.dll"))return 3;
     try {
-        reflectionCheck();transactionCheck();lookupCheck(std::filesystem::path(argv[peerMode?2:1]));peerCheck();heartbeatCheck(std::filesystem::path(argv[peerMode?2:1]));
+        reflectionCheck();transactionCheck();queuedEditCheck();lookupCheck(std::filesystem::path(argv[peerMode?2:1]));peerCheck();heartbeatCheck(std::filesystem::path(argv[peerMode?2:1]));
         std::ifstream input(argv[peerMode?2:1],std::ios::binary);
         std::vector<uint8_t> data{std::istreambuf_iterator<char>(input),{}};
         if(peerMode) {

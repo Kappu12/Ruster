@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwctype>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -39,11 +40,14 @@ HANDLE worker;
 std::mutex pendingMutex;
 std::mutex statusMutex;
 std::string lastStatus;
+struct StatusMessage {std::string state,message;};
+std::deque<StatusMessage> statusMessages;
 std::vector<uint8_t> pending;
 bool ready=false;
 std::atomic<bool> initializationFailed{false};
 std::atomic<bool> stopping{false}, stopped{false};
 std::atomic_flag callbackActive=ATOMIC_FLAG_INIT;
+std::atomic<bool> editQueued{false},messageQueued{false};
 uint64_t applied=0;
 uint64_t attempted=0;
 size_t appliedCount=0;
@@ -98,17 +102,30 @@ bool serverFresh() {
     return age>=-20000000&&age<=150000000;
 }
 void status(const char* state,const std::string& message) noexcept {try {
+    // The Unity callback only publishes memory. Durable file replacement and
+    // history writes belong to the worker, never the rendering thread.
     std::lock_guard<std::mutex> lock(statusMutex);
-    std::string value=std::string(state)+"\n"+message+"\n";
-    if(value==lastStatus)return;
+    auto value=std::string(state)+"\n"+message+"\n";
+    if(value==lastStatus)return;lastStatus=value;
+    if(!statusMessages.empty()&&statusMessages.back().state==state)statusMessages.back().message=message;
+    else statusMessages.push_back({state,message});
+    if(statusMessages.size()>64)statusMessages.pop_front();
+}catch(...) {}}
+void flushStatus() noexcept {try {
+    std::deque<StatusMessage> messages;
+    {std::lock_guard<std::mutex> lock(statusMutex);messages.swap(statusMessages);}
+    if(messages.empty())return;
+    auto& latest=messages.back();auto value=latest.state+"\n"+latest.message+"\n";
+    auto retry=[&](){std::lock_guard<std::mutex> lock(statusMutex);
+        statusMessages.insert(statusMessages.begin(),messages.begin(),messages.end());
+        while(statusMessages.size()>64)statusMessages.pop_front();};
     auto path=file(L"client.status");auto temp=path+L".tmp";
     HANDLE out=CreateFileW(temp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(out==INVALID_HANDLE_VALUE)return;
+    if(out==INVALID_HANDLE_VALUE){retry();return;}
     DWORD written=0;
     bool saved=WriteFile(out,value.data(),DWORD(value.size()),&written,nullptr)&&written==value.size();CloseHandle(out);
-    if(!saved)return;
-    if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return;
-    lastStatus=value;
+    if(!saved){retry();return;}
+    if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){retry();return;}
     // Keep transitions after the status file changes, so a later state cannot
     // erase the reason an otherwise running session paused or stopped.
     WIN32_FILE_ATTRIBUTE_DATA info{};auto log=file(L"client.log");
@@ -120,7 +137,7 @@ void status(const char* state,const std::string& message) noexcept {try {
         SYSTEMTIME now;GetSystemTime(&now);char stamp[32];
         std::snprintf(stamp,sizeof(stamp),"%04u-%02u-%02uT%02u:%02u:%02uZ ",
             unsigned(now.wYear),unsigned(now.wMonth),unsigned(now.wDay),unsigned(now.wHour),unsigned(now.wMinute),unsigned(now.wSecond));
-        auto line=std::string(stamp)+state+" "+message+"\r\n";
+        std::string line;for(auto& entry:messages)line+=std::string(stamp)+entry.state+" "+entry.message+"\r\n";
         WriteFile(out,line.data(),DWORD(line.size()),&written,nullptr);CloseHandle(out);
     }
 }catch(...) {}}
@@ -390,6 +407,8 @@ bool baseline=false;
 using ClaimClock=std::chrono::steady_clock;
 constexpr size_t MAX_SCENE_OBJECTS=1000000,CLAIM_BATCH=8192,ALIVE_BATCH=256;
 constexpr auto MAIN_THREAD_SLICE=std::chrono::milliseconds(4);
+constexpr size_t EDIT_BATCH=4,EDIT_SCAN_BATCH=512;
+void abandonApply(bool releaseOnly=false);
 struct InitialClaim {
     bool prepared=false,verifying=false;
     GCHandle array=nullptr;
@@ -404,6 +423,7 @@ struct InitialClaim {
 uint64_t aliveCursor=0;
 Peer provenPeer{};
 bool peerProven=false;
+ClaimClock::time_point nextAlive{};
 void resetInitialClaim() {
     if(initialClaim.array)api.gchandle_free(initialClaim.array);
     for(auto& entry:initialClaim.found)api.gchandle_free(entry.second.handle);
@@ -444,7 +464,7 @@ void remove(Instance instance,bool deactivate=true) {
     api.gchandle_free(instance.handle);
 }
 void discard(std::map<uint64_t,Instance>& values) noexcept {for(auto& entry:values)try{remove(entry.second);}catch(...){}values.clear();}
-void clear() {resetInitialClaim();discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;aliveCursor=0;peerProven=false;}
+void clear() {abandonApply();resetInitialClaim();discard(objects);api.call(syncPhysics,nullptr);applied=0;attempted=0;appliedCount=0;aliveCursor=0;peerProven=false;nextAlive={};}
 bool retainedAlive() {
     // A full hierarchy poll every 250 ms also creates periodic main-thread work.
     // Check a bounded slice; all retained roots are revisited across callbacks.
@@ -460,7 +480,8 @@ bool retainedAlive() {
     return true;
 }
 void forgetWorld() {
-    resetInitialClaim();aliveCursor=0;
+    abandonApply(true);
+    resetInitialClaim();aliveCursor=0;nextAlive={};
     for(auto& entry:objects)api.gchandle_free(entry.second.handle);
     objects.clear();applied=0;attempted=0;appliedCount=0;baseline=false;
 }
@@ -585,63 +606,116 @@ bool claimInitial() {
     }
 }
 
-void apply(const std::vector<Placement>& rows) {
+bool same(const Instance& old,const Placement& p) {
+    return old.uid==p.uid&&!memcmp(&old.pos,&p.pos,sizeof(Vec))&&!memcmp(&old.rot,&p.rot,sizeof(Quat))
+        &&!memcmp(&old.scale,&p.scale,sizeof(Vec));
+}
+struct EditWork {
+    enum Phase {Stage,FindRetired,Commit,Delete,Retire,Rollback,Done} phase=Done;
+    uint64_t revision=0,cursor=0;
+    size_t row=0,retiredCursor=0;
+    std::vector<Placement> rows;
+    std::set<uint64_t> present;
     std::map<uint64_t,Instance> staged;
-    std::map<uint64_t,bool> present;
+    std::vector<uint64_t> retired;
+    std::vector<GCHandle> disabled;
+    std::string error;
+} edit;
+void abandonApply(bool releaseOnly) {
+    if(releaseOnly){for(auto& entry:edit.staged)api.gchandle_free(entry.second.handle);}
+    else {
+        for(auto handle:edit.disabled)try{if(auto obj=api.gchandle_get_target(handle))active(obj,true);}catch(...){}
+        discard(edit.staged);
+    }
+    edit=EditWork{};editQueued=false;
+}
+void beginApply(std::vector<Placement> rows,uint64_t revision) {
+    if(edit.phase!=EditWork::Done)throw std::runtime_error("A preview edit is already in progress");
+    edit=EditWork{};edit.rows=std::move(rows);edit.revision=revision;edit.phase=EditWork::Stage;editQueued=true;
+}
+bool advanceApply(size_t maximum=EDIT_BATCH) {
+    auto deadline=ClaimClock::now()+MAIN_THREAD_SLICE;size_t mutations=0,scanned=0;bool physics=false;
     try {
-        for(auto& p:rows) {
-            Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
-            Object* prefab=api.call(findPrefab,manager,lookup);
-            if(!prefab)throw std::runtime_error("Rust could not load "+p.path+". Restart preview with this asset in the initial scene.");
-            if(isNetworked(prefab))continue;
-            present[p.key]=true;auto found=objects.find(p.key);
-            if(found!=objects.end()) {
-                auto& old=found->second;
-                if(old.uid==p.uid&&!memcmp(&old.pos,&p.pos,sizeof(Vec))&&!memcmp(&old.rot,&p.rot,sizeof(Quat))
-                        &&!memcmp(&old.scale,&p.scale,sizeof(Vec)))continue;
+        while(edit.phase!=EditWork::Done&&mutations<maximum&&scanned<EDIT_SCAN_BATCH&&ClaimClock::now()<deadline) {
+            if(edit.phase==EditWork::Stage) {
+                if(edit.row==edit.rows.size()){edit.phase=EditWork::FindRetired;edit.cursor=0;continue;}
+                auto& p=edit.rows[edit.row++];++scanned;
+                auto old=objects.find(p.key);
+                // Unchanged placements do not enter Unity or load any prefab.
+                if(old!=objects.end()&&same(old->second,p)){edit.present.insert(p.key);continue;}
+                ++mutations;
+                Object* path=api.string_new(p.path.c_str());void* lookup[]={path};
+                Object* prefab=api.call(findPrefab,manager,lookup);
+                if(!prefab)throw std::runtime_error("Rust could not load "+p.path+". Restart preview with this asset in the initial scene.");
+                if(isNetworked(prefab))continue;
+                edit.present.insert(p.key);
+                void* args[]={prefab,&p.pos,&p.rot};Object* obj=api.call(createPrefab,nullptr,args);physics=true;
+                if(!obj)throw std::runtime_error("Rust could not create "+p.path);
+                auto handle=api.gchandle_new(obj,false);
+                if(!handle){active(obj,false);void* destroy[]={obj};api.call(destroyObject,nullptr,destroy);throw std::runtime_error("Could not retain a preview object");}
+                edit.staged[p.key]={handle,p.uid,p.pos,p.rot,p.scale};
+                // Keep the previous scene until all creates/setters succeed.
+                active(obj,false);
+                Object* transform=api.call(getTransform,obj);
+                void* pos[]={&p.pos};void* rot[]={&p.rot};void* scale[]={&p.scale};
+                api.call(setPosition,transform,pos);api.call(setRotation,transform,rot);api.call(setScale,transform,scale);
+                void* nameArgs[]={path};api.call(setName,obj,nameArgs);
+            } else if(edit.phase==EditWork::FindRetired) {
+                auto it=objects.upper_bound(edit.cursor);
+                if(it==objects.end()){edit.phase=EditWork::Commit;edit.cursor=0;continue;}
+                edit.cursor=it->first;++scanned;
+                if(!edit.present.count(it->first)||edit.staged.count(it->first))edit.retired.push_back(it->first);
+            } else if(edit.phase==EditWork::Commit) {
+                auto it=edit.staged.upper_bound(edit.cursor);
+                if(it==edit.staged.end()){edit.phase=EditWork::Delete;edit.retiredCursor=0;continue;}
+                ++mutations;physics=true;
+                auto old=objects.find(it->first);
+                if(old!=objects.end())if(auto obj=api.gchandle_get_target(old->second.handle)){
+                    active(obj,false);edit.disabled.push_back(old->second.handle);
+                }
+                active(api.gchandle_get_target(it->second.handle),true);edit.cursor=it->first;
+            } else if(edit.phase==EditWork::Delete) {
+                if(edit.retiredCursor==edit.retired.size()){edit.phase=EditWork::Retire;edit.retiredCursor=0;continue;}
+                auto key=edit.retired[edit.retiredCursor++];++scanned;
+                if(edit.staged.count(key))continue;
+                ++mutations;physics=true;auto& old=objects.at(key);
+                if(auto obj=api.gchandle_get_target(old.handle)){active(obj,false);edit.disabled.push_back(old.handle);}
+            } else if(edit.phase==EditWork::Retire) {
+                if(edit.retiredCursor==edit.retired.size()){
+                    objects.merge(edit.staged);edit.disabled.clear();edit.phase=EditWork::Done;continue;
+                }
+                auto it=objects.find(edit.retired[edit.retiredCursor++]);++mutations;physics=true;
+                // Old roots are already inactive. Deferred destruction cannot
+                // leave stale colliders while cleanup yields between frames.
+                try{remove(it->second,false);}catch(...){}objects.erase(it);
+            } else if(edit.phase==EditWork::Rollback) {
+                ++mutations;physics=true;
+                if(!edit.disabled.empty()) {
+                    auto handle=edit.disabled.back();edit.disabled.pop_back();
+                    try{if(auto obj=api.gchandle_get_target(handle))active(obj,true);}catch(...){}
+                } else if(!edit.staged.empty()) {
+                    auto it=edit.staged.begin();try{remove(it->second);}catch(...){}edit.staged.erase(it);
+                } else edit.phase=EditWork::Done;
             }
-            // Stage replacements through the original lifecycle before retiring
-            // anything. A failed create preserves the complete previous scene.
-            void* args[]={prefab,const_cast<Vec*>(&p.pos),const_cast<Quat*>(&p.rot)};
-            Object* obj=api.call(createPrefab,nullptr,args);
-            if(!obj)throw std::runtime_error("Rust could not create "+p.path);
-            auto handle=api.gchandle_new(obj,false);
-            if(!handle){void* destroy[]={obj};api.call(destroyObject,nullptr,destroy);throw std::runtime_error("Could not retain a preview object");}
-            staged[p.key]={handle,p.uid,p.pos,p.rot,p.scale};
-            Object* transform=api.call(getTransform,obj);
-            void* pos[]={const_cast<Vec*>(&p.pos)};void* rot[]={const_cast<Quat*>(&p.rot)};void* scale[]={const_cast<Vec*>(&p.scale)};
-            api.call(setPosition,transform,pos);api.call(setRotation,transform,rot);api.call(setScale,transform,scale);
-            void* nameArgs[]={path};api.call(setName,obj,nameArgs);
-            bool active=true;void* activation[]={&active};api.call(setActive,obj,activation);
         }
-    }catch(...){discard(staged);api.call(syncPhysics,nullptr);throw;}
-    // First deactivate the entire retired set. A rejected deactivation restores
-    // the old scene and discards staged clones, just like a failed create.
-    std::vector<Object*> disabled;
-    try {
-        for(auto& entry:objects)if(!present.count(entry.first)||staged.count(entry.first)) {
-            Object* value=api.gchandle_get_target(entry.second.handle);
-            if(value){active(value,false);disabled.push_back(value);}
-        }
-    }catch(...) {
-        for(Object* value:disabled)try{active(value,true);}catch(...){}
-        discard(staged);api.call(syncPhysics,nullptr);throw;
-    }
-    for(auto it=objects.begin();it!=objects.end();) {
-        if(!present.count(it->first)||staged.count(it->first)){
-            // A Unity destroy failure must not leak a retained handle or skip
-            // cleanup of the rest of this bounded transaction.
-            try{remove(it->second,false);}catch(...){}
-            it=objects.erase(it);
-        }else ++it;
-    }
-    objects.merge(staged);
-    api.call(syncPhysics,nullptr);
+        if(physics)api.call(syncPhysics,nullptr);
+    }catch(const std::exception& error) {
+        edit.error=error.what();edit.phase=EditWork::Rollback;
+    }catch(...) {edit.error="Unexpected queued preview error";edit.phase=EditWork::Rollback;}
+    editQueued=edit.phase!=EditWork::Done;
+    return !editQueued;
+}
+// Standalone fixtures also exercise the original synchronous contract. Runtime
+// callbacks exclusively use begin/advance, including bounded rollback.
+void apply(const std::vector<Placement>& rows) {
+    beginApply(rows,0);while(!advanceApply()){}
+    if(!edit.error.empty())throw std::runtime_error(edit.error);
 }
 
 LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
     if(code>=0&&wp==PM_REMOVE&&reinterpret_cast<MSG*>(lp)->message==PREVIEW_MESSAGE) {
         if(callbackActive.test_and_set())return CallNextHookEx(hook,code,wp,lp);
+        struct Release {~Release(){callbackActive.clear();messageQueued=false;}} release;
         try {
             if(GetCurrentThreadId()!=windowThread)throw std::runtime_error("Wrong Unity window thread");
             if(stopping){if(ready)clear();stopped=true;}
@@ -650,15 +724,24 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
             if(!ready)try{initialize();}catch(...){initializationFailed=true;throw;}
             std::string connectionReason;Peer connection;
             if(!inPreviewWorld(connectionReason,&connection)){
+                editQueued=false;
                 pauseConnection(connectionReason);
             }
             else {
                 acceptConnection(connection);
-                if(baseline&&!retainedAlive())forgetWorld();
-                if(!baseline&&!claimInitial()) {
-                    callbackActive.clear();return CallNextHookEx(hook,code,wp,lp);
+                auto now=ClaimClock::now();
+                if(baseline&&edit.phase==EditWork::Done&&now>=nextAlive){
+                    nextAlive=now+std::chrono::seconds(1);if(!retainedAlive())forgetWorld();
                 }
-                std::vector<uint8_t> data;{std::lock_guard<std::mutex> lock(pendingMutex);data=pending;}
+                editQueued=edit.phase!=EditWork::Done||!baseline;
+                if(!baseline&&!claimInitial()) {
+                    return CallNextHookEx(hook,code,wp,lp);
+                }
+                std::vector<uint8_t> data;
+                if(edit.phase==EditWork::Done){std::lock_guard<std::mutex> lock(pendingMutex);
+                    if(!pending.empty()) {size_t offset=8;auto revision=take<uint64_t>(pending,offset);
+                        if(revision>applied&&revision!=attempted)data=pending;}
+                }
                 if(!data.empty()) {
                     size_t offset=8;uint64_t revision=take<uint64_t>(data,offset);
                     uint64_t serverRevision=0;
@@ -666,18 +749,24 @@ LRESULT CALLBACK onMessage(int code,WPARAM wp,LPARAM lp) {
                     if(revision>applied && revision!=attempted && serverRevision==revision) {
                         attempted=revision;
                         auto rows=decode(data,revision);
-                        apply(rows);
-                        applied=revision;appliedCount=rows.size();
+                        beginApply(std::move(rows),revision);
                     }
                 }
+                if(edit.phase!=EditWork::Done) {
+                    if(advanceApply()) {
+                        if(!edit.error.empty())status("ERROR",edit.error);
+                        else {applied=edit.revision;appliedCount=edit.rows.size();}
+                    } else status("UPDATING","Applying scene revision "+std::to_string(edit.revision)+": "+
+                        std::to_string(edit.row)+" / "+std::to_string(edit.rows.size())+" placements checked; "+
+                        std::to_string(edit.staged.size())+" changes queued.");
+                } else editQueued=false;
                 // Restore Ready after a pause even when no edit was made.
                 // Preserve a failed revision's error until a newer edit arrives.
-                if(applied&&attempted==applied)status("READY","Live scene revision "+std::to_string(applied)+" applied ("+std::to_string(appliedCount)+" placements).");
+                if(!editQueued&&applied&&attempted==applied)status("READY","Live scene revision "+std::to_string(applied)+" applied ("+std::to_string(appliedCount)+" placements).");
             }
             }
         }catch(const std::exception& error){status("ERROR",error.what());}
         catch(...){status("ERROR","Unexpected preview error. Restart your computer before launching Rust again after injection.");}
-        callbackActive.clear();
     }
     return CallNextHookEx(hook,code,wp,lp);
 }
@@ -687,25 +776,40 @@ BOOL CALLBACK findWindow(HWND hwnd,LPARAM) {
         window=hwnd;windowThread=thread;return FALSE;
     }return TRUE;
 }
-DWORD WINAPI run(void*) {try {
+void postPreview() {
+    bool expected=false;
+    if(messageQueued.compare_exchange_strong(expected,true)&&!PostMessageW(window,PREVIEW_MESSAGE,0,0)){
+        messageQueued=false;throw std::runtime_error("Could not schedule the preview callback");
+    }
+}
+DWORD WINAPI run(void*) {struct Finish{~Finish(){flushStatus();}} finish;try {
     if(!eacOff()){status("BLOCKED","EAC state failed verification inside the preview module.");return 1;}
     EnumWindows(findWindow,0);
     if(!window){status("ERROR","Rust has no Unity game window yet.");return 2;}
     hook=SetWindowsHookExW(WH_GETMESSAGE,onMessage,module,windowThread);
     if(!hook){status("ERROR","Could not register the local main-thread preview callback.");return 3;}
     status("STARTING","Waiting for the Unity main thread and local preview map.");
+    auto nextPoll=ClaimClock::time_point{},nextStatus=ClaimClock::time_point{};
     while(exists(L"active.flag")&&!exists(L"stop.flag")&&!exists(L"server.blocked")) {
         if(initializationFailed){UnhookWindowsHookEx(hook);return 8;}
+        auto now=ClaimClock::now();
+        if(now>=nextPoll){
         if(!eacOff()){status("BLOCKED","EAC became active or unreadable. Preview has stopped.");UnhookWindowsHookEx(hook);return 4;}
         // A missing/locked/replaced heartbeat pauses this iteration, never the
         // worker. EAC and session-stop checks still run on every iteration, and
         // the main-thread callback independently revalidates connection proof.
-        if(queueSnapshot())PostMessageW(window,PREVIEW_MESSAGE,0,0);
-        Sleep(250);
+        if(queueSnapshot())postPreview();
+        nextPoll=now+std::chrono::milliseconds(250);
+        }
+        // At most one message can await the Unity thread. A busy edit gets
+        // short slices; idle validation retains the original polling cadence.
+        if(editQueued)postPreview();
+        if(now>=nextStatus||!editQueued){flushStatus();nextStatus=now+std::chrono::milliseconds(250);}
+        Sleep(editQueued?16:50);
     }
     if(exists(L"server.blocked"))status("BLOCKED","The local server blocked this preview session. See server.blocked in Preview Logs.");
     else status("STOPPED","The Ruster preview session ended or Stop was requested. Close Rust fully before starting a new injected session.");
-    stopping=true;PostMessageW(window,PREVIEW_MESSAGE,0,0);
+    stopping=true;postPreview();
     for(int i=0;i<40&&!stopped;i++)Sleep(50);
     UnhookWindowsHookEx(hook);return 0;
 }catch(const std::exception& error){status("ERROR",error.what());if(hook)UnhookWindowsHookEx(hook);return 6;}
