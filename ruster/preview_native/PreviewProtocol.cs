@@ -89,4 +89,67 @@ namespace Ruster.Preview
             return result;
         }
     }
+    // Pure scheduling primitives shared with offline fixtures. Unity work is
+    // supplied by the companion as individual actions, never run on a worker.
+    internal sealed class EditStep
+    {
+        public Action run; public bool mutation;
+        public EditStep(Action value,bool changesScene=false){run=value;mutation=changesScene;}
+    }
+    internal sealed class EditPump : IDisposable
+    {
+        IEnumerator<EditStep> steps;
+        readonly Func<IEnumerator<EditStep>> rollback;
+        EditStep pending;
+        bool reverting;
+        public Exception Error { get; private set; }
+        public bool Done { get; private set; }
+        public int Completed { get; private set; }
+        public EditPump(IEnumerator<EditStep> work,Func<IEnumerator<EditStep>> undo){steps=work;rollback=undo;}
+        public void Advance(int maximumMutations=4,int maximumSteps=512,double milliseconds=4)
+        {
+            var clock=System.Diagnostics.Stopwatch.StartNew();int mutations=0,count=0;
+            while(!Done&&count<maximumSteps&&clock.Elapsed.TotalMilliseconds<milliseconds)
+            {
+                try
+                {
+                    if(pending==null)
+                    {
+                        if(!steps.MoveNext()){steps.Dispose();Done=true;break;}
+                        pending=steps.Current;
+                    }
+                    if(pending.mutation&&mutations>=maximumMutations)break;
+                    var step=pending;pending=null;count++;if(step.mutation)mutations++;
+                    step.run();Completed++;
+                }
+                catch(Exception error)
+                {
+                    if(Error==null)Error=error;
+                    if(!reverting){steps.Dispose();steps=rollback();reverting=true;pending=null;}
+                    // A rejected restore must not prevent cleanup of other
+                    // roots. Its original error remains visible to the user.
+                }
+            }
+        }
+        public void Dispose(){steps.Dispose();Done=true;pending=null;}
+    }
+    internal sealed class PlacementDelta
+    {
+        public readonly Dictionary<ulong,Placement> target=new Dictionary<ulong,Placement>();
+        public readonly List<Placement> changed=new List<Placement>();
+        public readonly List<ulong> removed=new List<ulong>();
+        public PlacementDelta(IDictionary<ulong,Placement> current,Snapshot snapshot,IDictionary<ulong,Placement> immutable)
+        {
+            foreach(var p in snapshot.placements)target.Add(p.key,p);
+            foreach(var entry in immutable)
+            {
+                Placement p;
+                if(!target.TryGetValue(entry.Key,out p)||!entry.Value.SamePlacement(p))
+                    throw new InvalidDataException("Compound monument cannot be live-transformed or deleted: "+entry.Value.path+
+                        ". Save the new layout and restart preview to rebuild its native map entities.");
+            }
+            foreach(var p in snapshot.placements){Placement old;if(!current.TryGetValue(p.key,out old)||!old.SamePlacement(p))changed.Add(p);}
+            foreach(var key in current.Keys)if(!target.ContainsKey(key))removed.Add(key);
+        }
+    }
 }

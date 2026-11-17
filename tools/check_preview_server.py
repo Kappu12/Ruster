@@ -32,6 +32,7 @@ def check(server):
             +[str(source/'PreviewProtocol.cs'), str(ROOT/'tests/preview_protocol_managed.cs')])
         binary.with_suffix('.runtimeconfig.json').write_text(json.dumps({'runtimeOptions': {'tfm': 'net'+'.'.join(runtime.split('.')[:2]),
             'framework': {'name': 'Microsoft.NETCore.App', 'version': runtime}}}))
+        subprocess.run(['dotnet',str(binary),'--queue'],check=True)
         path = folder/'snapshot.bin'
         for data, expected in protocol_cases():
             path.write_bytes(data)

@@ -145,6 +145,15 @@ file writes run on the worker thread, including waiting/ready transitions while
 idle. These changes reduce bridge work; they do not impose Rust render settings
 or prove a particular gameplay frame rate.
 
+The server companion uses the same four-millisecond / four-mutation target,
+with short scheduled slices instead of one long main-thread update. A linear
+placement diff skips unchanged prefab validation and recursive component scans;
+map-only prefab classifications are cached by their verified ID and path.
+Only the newest waiting revision is kept. Heartbeats and the console continue
+between slices, and the revision is acknowledged after collider retirement and
+physics synchronization. Creation/transform failures restore prior transforms
+and remove staged roots through the bounded rollback queue.
+
 ## Current limits and validation
 
 This is an experimental implementation, not a claim of verified current-game

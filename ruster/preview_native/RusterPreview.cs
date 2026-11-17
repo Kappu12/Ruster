@@ -10,7 +10,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.4")]
+    [Info("RusterPreview", "Ruster", "0.3.5")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -25,6 +25,19 @@ namespace Oxide.Plugins
         }
         readonly Dictionary<ulong,GameObject> objects=new Dictionary<ulong,GameObject>();
         readonly Dictionary<ulong,Placement> mapOnly=new Dictionary<ulong,Placement>();
+        Dictionary<ulong,Placement> current=new Dictionary<ulong,Placement>();
+        readonly Dictionary<uint,bool> templateKinds=new Dictionary<uint,bool>();
+        readonly Dictionary<uint,string> templatePaths=new Dictionary<uint,string>();
+        sealed class EditTransaction
+        {
+            public Snapshot snapshot;public PlacementDelta delta;
+            public readonly Dictionary<ulong,GameObject> staged=new Dictionary<ulong,GameObject>();
+            public readonly List<TransformState> restored=new List<TransformState>();
+            public readonly List<GameObject> retired=new List<GameObject>();
+            public bool committed;
+            public Dictionary<ulong,GameObject> next;
+        }
+        EditTransaction edit;EditPump pump;Snapshot waiting;bool editScheduled;double nextProgress;
         string directory; SessionConfig config;
         long revision,attemptedStamp; double nextHeartbeat; bool initialized;
         bool Active() { return File.Exists(Path.Combine(directory,"active.flag"))&&!File.Exists(Path.Combine(directory,"stop.flag")); }
@@ -68,7 +81,8 @@ namespace Oxide.Plugins
                     var obj=candidates.FirstOrDefault(o=>o!=null&&o.name==p.path&&(o.transform.position-position).sqrMagnitude<0.0001f);
                     if(obj==null)throw new Exception("Cannot claim initial map placement "+p.path);
                     candidates.Remove(obj);claimed.Add(p.key,obj);
-                    if(MapOnly(obj)||MapOnly(GameManager.server.FindPrefab(p.path)))mapOnly.Add(p.key,p);
+                    if(MapOnly(obj)||TemplateMapOnly(p))mapOnly.Add(p.key,p);
+                    current.Add(p.key,p);
                 }
                 if(!Active())return;
                 // Claim only after the entire initial scene has matched.
@@ -98,12 +112,12 @@ namespace Oxide.Plugins
         void Tick()
         {
             if(!initialized)return;
+            var now=(DateTime.UtcNow-new DateTime(1970,1,1)).TotalSeconds;
             try
             {
                 if(!Active()){Cleanup();return;}
                 if(Network.Net.sv.secure||ConVar.Server.ip!="127.0.0.1"||config.url!=World.Url)
                 {Write("server.blocked","Preview requires inactive EAC, loopback networking and the owned map.");Cleanup();return;}
-                var now=(DateTime.UtcNow-new DateTime(1970,1,1)).TotalSeconds;
                 if(now>=nextHeartbeat)
                 {
                     Write("server.ready",JsonConvert.SerializeObject(new{protocol=1,client_protocol=2,secure=Network.Net.sv.secure,ip=ConVar.Server.ip,timestamp=now,pid=Process.GetCurrentProcess().Id,token=config.token}));
@@ -124,10 +138,16 @@ namespace Oxide.Plugins
             try
             {
                 var path=Path.Combine(directory,"scene.bin");var stamp=File.GetLastWriteTimeUtc(path).Ticks;
+                if(pump!=null&&now>=nextProgress)
+                {Write("server.status","UPDATING\nApplying scene revision "+edit.snapshot.revision+"; "+pump.Completed+" queued steps finished");nextProgress=now+.25;}
                 if(stamp==attemptedStamp)return;
                 attemptedStamp=stamp;
                 var snapshot=Snapshot.Read(path);
-                if(snapshot.revision>revision)Apply(snapshot);
+                if(snapshot.revision>revision)
+                {
+                    if(pump==null)Apply(snapshot);
+                    else if(snapshot.revision>edit.snapshot.revision&&(waiting==null||snapshot.revision>waiting.revision))waiting=snapshot;
+                }
             }
             catch(Exception error){Write("server.status","ERROR\n"+error.Message);}
         }
@@ -187,64 +207,100 @@ namespace Oxide.Plugins
             foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true))
             {entity.networkEntityScale=true;entity.UpdateNetworkGroup();entity.SendNetworkUpdateImmediate();}
         }
+        bool TemplateMapOnly(Placement p)
+        {
+            string known;bool kind;
+            if(templatePaths.TryGetValue(p.uid,out known)&&known==p.path&&templateKinds.TryGetValue(p.uid,out kind))return kind;
+            var prefab=GameManager.server.FindPrefab(p.path);
+            if(StringPool.Get(p.uid)!=p.path||prefab==null)throw new Exception("Rust cannot load "+p.path+"; restart preview with this asset in the initial map");
+            kind=MapOnly(prefab);templateKinds[p.uid]=kind;templatePaths[p.uid]=p.path;return kind;
+        }
         void Apply(Snapshot snapshot)
         {
-            foreach(var entry in mapOnly)
-                if(!entry.Value.SamePlacement(snapshot.placements.FirstOrDefault(p=>p.key==entry.Key)))
-                    throw new Exception("Compound monument cannot be live-transformed or deleted: "+entry.Value.path+
-                        ". Save the new layout and restart preview to rebuild its native map entities.");
-            foreach(var p in snapshot.placements)
-            {
-                var prefab=GameManager.server.FindPrefab(p.path);
-                if(StringPool.Get(p.uid)!=p.path||prefab==null)throw new Exception("Rust cannot load "+p.path+"; restart preview with this asset in the initial map");
-                if(!mapOnly.ContainsKey(p.key)&&MapOnly(prefab))throw new Exception("Compound monument requires map initialization: "+p.path+
+            edit=new EditTransaction{snapshot=snapshot,delta=new PlacementDelta(current,snapshot,mapOnly),next=new Dictionary<ulong,GameObject>(objects)};
+            var transaction=edit;pump=new EditPump(ApplySteps(transaction).GetEnumerator(),()=>RollbackSteps(transaction).GetEnumerator());
+            ScheduleEdit();
+        }
+        IEnumerable<EditStep> ApplySteps(EditTransaction job)
+        {
+            foreach(var p in job.delta.changed)yield return new EditStep(()=>{
+                if(!mapOnly.ContainsKey(p.key)&&TemplateMapOnly(p))throw new Exception("Compound monument requires map initialization: "+p.path+
                     ". Add it to the saved composition before starting preview, or export a map and reload it.");
-            }
-            var staged=new Dictionary<ulong,GameObject>();var restored=new List<TransformState>();var next=new Dictionary<ulong,GameObject>();
-            try
+            });
+            foreach(var p in job.delta.changed)
             {
-                foreach(var p in snapshot.placements)
-                {
-                    GameObject obj;
-                    if(!objects.TryGetValue(p.key,out obj)||obj==null||obj.name!=p.path)
-                    {
-                        obj=GameManager.server.CreatePrefab(p.path,Vector(p.position),Rotation(p),Vector(p.scale));
-                        if(obj==null)throw new Exception("Rust cannot create "+p.path);
-                        staged.Add(p.key,obj);
-                        foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true)){entity.enableSaving=false;if(entity.net==null)entity.Spawn();}
-                        Transform(obj,p);
-                    }
-                    next.Add(p.key,obj);
-                }
-                foreach(var p in snapshot.placements)
-                {
-                    if(staged.ContainsKey(p.key))continue;
-                    var obj=next[p.key];
-                    if(obj.transform.position==Vector(p.position)&&obj.transform.rotation==Rotation(p)&&obj.transform.localScale==Vector(p.scale))continue;
-                    restored.Add(new TransformState(obj));Transform(obj,p);
-                }
-                Physics.SyncTransforms();
+                GameObject existing;Placement old;
+                if(objects.TryGetValue(p.key,out existing)&&existing!=null&&current.TryGetValue(p.key,out old)&&old.uid==p.uid&&old.path==p.path)continue;
+                yield return new EditStep(()=>{
+                    var obj=GameManager.server.CreatePrefab(p.path,Vector(p.position),Rotation(p),Vector(p.scale));
+                    if(obj==null)throw new Exception("Rust cannot create "+p.path);
+                    job.staged.Add(p.key,obj);job.next[p.key]=obj;
+                    foreach(var entity in obj.GetComponentsInChildren<BaseEntity>(true)){entity.enableSaving=false;if(entity.net==null)entity.Spawn();}
+                    Transform(obj,p);
+                },true);
             }
-            catch
+            foreach(var p in job.delta.changed)
             {
-                foreach(var state in restored)try
-                {
-                    state.Restore();
-                    if(state.obj!=null)foreach(var entity in state.obj.GetComponentsInChildren<BaseEntity>(true))
-                    {entity.UpdateNetworkGroup();entity.SendNetworkUpdateImmediate();}
-                }
-                catch(Exception error){PrintError("Preview transform rollback: "+error.Message);}
-                foreach(var obj in staged.Values)Destroy(obj);
-                try{Physics.SyncTransforms();}catch(Exception error){PrintError(error.Message);}
-                throw;
+                if(job.staged.ContainsKey(p.key))continue;
+                yield return new EditStep(()=>{var obj=job.next[p.key];job.restored.Add(new TransformState(obj));Transform(obj,p);},true);
             }
-            var retired=objects.Where(e=>!next.ContainsKey(e.Key)||next[e.Key]!=e.Value).Select(e=>e.Value).ToArray();
-            objects.Clear();foreach(var entry in next)objects.Add(entry.Key,entry.Value);
-            foreach(var obj in retired)Destroy(obj);
-            Physics.SyncTransforms();
-            revision=snapshot.revision;
-            Write("server.revision",revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Write("server.status","READY\nServer scene revision "+revision+" ("+objects.Count+" placements)");
+            yield return new EditStep(()=>Physics.SyncTransforms(),true);
+            foreach(var key in job.delta.removed)job.next.Remove(key);
+            // All potentially failing creations/setters have succeeded. Old
+            // collider roots retire in small batches, before the acknowledgement.
+            foreach(var entry in objects)
+            {
+                GameObject next;
+                if(job.next.TryGetValue(entry.Key,out next)&&next==entry.Value)continue;
+                job.retired.Add(entry.Value);
+            }
+            yield return new EditStep(()=>{
+                objects.Clear();foreach(var entry in job.next)objects.Add(entry.Key,entry.Value);
+                current=job.delta.target;job.committed=true;
+            });
+            foreach(var obj in job.retired){var retired=obj;yield return new EditStep(()=>Destroy(retired),true);}
+            yield return new EditStep(()=>{
+                Physics.SyncTransforms();revision=job.snapshot.revision;
+                Write("server.revision",revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                Write("server.status","READY\nServer scene revision "+revision+" ("+objects.Count+" placements)");
+            },true);
+        }
+        IEnumerable<EditStep> RollbackSteps(EditTransaction job)
+        {
+            if(job.committed)
+            {
+                // Destructive retirement has started: preserve ownership of
+                // the new scene and finish old-root cleanup, without claiming
+                // the failed revision was acknowledged successfully.
+                foreach(var obj in job.retired){var value=obj;yield return new EditStep(()=>Destroy(value),true);}
+                yield break;
+            }
+            for(int i=job.restored.Count-1;i>=0;i--){var state=job.restored[i];yield return new EditStep(()=>{
+                state.Restore();if(state.obj!=null)foreach(var entity in state.obj.GetComponentsInChildren<BaseEntity>(true))
+                {entity.UpdateNetworkGroup();entity.SendNetworkUpdateImmediate();}
+            },true);}
+            foreach(var obj in job.staged.Values){var value=obj;yield return new EditStep(()=>Destroy(value),true);}
+            yield return new EditStep(()=>Physics.SyncTransforms(),true);
+        }
+        void ScheduleEdit()
+        {
+            if(editScheduled||pump==null)return;editScheduled=true;timer.Once(.02f,AdvanceEdit);
+        }
+        void AdvanceEdit()
+        {
+            editScheduled=false;if(!initialized||pump==null)return;
+            if(!Active()){Cleanup();return;}
+            if(Network.Net.sv.secure||ConVar.Server.ip!="127.0.0.1"||config.url!=World.Url)
+            {Write("server.blocked","Preview session verification failed during a queued edit.");Cleanup();return;}
+            pump.Advance();
+            if(pump.Done)
+            {
+                if(pump.Error!=null)Write("server.status","ERROR\n"+pump.Error.Message);
+                pump.Dispose();pump=null;edit=null;
+                var latest=waiting;waiting=null;
+                if(latest!=null&&latest.revision>revision)try{Apply(latest);}catch(Exception error){Write("server.status","ERROR\n"+error.Message);}
+            }
+            ScheduleEdit();
         }
         void Destroy(GameObject obj)
         {
@@ -268,8 +324,10 @@ namespace Oxide.Plugins
         void Cleanup()
         {
             initialized=false;
+            if(pump!=null)pump.Dispose();pump=null;waiting=null;
             if(!string.IsNullOrWhiteSpace(directory)){Delete("server.ready");Delete("client.connected");}
-            foreach(var obj in objects.Values)Destroy(obj);objects.Clear();mapOnly.Clear();
+            var owned=new HashSet<GameObject>(objects.Values);if(edit!=null){foreach(var obj in edit.staged.Values)owned.Add(obj);foreach(var obj in edit.retired)owned.Add(obj);}edit=null;
+            foreach(var obj in owned)Destroy(obj);objects.Clear();mapOnly.Clear();current.Clear();templateKinds.Clear();templatePaths.Clear();
             Physics.SyncTransforms();
         }
         void Unload(){Cleanup();}
