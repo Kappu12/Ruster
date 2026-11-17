@@ -152,7 +152,8 @@ map-only prefab classifications are cached by their verified ID and path.
 Only the newest waiting revision is kept. Heartbeats and the console continue
 between slices, and the revision is acknowledged after collider retirement and
 physics synchronization. Creation/transform failures restore prior transforms
-and remove staged roots through the bounded rollback queue.
+and remove staged roots through the bounded rollback queue. A progress tick
+preserves the acknowledged readiness status when the final step uses its slice.
 
 ## Current limits and validation
 
@@ -200,6 +201,16 @@ records the underlying exception if a client is disconnected during readiness,
 and the companion writes disconnect reasons to `client.disconnect`. A successful
 server boot verifies cache installation, but a real first connection is still
 needed to confirm a reported first-join kick is resolved.
+
+The confirmed first-join failure in the installed server came from
+`BasePlayer.SendCargoPatrolPath`, which reads `CargoShip`'s static harbor list
+during `PlayerInit`. Harbor preload objects register paths there without
+unregistering them on destruction. The companion now prunes destroyed and
+underground preload registrations, preserving live authored harbors, resets
+the route calculation/cache after removal, and exercises the native route
+getters before reporting readiness. This also removes the dead paths that
+caused cargo movement exceptions. `server.routes` records the cleanup and
+native validation. Network packet validation remains unchanged.
 The initial composition's placement
 center is translated to the origin in the preview snapshots; the project itself
 stays unchanged. That translation stays fixed during edits and resets when a

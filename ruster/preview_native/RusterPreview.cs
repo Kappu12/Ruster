@@ -1,16 +1,18 @@
 // Ruster's local Carbon/Oxide companion. GPL-3.0-or-later.
 // Installation appends PreviewProtocol.cs for Carbon's single-file compiler.
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Newtonsoft.Json;
 using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.6")]
+    [Info("RusterPreview", "Ruster", "0.3.7")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -40,7 +42,7 @@ namespace Oxide.Plugins
         EditTransaction edit;EditPump pump;Snapshot waiting;bool editScheduled;double nextProgress;
         string directory; SessionConfig config;
         long revision,attemptedStamp; double nextHeartbeat; bool initialized;
-        GameObject previewSpawn;int previousDeveloper;bool diagnostics;
+        GameObject previewSpawn;int previousDeveloper;bool diagnostics;int removedPreloadHarbors;
         bool Active() { return File.Exists(Path.Combine(directory,"active.flag"))&&!File.Exists(Path.Combine(directory,"stop.flag")); }
         static string ReadText(string path,long maximum)
         {
@@ -142,7 +144,9 @@ namespace Oxide.Plugins
             try
             {
                 var path=Path.Combine(directory,"scene.bin");var stamp=File.GetLastWriteTimeUtc(path).Ticks;
-                if(pump!=null&&now>=nextProgress)
+                // The final physics step can consume the slice after it has
+                // written READY. A later progress tick must not overwrite it.
+                if(pump!=null&&edit.snapshot.revision>revision&&now>=nextProgress)
                 {Write("server.status","UPDATING\nApplying scene revision "+edit.snapshot.revision+"; "+pump.Completed+" queued steps finished");nextProgress=now+.25;}
                 if(stamp==attemptedStamp)return;
                 attemptedStamp=stamp;
@@ -159,6 +163,12 @@ namespace Oxide.Plugins
         {if(!string.IsNullOrWhiteSpace(directory)){Delete("client.connected");Write("client.disconnect",JsonConvert.SerializeObject(new{timestamp=DateTime.UtcNow.ToString("o"),reason}));}}
         static bool WarmupPosition(Vector3 p)
         {return p.x>=9000&&p.y<=-5000&&p.z>=9000&&p.z<=11000;}
+        static bool IsAuthored(Transform node,HashSet<Transform> authoredRoots)
+        {
+            for(var parent=node;parent!=null;parent=parent.parent)
+                if(authoredRoots.Contains(parent))return true;
+            return false;
+        }
         void ClearDetachedWarmups()
         {
             if(string.IsNullOrWhiteSpace(directory)||!Active()||Network.Net.sv.secure||config.url!=World.Url)return;
@@ -170,14 +180,72 @@ namespace Oxide.Plugins
             foreach(var behaviour in UnityEngine.Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude,FindObjectsSortMode.None))
             {
                 if(behaviour==null||!behaviour.gameObject.scene.IsValid()||!WarmupPosition(behaviour.transform.position))continue;
-                var node=behaviour.transform;bool authored=false;
-                for(var parent=node;parent!=null;parent=parent.parent)if(protectedRoots.Contains(parent)){authored=true;break;}
-                if(authored||behaviour.GetComponentInParent<BasePlayer>()!=null)continue;
+                var node=behaviour.transform;
+                if(IsAuthored(node,protectedRoots)||behaviour.GetComponentInParent<BasePlayer>()!=null)continue;
                 while(node.parent!=null&&WarmupPosition(node.parent.position))node=node.parent;
                 retired.Add(node.gameObject);
             }
             foreach(var obj in retired)Destroy(obj);
             if(retired.Count>0)Puts("Removed "+retired.Count+" detached preload roots and their scheduled callbacks.");
+            PrunePreloadHarbors(protectedRoots);
+        }
+        void PrunePreloadHarbors(HashSet<Transform> authoredRoots)
+        {
+            // Harbor Awake registers paths in a static list. Destroying its
+            // preload hierarchy does not unregister them. PlayerInit reads
+            // that list before OnPlayerConnected and a dead path kicks the
+            // first player as "Invalid Packet: Client Ready".
+            const BindingFlags staticFields=BindingFlags.Static|BindingFlags.NonPublic|BindingFlags.Public;
+            const BindingFlags instanceFields=BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public;
+            var registry=typeof(CargoShip).GetField("harbors",staticFields);
+            var calculated=typeof(CargoShip).GetField("hasCalculatedApproaches",staticFields);
+            var cache=typeof(BasePlayer).GetField("cachedOceanPaths",staticFields);
+            var oceanField=typeof(TerrainPath).GetField("OceanPatrolFar",instanceFields);
+            if(registry==null || !registry.FieldType.IsGenericType || registry.FieldType.GetGenericTypeDefinition()!=typeof(List<>)
+                || calculated?.FieldType!=typeof(bool) || calculated.IsInitOnly
+                || cache?.FieldType!=typeof(ProtoBuf.OceanPaths) || cache.IsInitOnly
+                || oceanField?.FieldType!=typeof(List<Vector3>))
+                throw new Exception("This Rust build does not expose the expected cargo route registry");
+            var entryType=registry.FieldType.GetGenericArguments()[0];
+            var pathField=entryType.GetField("harborPath",instanceFields);
+            var transformField=entryType.GetField("harborTransform",instanceFields);
+            if(pathField?.FieldType!=typeof(BasePath) || transformField?.FieldType!=typeof(Transform))
+                throw new Exception("Unexpected native harbor registration layout");
+            var entries=registry.GetValue(null) as IList;
+            if(entries==null || entries.IsReadOnly)throw new Exception("Native harbor registrations are unavailable");
+            int removed=0;
+            for(int i=entries.Count-1;i>=0;i--)
+            {
+                var entry=entries[i];
+                var path=pathField.GetValue(entry) as BasePath;
+                var harbor=transformField.GetValue(entry) as Transform;
+                bool valid=path!=null && harbor!=null && path.gameObject.scene.IsValid()
+                    && path.nodes!=null && path.nodes.Count>0 && path.nodes.All(node=>node!=null);
+                if(valid && (!WarmupPosition(harbor.position) || IsAuthored(harbor,authoredRoots)))continue;
+                entries.RemoveAt(i);
+                removed++;
+            }
+            if(removed>0)
+            {
+                removedPreloadHarbors+=removed;
+                calculated.SetValue(null,false);
+                // A failed PlayerInit can leave a partially populated cache.
+                // Drop its reference; it aliases native terrain-owned lists.
+                cache.SetValue(null,null);
+                Puts("Removed "+removed+" invalid preload harbor registrations.");
+            }
+            var ocean=TerrainMeta.Path==null?null:oceanField.GetValue(TerrainMeta.Path) as List<Vector3>;
+            int validated=0;
+            if(ocean!=null&&ocean.Count>0)
+                for(int i=0;i<CargoShip.TotalAvailableHarborDockingPaths;i++)
+                {
+                    var route=CargoShip.GetCargoApproachPath(i);
+                    if(route==null||route.Count==0)throw new Exception("Native cargo route validation failed");
+                    validated++;
+                }
+            Write("server.routes",JsonConvert.SerializeObject(new{
+                removedPreloadHarbors,retainedHarbors=entries.Count,oceanRoutePoints=ocean?.Count??0,
+                validatedCargoRoutes=validated,nativeRouteResolutionPassed=validated==entries.Count}));
         }
         void InstallPreviewSpawn()
         {
