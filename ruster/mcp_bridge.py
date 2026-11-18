@@ -186,7 +186,12 @@ class RusterMCPServer(BlenderMCPServer):
         if kind in {'list_map_objects','list_objects'}:return mcp_prefab_ops.list_objects(self,params,sys.modules[__name__])
         if kind=='validate_map':
             from . import map_prefabs
-            errors,notes=map_prefabs.validate();return {'valid':not errors,'errors':errors,'notes':notes}
+            return map_prefabs.validation_status(require_ground=params.get('require_ground') is True)
+        if kind=='export_project_report':
+            from . import project_report
+            overwrite=params.get('overwrite') is True
+            target=file_target(params.get('path'),'.docx',overwrite)
+            return project_report.export(target,overwrite=overwrite)
         # There is deliberately no generic eval/exec or upstream asset downloader.
         if kind not in {'place_prefab','transform_object','duplicate_object','delete_object','save_project','export_map','undo','redo'}:
             raise ValueError('Unsupported Ruster MCP command; arbitrary Python and prefab mesh editing are not exposed')
@@ -196,7 +201,8 @@ class RusterMCPServer(BlenderMCPServer):
             if kind=='save_project':app.save_project(target)
             else:
                 from . import map_prefabs
-                map_prefabs.export_map(target)
+                map_prefabs.export_map(target,overwrite=params.get('overwrite') is True,
+                                       require_ground=params.get('require_ground') is True)
             return {'path':str(target)}
         if kind in {'undo','redo'}:
             result=getattr(bpy.ops.ed,kind)()

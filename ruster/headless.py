@@ -1,8 +1,9 @@
-"""Persistent background Blender host; every scene operation stays on its main thread."""
+"""One-shot commands and persistent hosting in background Blender."""
 import json
 import os
 import signal
 import time
+from zipfile import BadZipFile
 
 import bpy
 
@@ -10,6 +11,40 @@ from . import app, live_preview, mcp_bridge, studio
 from .core import mcp_config, settings
 from .core.headless import DEFAULT_PORT, ProfileLock
 from .core.steam import resolve_install
+
+
+def run_batch(project, options):
+    """Open a saved input, perform one action, and leave the profile disposable."""
+    from . import map_prefabs, scene
+
+    action = options['action']
+    try:
+        bpy.context.preferences.edit.use_global_undo = False
+        studio.new_prefab()
+        app.open_path(project)
+        require_ground = options['require_ground']
+        if action == 'validate_map':
+            result = map_prefabs.validation_status(require_ground=require_ground)
+        elif action == 'export_map':
+            overwrite = options['overwrite']
+            path = mcp_bridge.file_target(options['path'], '.map', overwrite)
+            map_prefabs.export_map(path, overwrite=overwrite, require_ground=require_ground)
+            result = {'path': str(path)}
+        else:
+            from . import project_report
+            overwrite = options['overwrite']
+            path = mcp_bridge.file_target(options['path'], '.docx', overwrite)
+            result = project_report.export(path, overwrite=overwrite)
+        result.update(action=action, prefab_count=len(scene.prefab_roots()),
+                      native_ground=bpy.context.scene.ruster.native_ground)
+        print('RUSTER_BATCH_RESULT ' + json.dumps(result), flush=True)
+        return result.get('valid', True) if action == 'validate_map' else True
+    except (BadZipFile, OSError, ValueError) as error:
+        print('RUSTER_BATCH_RESULT ' + json.dumps({'action': action, 'error': str(error)}), flush=True)
+        return False
+    finally:
+        import ruster
+        ruster.unregister()
 
 
 def configure():

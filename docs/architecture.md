@@ -8,7 +8,7 @@ Blender's runtime; users do not install an add-on manually.
 | Module | Responsibility |
 |---|---|
 | `ruster/app.py` | Operators, startup, project lifecycle, worker management |
-| `ruster/headless.py` | Persistent background host, main-thread command/asset pump and orderly shutdown |
+| `ruster/headless.py` | One-shot background commands, persistent MCP host and main-thread command/asset pump |
 | `ruster/core/headless.py` | Shared CLI profile selection and process-owned profile lock |
 | `ruster/ui.py` | Native UI menus, panels, workspace configuration |
 | `ruster/scene.py` | Scene construction, shared model instances, validation and export |
@@ -27,10 +27,15 @@ Blender's runtime; users do not install an add-on manually.
 | `ruster/core/legacy_lz4.py` | Dependency-free legacy LZ4Stream reader/writer |
 | `ruster/core/rust_map.py` | Rust map header, world, layers and prefab records |
 | `ruster/core/project.py` | Versioned `.ruster` archive and atomic saving |
+| `ruster/project_report.py` | Word export of scene inventory and map validation |
 | `ruster/assets/catalog.py` | SQLite local prefab, bundle and dependency catalog |
 | `ruster/assets/worker.py` | UnityPy indexing and mesh/material conversion |
 
 ## Headless sessions
+
+One-shot validation, map exports and Word reports use a temporary profile and
+the shared project loader and validation code. The launcher exits after the
+operation and does not start the MCP listener.
 
 `launch.py --headless` sets an explicit host mode and starts Blender with
 `--background`. Bootstrap registers the same application and enters

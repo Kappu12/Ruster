@@ -180,9 +180,11 @@ def dispatch(server,kind,p,bridge):
             'objects':[bridge.object_info(server,o.name,False,hierarchy) for o in objects[offset:offset+limit]],
             'next_offset':offset+limit if offset+limit<len(objects) else None}
     if kind=='get_export_formats':
+        from importlib.util import find_spec
         from . import model_export
         return {'formats':[{'id':key,'extension':model_export.FORMATS[key][1],'label':label} for key,label,_ in model_export.available_formats()],
-            'placement_formats':['.prefab','.rusterprefab','.map'],'model_budget':{'unique_vertices':2000000,'mesh_instances':50000}}
+            'placement_formats':['.prefab','.rusterprefab','.map'],'report_formats':['.docx'] if find_spec('docx') else [],
+            'model_budget':{'unique_vertices':2000000,'mesh_instances':50000}}
     if kind=='get_io_settings':
         studio,found=io_settings(p['name'],bridge)
         return {'name':p['name'],'settings':{name:studio.io_value(found[-1],name) for name in studio.IO_SETTINGS},'wiring_editable':False}

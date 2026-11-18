@@ -8,11 +8,16 @@ if exist "runtime\5.2\python\bin\python.exe" (
 )
 set "ruster_exit=%errorlevel%"
 if "%ruster_exit%"=="0" exit /b 0
-:check_headless
+:check_automation
 if "%~1"=="" goto show_error
-if /I "%~1"=="--headless" exit /b %ruster_exit%
+set "ruster_option="
+for /f "tokens=1 delims==" %%A in ("%~1") do set "ruster_option=%%A"
+if /I "%ruster_option%"=="--headless" exit /b %ruster_exit%
+if /I "%ruster_option%"=="--validate-map" exit /b %ruster_exit%
+if /I "%ruster_option%"=="--export-map" exit /b %ruster_exit%
+if /I "%ruster_option%"=="--export-report" exit /b %ruster_exit%
 shift
-goto check_headless
+goto check_automation
 :show_error
 pause
 exit /b %ruster_exit%

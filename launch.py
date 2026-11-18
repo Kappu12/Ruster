@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Launch a separate Ruster application process using a bundled or local Blender."""
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -58,41 +59,72 @@ def main():
     parser.add_argument('--user-dir', help='Settings/cache directory (headless defaults to a separate profile)')
     parser.add_argument('--mcp-port', type=int, help='Headless MCP port (default 9878 on first use)')
     parser.add_argument('--rust-install', help='Rust game directory to index in headless mode')
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument('--validate-map', action='store_true', help='Validate the input project for map export and exit')
+    actions.add_argument('--export-map', metavar='OUTPUT.map', help='Write a native Rust map and exit')
+    actions.add_argument('--export-report', metavar='OUTPUT.docx', help='Write a Word project report and exit')
+    parser.add_argument('--require-ground', action='store_true', help='Require native ground for map validation or export')
+    parser.add_argument('--overwrite', action='store_true', help='Allow the one-shot export to replace the output file')
     args = parser.parse_args()
     if (args.mcp_port is not None or args.rust_install) and not args.headless:
         parser.error('--mcp-port and --rust-install require --headless')
     if args.mcp_port is not None and not 1024 <= args.mcp_port <= 65535:
         parser.error('--mcp-port must be between 1024 and 65535')
+    project = Path(args.project).expanduser().resolve() if args.project else None
+    if project and (project.suffix.lower() not in ('.map', '.prefab', '.ruster') or not project.is_file()):
+        parser.error('Choose an existing .map, .prefab or .ruster file')
+    output = args.export_map if args.export_map is not None else args.export_report
+    batch = None
+    if args.validate_map or output is not None:
+        if args.headless or args.background or args.user_dir is not None:
+            parser.error('One-shot commands use a temporary profile and run without --headless, --background or --user-dir')
+        if project is None or project.suffix.lower() == '.map':
+            parser.error('One-shot commands need a .ruster or .prefab input; opening a .map only imports placements')
+        batch = {'action': 'validate_map', 'require_ground': args.require_ground}
+        if output is not None:
+            exporting_map = args.export_map is not None
+            destination = Path(output).expanduser().resolve()
+            extension = '.map' if exporting_map else '.docx'
+            if destination.suffix.lower() != extension:
+                parser.error(f'The destination must end with {extension}')
+            batch.update(action='export_map' if exporting_map else 'export_report',
+                         path=str(destination), overwrite=args.overwrite)
+    if args.overwrite and output is None:
+        parser.error('--overwrite requires an export')
+    if args.require_ground and not (args.validate_map or args.export_map is not None):
+        parser.error('--require-ground requires --validate-map or --export-map')
+    scratch = None
     try:
         executable = find_blender(args.blender)
         sys.path.insert(0, str(ROOT))
         from ruster.core.headless import configure_user_dir
-        configure_user_dir(args.user_dir, headless=args.headless)
-        from ruster.core.settings import user_root
+        if batch:
+            scratch = tempfile.TemporaryDirectory(prefix='ruster-batch-')
+        user_dir = configure_user_dir(scratch.name if scratch else args.user_dir, headless=args.headless)
         env = os.environ.copy()
-        # Do not inherit a host mode accidentally when launching the desktop.
+        # Prevent an inherited launcher mode from changing this invocation.
         env.pop('RUSTER_HEADLESS', None)
+        env.pop('RUSTER_BATCH', None)
+        if batch:
+            env['RUSTER_BATCH'] = json.dumps(batch)
         if args.headless:
             env['RUSTER_HEADLESS'] = '1'
             if args.mcp_port is not None:env['RUSTER_HEADLESS_PORT'] = str(args.mcp_port)
             if args.rust_install:env['RUSTER_HEADLESS_RUST_INSTALL'] = str(Path(args.rust_install).expanduser().resolve())
         env['RUSTER_LAUNCHER_PID'] = str(os.getpid())
-        env['BLENDER_USER_CONFIG'] = str(user_root() / 'blender-config')
-        env['BLENDER_USER_SCRIPTS'] = str(user_root() / 'blender-scripts')
+        env['BLENDER_USER_CONFIG'] = str(user_dir / 'blender-config')
+        env['BLENDER_USER_SCRIPTS'] = str(user_dir / 'blender-scripts')
         if (ROOT/'ruster/branding/splash.png').is_file():
             env['BLENDER_CUSTOM_SPLASH']=str(ROOT/'ruster/branding/splash.png')
         if (ROOT/'python_modules').exists():
             env['RUSTER_PYTHON_MODULES'] = str(ROOT/'python_modules')
         command = [executable, '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
                    '--python', str(ROOT/'bootstrap.py')]
-        if args.background or args.headless:
+        if args.background or args.headless or batch:
             command.insert(1, '--background')
-        if args.project:
-            path = Path(args.project).expanduser().resolve()
-            if path.suffix.lower() not in ('.map', '.prefab', '.ruster') or not path.is_file():
-                parser.error('Choose an existing .map, .prefab or .ruster file')
-            command += ['--', str(path)]
-        if args.headless:
+        if project:
+            command += ['--', str(project)]
+        if args.headless or batch:
             # Keep readiness/errors visible to CMD and supervising agents.
             flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
             process = subprocess.Popen(command, env=env, creationflags=flags)
@@ -119,7 +151,7 @@ def main():
             finally:
                 for kind, handler in previous.items():signal.signal(kind, handler)
         else:
-            logs=user_root()/'logs';logs.mkdir(parents=True,exist_ok=True)
+            logs=user_dir/'logs';logs.mkdir(parents=True,exist_ok=True)
             descriptor,filename=tempfile.mkstemp(prefix='startup-',suffix='.log',dir=logs)
             os.close(descriptor);log_path=Path(filename)
             # Concurrent launches must never overwrite another editor's diagnostics.
@@ -129,7 +161,7 @@ def main():
             try:shutil.copyfile(log_path,logs/'startup.log')
             except OSError:pass  # An older launcher can still have startup.log open.
             return check_exit(code,log_path)
-        if code:
+        if code and not batch:
             raise OSError(f'Ruster could not start (exit {code}). See the terminal output above.')
         return code
     except (FileNotFoundError, OSError) as error:
@@ -139,6 +171,9 @@ def main():
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, str(error), 'Ruster application error', 0x10)
         return 1
+    finally:
+        if scratch:
+            scratch.cleanup()
 
 
 if __name__ == '__main__':

@@ -62,6 +62,13 @@ Legacy stream framing, size checks and the Python fallback remain Ruster code.
 - https://github.com/MiloszKrajewski/lz4net (legacy framing reference)
 - https://wiki.facepunch.com/rust/Map_Data
 
+## Word reports
+
+Word report export uses python-docx 1.2.0 (MIT). Distribution metadata and
+dependency notices are included in the packaged `python_modules` directory.
+
+- https://github.com/python-openxml/python-docx
+
 ## Local live preview
 
 The preview client DLL is compiled from Ruster's GPL source with the official

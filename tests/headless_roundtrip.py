@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else ROOT
@@ -29,6 +30,7 @@ if (APP / 'python_modules').is_dir():
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from ruster.assets import catalog
+from ruster.core.rust_map import RustMap
 from ruster.core.rustedit_prefab import RustEditPrefab
 from ruster.vendor.blender_mcp_client import BlenderConnection
 from tests.fixtures import sample_world, triangle_asset
@@ -44,6 +46,8 @@ def start(directory, profile, port, project):
     log_path = directory / 'host.log'
     log = log_path.open('w')
     env = dict(os.environ, PYTHONUNBUFFERED='1', RUSTER_PREVIEW_TEST_NO_DISCOVERY='1')
+    # Keep a developer's installed Rust manifest from reindexing our fixture.
+    env['RUSTER_HEADLESS_RUST_INSTALL'] = str(directory / 'test-install')
     env.pop('DISPLAY', None); env.pop('WAYLAND_DISPLAY', None)
     env.pop('RUSTER_USER_DIR', None)
     command = [sys.executable, str(APP / 'launch.py'), '--headless', '--blender', str(ENGINE),
@@ -135,12 +139,59 @@ async def exercise(profile, directory):
             status = await call('get_editor_status')
             assert status['headless'] and status['prefab_count'] == 3
             assert (await call('get_object_info', name=name))['position'] == [9, 4, 5]
+            assert not (await call('validate_map', require_ground=True))['valid']
+            terrain = await call('add_ground', size=64, biome='Jungle')
+            assert terrain['present'] and terrain['biome_channels_stored'] == 5
+            await call('save_project', path=str(directory / 'Ground.ruster'))
+            native_map = directory / 'MCP.map'
+            await call('export_map', path=str(native_map), require_ground=True)
+            world = RustMap.load(native_map)
+            assert len(world.prefabs) == 3 and {'terrain', 'water', 'splat', 'biome', 'alpha', 'topology'} <= world.layers.keys()
+            report = directory / 'MCP.docx'
+            result = await call('export_project_report', path=str(report))
+            assert result['valid'] and result['native_ground'] and result['prefab_count'] == 3
+            with ZipFile(report) as archive:
+                assert b'Prefab Inventory' in archive.read('word/document.xml')
             return saved
+
+
+def check_one_shot(directory):
+    source = directory / 'Ground.ruster'
+    command = [sys.executable, str(APP / 'launch.py'), '--blender', str(ENGINE)]
+
+    def run(*args, ok=True):
+        child = subprocess.run([*command, *map(str, args)], capture_output=True, text=True, timeout=30)
+        assert (child.returncode == 0) == ok, (child.stdout, child.stderr)
+        assert 'RUSTER_HEADLESS_READY' not in child.stdout
+        return next(json.loads(line.removeprefix('RUSTER_BATCH_RESULT ')) for line in child.stdout.splitlines()
+                    if line.startswith('RUSTER_BATCH_RESULT '))
+
+    assert run(source, '--validate-map', '--require-ground')['valid']
+    invalid = run(directory / 'Built.ruster', '--validate-map', '--require-ground', ok=False)
+    assert not invalid['valid'] and 'native Rust ground' in invalid['errors'][0]
+    target = directory / 'One shot.map'
+    assert run(source, '--export-map', target, '--require-ground')['native_ground']
+    original = target.read_bytes()
+    assert 'exists' in run(source, '--export-map', target, ok=False)['error']
+    assert target.read_bytes() == original
+    target.write_bytes(b'previous output')
+    assert run(source, '--export-map', target, '--overwrite')['native_ground']
+    rust_map = RustMap.load(target)
+    mcp_map = RustMap.load(directory / 'MCP.map')
+    assert rust_map.prefabs == mcp_map.prefabs and rust_map.layers == mcp_map.layers
+    report = directory / 'One shot.docx'
+    assert run(source, '--export-report', report)['prefab_count'] == 3
+    with ZipFile(report) as archive:
+        document = archive.read('word/document.xml')
+        assert b'Native Rust ground is present' in document and b'123456' in document
 
 
 def run():
     with tempfile.TemporaryDirectory(prefix='ruster-headless-test-') as temporary:
         directory = Path(temporary); profile = directory / 'profile'; cache = profile / 'assets'
+        install = directory / 'test-install'
+        (install / 'Bundles').mkdir(parents=True)
+        (install / 'RustClient.exe').touch()
         (cache / 'prefabs').mkdir(parents=True)
         for uid in (123456, 234567):
             asset = triangle_asset(uid); path = asset['path']
@@ -188,6 +239,7 @@ def run():
         with socket.socket() as listener:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind(('127.0.0.1', port))
+        check_one_shot(directory)
     print('RUSTER_HEADLESS_MCP_OK', flush=True)
 
 

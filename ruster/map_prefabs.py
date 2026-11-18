@@ -186,11 +186,20 @@ def validate():
     return errors, notes
 
 
-def export_map(path):
+def validation_status(*, require_ground=False):
+    errors, notes = validate()
+    if require_ground and not bpy.context.scene.ruster.native_ground:
+        errors.append('This project has no native Rust ground')
+    return {'valid': not errors, 'errors': errors, 'notes': notes}
+
+
+def export_map(path, *, overwrite=True, require_ground=False):
     """Write prefab IDs and world TRS, retaining unknown inner record fields."""
     if bpy.context.scene.ruster.native_ground:
         from . import ground
-        return ground.export_map(path)
+        return ground.export_map(path, overwrite=overwrite)
+    if require_ground:
+        raise ValueError('This project has no native Rust ground')
     errors, _notes, records = _validated_records()
     if errors:
         raise ValueError('; '.join(errors[:5]))
@@ -200,5 +209,5 @@ def export_map(path):
     path = Path(path)
     if path.suffix.lower() != '.map':
         path = Path(str(path) + '.map')
-    atomic_write(path, world.write())
+    atomic_write(path, world.write(), overwrite=overwrite)
     return path

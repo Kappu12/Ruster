@@ -89,7 +89,7 @@ def validate():
     return errors,notes+['Native Rust terrain, biome, splat, alpha and topology layers included']
 
 
-def export_map(path):
+def export_map(path, *, overwrite=True):
     from .map_prefabs import _validated_records
     errors,notes,records=_validated_records()
     if errors:raise ValueError('; '.join(errors[:5]))
@@ -97,7 +97,7 @@ def export_map(path):
     world.replace_prefabs(records)
     path=Path(path)
     if path.resolve()==Path(bpy.context.scene.ruster.source_map).resolve():raise ValueError('Export to a new map filename')
-    atomic_write(path,world.write())
+    atomic_write(path,world.write(),overwrite=overwrite)
     return path
 
 

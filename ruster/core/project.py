@@ -12,7 +12,7 @@ MAX_MEMBER = 1024 * 1024 * 1024
 MAX_TOTAL = 2 * MAX_MEMBER
 
 
-def atomic_write(path, data):
+def atomic_write(path, data, *, overwrite=True):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix=f'.{path.name}.', dir=path.parent)
@@ -21,7 +21,12 @@ def atomic_write(path, data):
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temp, path)
+        if overwrite:
+            os.replace(temp, path)
+        elif os.name == 'nt':
+            os.rename(temp, path)  # Windows rename fails if the destination exists.
+        else:
+            os.link(temp, path)  # Publish a complete file without replacing a concurrent writer.
     finally:
         if os.path.exists(temp):
             os.unlink(temp)

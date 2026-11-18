@@ -1,4 +1,5 @@
 """Entry point executed by Blender inside the isolated Ruster process."""
+import json
 import os
 from pathlib import Path
 import sys
@@ -23,7 +24,11 @@ if '--' in sys.argv:
     args = sys.argv[sys.argv.index('--') + 1:]
     if args:
         app._pending_project = args[0]
-if bpy.app.background and os.environ.get('RUSTER_HEADLESS') == '1':
+if bpy.app.background and (batch := os.environ.get('RUSTER_BATCH')):
+    from ruster.headless import run_batch
+    if not run_batch(app._pending_project, json.loads(batch)):
+        raise SystemExit(1)
+elif bpy.app.background and os.environ.get('RUSTER_HEADLESS') == '1':
     from ruster.headless import run
     run(app._pending_project)
 elif not bpy.app.background:

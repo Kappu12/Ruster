@@ -82,9 +82,9 @@ def delete_object(name:str)->dict:
 
 
 @mcp.tool(annotations=READ)
-def validate_map()->dict:
-    """Report composition export errors and unloaded assets without exporting."""
-    return command('validate_map')
+def validate_map(require_ground:bool=False)->dict:
+    """Report map export errors and notes. Set require_ground=True when the map must contain native terrain. This check does not boot Rust."""
+    return command('validate_map',require_ground=require_ground)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -148,9 +148,15 @@ def grant_live_preview_owner(steam_id:str)->dict:
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-def export_map(path:str,overwrite:bool=False)->dict:
-    """Export current placements and optional native Rust ground to an absolute .map destination. Scenes without added ground remain prefab-only. Existing files require explicit overwrite=True."""
-    return command('export_map',path=path,overwrite=overwrite)
+def export_map(path:str,overwrite:bool=False,require_ground:bool=False)->dict:
+    """Write a native .map at an absolute path. Set require_ground=True to require native terrain layers. Works headlessly. Existing files require overwrite=True. See ruster://guide/headless for the one-shot CLI."""
+    return command('export_map',path=path,overwrite=overwrite,require_ground=require_ground)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def export_project_report(path:str,overwrite:bool=False)->dict:
+    """Write an editable .docx summary with map validation, ground status and prefab inventory to an absolute path. Reports can document invalid projects. Works headlessly without Word."""
+    return command('export_project_report',path=path,overwrite=overwrite)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -183,7 +189,7 @@ class ObjectTransform(BaseModel):
 
 @mcp.tool(annotations=READ)
 def get_editor_status()->dict:
-    """Start here: project mode, catalog readiness, asset extraction progress, coordinate system and supported modeling workflow."""
+    """Start here for project mode, catalog readiness, asset loading and available tools. If headless is true, see ruster://guide/headless for automation and exports."""
     return command('get_editor_status')
 
 
@@ -277,10 +283,10 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, prefab mesh edits, material replacement, arbitrary Python, path tools or procedural map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
 15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. An active live preview stays running in the same Ruster window: its old scene is cleared and the new project is synchronized/recentered. Project replacement is not undoable.
 16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
-17. add_ground adds one centred native terrain patch while preserving the composition. paint_ground brushes full-resolution height, splat, biome, alpha and topology data; get_ground_status inspects it. Jungle is the implicit remainder of four stored biome channels. Prefab exports omit ground; .map exports and preview startup include it. Restart preview after painting ground. The generated terrain mesh is a viewport preview, never a custom prefab asset.
+17. add_ground adds one centred native terrain patch while preserving the composition. paint_ground brushes full-resolution height, water, splat, biome, alpha and topology data; get_ground_status inspects it. Current .map output stores five biome channels including Jungle. Prefab exports omit ground; .map exports and preview startup include it. Restart preview after painting ground. The generated terrain mesh is a viewport preview, never a custom prefab asset.
 """
 BUILDING_GUIDE+='17. '+ROTATION_GUIDANCE+'\n'
-BUILDING_GUIDE+='18. Headless sessions: get_editor_status reports headless and unavailable_tools. Use catalog metadata, loaded bounds and validation to build and export. Viewport images/navigation and undo/redo require the desktop app. Save projects explicitly before stopping the host; use atomic batches and saved checkpoints.\n'
+BUILDING_GUIDE+='18. Read ruster://guide/headless for headless authoring, validation, one-shot .map exports, and .docx project reports. get_editor_status lists unavailable_tools. Save projects explicitly before stopping the host.\n'
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')
 def building_guide()->str:
@@ -293,10 +299,16 @@ def design_guide()->str:
     return (Path(__file__).resolve().parent.parent/'docs'/'design.md').read_text(encoding='utf-8')
 
 
+@mcp.resource('ruster://guide/headless',mime_type='text/markdown')
+def headless_guide()->str:
+    """Use the one-shot CLI or a persistent background MCP editing session."""
+    return (Path(__file__).resolve().parent.parent/'docs'/'headless.md').read_text(encoding='utf-8')
+
+
 @mcp.prompt()
 def build_rust_composition(description:str)->str:
     """Plan and build a custom Rust model from the local prefab library."""
-    return 'Read ruster://guide/design first.\n'+BUILDING_GUIDE+'\nUser composition request: '+description+'\nDiscover suitable real assets, report any missing models, plan dimensions, build and visually inspect the composition, then validate. Do not create custom mesh geometry. Do not claim server-tested compatibility.'
+    return 'Read ruster://guide/design first.\n'+BUILDING_GUIDE+'\nUser composition request: '+description+'\nDiscover suitable real assets, report any missing models, plan dimensions, build and validate. In the desktop editor inspect multiple viewport angles. In a headless session inspect loaded bounds and transforms, then report that visual inspection is pending. Do not create custom mesh geometry. Do not claim server-tested compatibility.'
 
 
 @mcp.prompt()
@@ -357,7 +369,7 @@ def snap_objects_to_plane(names:list[str],target:float=0,axis:str='Z')->dict:
 
 @mcp.tool(annotations=READ)
 def get_export_formats()->dict:
-    """List model formats available in this runtime, placement interchange formats and bounded geometry budgets."""
+    """List available model and report formats, placement interchange formats, and geometry limits."""
     return command('get_export_formats')
 
 @mcp.tool(annotations=DESTRUCTIVE)

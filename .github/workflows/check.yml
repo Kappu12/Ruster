@@ -49,6 +49,7 @@ jobs:
       - name: Download verified Blender LTS
         run: python tools/fetch_engine.py /tmp/ruster-engine
       - run: python -m pip install -r requirements-mcp.txt
+      - run: python -m pip install --only-binary=:all: --no-binary=tpk_ar --target python_modules -r requirements-assets.txt
       - name: Test native prefab, import/export, materials and MCP integration
         run: python tools/native_checks.py --engine /tmp/ruster-engine --suite background
       - name: Test graphical startup, welcome, search, materials, construction and MCP

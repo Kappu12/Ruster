@@ -30,7 +30,7 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert {'search_prefabs','place_prefab','transform_object','get_scene_info','export_map'}<=tools.keys()
                 assert 'execute_code' not in tools
                 assert tools['get_scene_info'].annotations.readOnlyHint
-                assert len(tools)==64
+                assert len(tools)==65
                 assert {'add_ground','paint_ground','get_ground_status'}<=tools.keys()
                 assert tools['get_ground_status'].annotations.readOnlyHint
                 assert {'get_project_status','list_recent_projects','new_project','open_project','get_live_preview_status',
@@ -55,7 +55,11 @@ def test_real_stdio_mcp_handshake_and_tool_schema(tmp_path,monkeypatch):
                 assert 'origin' in tools['export_assembly'].inputSchema['properties']
                 assert '2000-placement' in tools['import_assembly'].description
                 resources=(await session.list_resources()).resources
-                assert {str(r.uri) for r in resources}=={'ruster://guide/building','ruster://guide/design'}
+                assert {str(r.uri) for r in resources}=={'ruster://guide/building','ruster://guide/design','ruster://guide/headless'}
+                headless=await session.read_resource('ruster://guide/headless')
+                assert '--export-map' in headless.contents[0].text and 'export_project_report' in headless.contents[0].text
+                assert tools['export_project_report'].annotations.destructiveHint
+                assert tools['export_map'].inputSchema['properties']['require_ground']['default'] is False
                 design=await session.read_resource('ruster://guide/design')
                 assert design.contents[0].text==(Path(__file__).resolve().parents[1]/'docs'/'design.md').read_text(encoding='utf-8')
                 assert 'Do not create a new triangle mesh' in design.contents[0].text

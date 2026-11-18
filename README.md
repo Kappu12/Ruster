@@ -55,6 +55,7 @@ Original prefab geometry stays read-only in the composition. Shape changes come 
 | `.prefab` | Import or export a RustEdit prefab composition. |
 | `.map` | Import prefab placements; export placements plus native terrain when Rust Ground has been added. |
 | `.blend` | Export a standalone Blender scene for rendering and model work. |
+| `.docx` | Export a Word report with map validation, ground status and a prefab inventory through the CLI or MCP. |
 | Other model formats | Export selected models through the exporters available in the bundled Blender build, including glTF, FBX, and OBJ. |
 
 Rust exports describe original prefab IDs and placement transforms. Model exports produce geometry for use in other applications. For imported RustEdit prefabs with IO data, the editor also exposes supported IO settings on the selected placement.
@@ -107,6 +108,20 @@ the Live Preview panel's explicit client actions and EAC verification.
 After updating Ruster, refresh the MCP client's tool list/reconnect the adapter.
 
 ### Run an agent without a desktop window
+
+For a saved project, validate, export a native map or generate a Word report in
+one command:
+
+```bat
+Ruster.cmd "C:\maps\Project.ruster" --validate-map --require-ground
+Ruster.cmd "C:\maps\Project.ruster" --export-map "C:\maps\Project.map" --require-ground
+Ruster.cmd "C:\maps\Project.ruster" --export-report "C:\maps\Project Report.docx"
+```
+
+One-shot commands use a temporary profile and exit when finished. For Linux,
+source, machine-readable output and server handoff, see the
+[headless guide](docs/headless.md), also available in MCP as
+`ruster://guide/headless`.
 
 Start the persistent headless host from CMD in the extracted application folder:
 
