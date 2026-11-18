@@ -27,11 +27,9 @@ class BlenderMCPServer:
         self._clients = set()
         self._clients_lock = threading.Lock()
 
-    def start(self):
-        if bpy.app.background:
-            print("BlenderMCP: cannot start server in background mode (blender -b) - commands would never execute\n"
-                  "BlenderMCP: run Blender with a GUI, or use a virtual display: xvfb-run -a blender")
-            return
+    def start(self, *, manual_pump=False):
+        if bpy.app.background and not manual_pump:
+            raise ValueError('Background MCP requires the main-thread pump; launch Ruster with --headless')
 
         if self.running:
             print("Server is already running")
@@ -57,7 +55,7 @@ class BlenderMCPServer:
 
             # start() is called from the operator, i.e. the main thread, so
             # this is the only safe place to touch bpy.app.timers.
-            if not bpy.app.timers.is_registered(self._drain_command_queue):
+            if not manual_pump and not bpy.app.timers.is_registered(self._drain_command_queue):
                 bpy.app.timers.register(self._drain_command_queue, persistent=True)
 
             print(f"BlenderMCP server started on {self.host}:{self.port}")
@@ -163,7 +161,7 @@ class BlenderMCPServer:
         if not self.running:
             return None
 
-        while True:
+        for _ in range(64):
             try:
                 command, client = self.command_queue.get_nowait()
             except queue.Empty:

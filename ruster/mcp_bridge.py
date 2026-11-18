@@ -3,6 +3,7 @@ import hmac
 import json
 import math
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 import bpy
 from bpy.props import BoolProperty,IntProperty,StringProperty,PointerProperty
@@ -17,6 +18,7 @@ from .ui_style import ICONS as I,action,properties,wrapped
 _server=None
 _loading=False
 _classes=[]
+HEADLESS_UNAVAILABLE={'get_viewport_image','get_viewport_state','set_viewport_state','focus_view','undo','redo'}
 
 
 def vector(values,label,nonzero=False):
@@ -134,6 +136,7 @@ class RusterMCPServer(BlenderMCPServer):
     def __init__(self,port,token):
         super().__init__(host='127.0.0.1',port=port)
         self.token=token
+        self.headless=False
 
     def execute_command(self,command):
         try:
@@ -145,10 +148,12 @@ class RusterMCPServer(BlenderMCPServer):
             # context override or selection references alive across that load.
             if command.get('type') in mcp_session.PROJECT_EDIT:
                 return {'status':'success','result':self.dispatch(command['type'],params)}
+            if self.headless and command.get('type') in HEADLESS_UNAVAILABLE:
+                raise ValueError('This tool requires the desktop app; it is unavailable in headless mode')
             windows=list(bpy.context.window_manager.windows)
-            if not windows:raise ValueError('Ruster has no active window')
-            window=next((w for w in windows if any(a.type=='VIEW_3D' for a in w.screen.areas)),windows[0])
-            with bpy.context.temp_override(window=window):
+            if not windows and not self.headless:raise ValueError('Ruster has no active window')
+            window=next((w for w in windows if any(a.type=='VIEW_3D' for a in w.screen.areas)),windows[0] if windows else None)
+            with nullcontext() if self.headless else bpy.context.temp_override(window=window):
                 selected=[obj.name for obj in bpy.context.selected_objects]
                 active=bpy.context.view_layer.objects.active
                 active_name=active.name if active else None
@@ -212,10 +217,11 @@ def stop():
     if _server:_server.stop();_server=None
 
 
-def start(port):
+def start(port, *, manual_pump=False):
     global _server
     if _server and _server.running:return
-    candidate=RusterMCPServer(port,mcp_config.token());candidate.start()
+    candidate=RusterMCPServer(port,mcp_config.token());candidate.headless=bool(manual_pump)
+    candidate.start(manual_pump=manual_pump)
     if not candidate.running:raise ValueError('Could not start MCP. The selected local port may already be in use.')
     _server=candidate
 

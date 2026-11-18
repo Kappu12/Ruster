@@ -23,5 +23,8 @@ if '--' in sys.argv:
     args = sys.argv[sys.argv.index('--') + 1:]
     if args:
         app._pending_project = args[0]
-if not bpy.app.background:
+if bpy.app.background and os.environ.get('RUSTER_HEADLESS') == '1':
+    from ruster.headless import run
+    run(app._pending_project)
+elif not bpy.app.background:
     bpy.app.timers.register(app.startup, first_interval=.5)

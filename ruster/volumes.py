@@ -275,7 +275,16 @@ class RUSTER_OT_hover_volume(bpy.types.Operator):
 
 
 def hover_watch_present(window):
-    return any(op.bl_idname in {'ruster.watch_volume_hover','RUSTER_OT_watch_volume_hover'} for op in window.modal_operators)
+    if window is None:return False
+    for op in window.modal_operators:
+        if op is None:continue
+        try:
+            if op.bl_idname in {'ruster.watch_volume_hover','RUSTER_OT_watch_volume_hover'}:return True
+        except ReferenceError:
+            # Closing/loading a project can leave a removed RNA operator in
+            # Blender's modal list until the next event-loop iteration.
+            continue
+    return False
 
 
 class RUSTER_OT_watch_volume_hover(bpy.types.Operator):

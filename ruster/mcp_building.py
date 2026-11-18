@@ -174,14 +174,16 @@ def dispatch(server,kind,p,bridge):
         from .assets import CONVERTER_VERSION
         state=bpy.context.scene.ruster
         roots=scene.prefab_roots()
+        headless=getattr(server,'headless',False)
         return {'version':__version__,'converter_version':CONVERTER_VERSION,'restart_required':bool(app.updated_version()),
+            'headless':headless,'unavailable_tools':sorted(bridge.HEADLESS_UNAVAILABLE) if headless else [],
             'prefab_count':len(roots),'visible_prefabs':sum(bool(obj.get('ruster_visual')) for obj in roots),
             'unloaded_prefabs':sum(not obj.get('ruster_visual') and not obj.get('ruster_marker') for obj in roots),
             'mode':state.mode,'native_ground':state.native_ground,'busy':state.busy or bool(app._visual_queue),'worker_busy':state.busy,'pending_visuals':len(app._visual_queue),
             'queued_prefabs':len(app._pending_asset_ids),'asset_status':state.asset_status,'asset_progress':state.asset_progress,
             'catalog_ready':(scene.cache_dir()/'catalog.sqlite3').is_file(),'coordinates':{'units':'metres','up_axis':'Z','rotation':'XYZ Euler degrees','ground_plane_z':0},
             'project':mcp_session.project_status(),'live_preview':mcp_session.preview_status(0),
-            'capabilities':['project switching','live preview server controls/status/console','catalog discovery','original asset metadata','batch prefab composition','grouping','placement transforms','bounded duplication and arrays','bounds alignment','ground plane snapping','viewport images','Blender context and viewport controls','3D cursor','relative pivot transforms','radial arrays','bounds measurements','ordered distribution','world grid snapping','RustEdit prefab and model exports','prefab-only map interchange','imported IO scalar settings','assemblies','save/export','undo/redo'],
+            'capabilities':['project switching','live preview server controls/status/console','catalog discovery','original asset metadata','batch prefab composition','grouping','placement transforms','bounded duplication and arrays','bounds alignment','ground plane snapping','Blender context','3D cursor','relative pivot transforms','radial arrays','bounds measurements','ordered distribution','world grid snapping','RustEdit prefab and model exports','prefab-only map interchange','imported IO scalar settings','assemblies','save/export']+([] if headless else ['viewport images','Blender context and viewport controls','undo/redo']),
             'limitations':['Prefab meshes and materials are immutable. Build models by composing whole Rust prefabs.','Catalog availability means a local bundle exists, not guaranteed successful model extraction.','Validation does not simulate Rust server gameplay or collisions.']}
     if kind=='list_prefab_categories':
         rows=catalog.categories(scene.cache_dir());offset=bounded_int(p.get('offset',0),0,2**31-1,'Offset');limit=bounded_int(p.get('limit',100),1,200,'Limit')

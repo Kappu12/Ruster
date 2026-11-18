@@ -280,6 +280,7 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 17. add_ground adds one centred native terrain patch while preserving the composition. paint_ground brushes full-resolution height, splat, biome, alpha and topology data; get_ground_status inspects it. Jungle is the implicit remainder of four stored biome channels. Prefab exports omit ground; .map exports and preview startup include it. Restart preview after painting ground. The generated terrain mesh is a viewport preview, never a custom prefab asset.
 """
 BUILDING_GUIDE+='17. '+ROTATION_GUIDANCE+'\n'
+BUILDING_GUIDE+='18. Headless sessions: get_editor_status reports headless and unavailable_tools. Use catalog metadata, loaded bounds and validation to build and export. Viewport images/navigation and undo/redo require the desktop app. Save projects explicitly before stopping the host; use atomic batches and saved checkpoints.\n'
 
 @mcp.resource('ruster://guide/building',mime_type='text/plain')
 def building_guide()->str:

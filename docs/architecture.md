@@ -8,6 +8,8 @@ Blender's runtime; users do not install an add-on manually.
 | Module | Responsibility |
 |---|---|
 | `ruster/app.py` | Operators, startup, project lifecycle, worker management |
+| `ruster/headless.py` | Persistent background host, main-thread command/asset pump and orderly shutdown |
+| `ruster/core/headless.py` | Shared CLI profile selection and process-owned profile lock |
 | `ruster/ui.py` | Native UI menus, panels, workspace configuration |
 | `ruster/scene.py` | Scene construction, shared model instances, validation and export |
 | `ruster/editing.py` | Full-resolution terrain state, brushes, paths, height images and generation |
@@ -27,6 +29,27 @@ Blender's runtime; users do not install an add-on manually.
 | `ruster/core/project.py` | Versioned `.ruster` archive and atomic saving |
 | `ruster/assets/catalog.py` | SQLite local prefab, bundle and dependency catalog |
 | `ruster/assets/worker.py` | UnityPy indexing and mesh/material conversion |
+
+## Headless sessions
+
+`launch.py --headless` sets an explicit host mode and starts Blender with
+`--background`. Bootstrap registers the same application and enters
+`ruster.headless.run`. Background Blender does not service application timers:
+the host drains the authenticated command queue, polls asset workers, attaches
+prepared models and ticks the owned preview session on the main thread. Socket
+threads only enqueue work. Each drain is bounded so clients cannot indefinitely
+starve asset loading. No arbitrary Python RPC is exposed.
+
+The headless bridge dispatches without a window context. Its status advertises
+unsupported viewport/undo tools, which fail explicitly before mutation. Global
+undo is disabled; the existing atomic operations and save/overwrite/unsaved-work
+guards are shared with the desktop. Saved projects can be reopened in either mode.
+
+The default profile and port are separate from the desktop. An OS file lock
+protects a headless profile for the entire host lifetime, including cleanup.
+Signals stop the main loop, listener, asset workers and owned preview session.
+Readiness includes the stdio adapter configuration; the adapter reads the token
+from that profile rather than exposing it in process arguments or logs.
 
 ## Coordinates
 
