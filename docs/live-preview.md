@@ -32,6 +32,8 @@ game/server in Ruster's executable.
    and monument packs. The panel displays the pack count. Setup fails with the
    pack name if it cannot select a shared, valid prefab ID; it never silently skips
    a pack. Loading all monument packs increases startup time and memory use.
+   The local server caps ocean patrol route generation at 512 iterations. If
+   Rust cannot find a route within that limit, the preview starts without one.
 3. Close any running Rust client. Click **Launch Rust Without EAC**, or run
    `RustClient.exe` directly from your Rust installation. Keep Steam running, but
    do not use Steam's Play button or `Rust.exe` to start this preview session.

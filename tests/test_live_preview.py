@@ -245,6 +245,11 @@ def test_server_command_is_private_insecure_and_uses_requested_port():
     assert len(args[args.index('+rcon.password')+1]) >= 32
 
 
+def test_preview_server_limits_ocean_patrol_path_generation():
+    args = server.command(Path('RustDedicated.exe'), 'ruster_preview_test', 29000, 'http://127.0.0.1/test.map', Path('log'))
+    assert args[args.index('+ai.ocean_patrol_path_iterations')+1] == '512'
+
+
 @pytest.mark.parametrize('value', ['ownerid 123', '76561198000000000\nquit', 'abc', '１２３４５６７８９０１２３４５６７'])
 def test_owner_field_cannot_inject_commands(value):
     with pytest.raises(ValueError):server.owner_id(value)

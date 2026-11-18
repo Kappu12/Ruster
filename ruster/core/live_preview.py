@@ -203,12 +203,15 @@ def download(url, path, cancel, *, maximum=128*1024*1024, digest=None, progress=
 
 def command(binary, identity, port, url, log):
     port_number(port)
+    # On flat preview maps the native route search can keep moving nodes near
+    # the origin. Bound it to a little more than one 2,000 m pass at 4 m per step.
     return [str(binary), '-batchmode', '-nographics', '-insecure', '-logfile', str(log),
         '+server.identity', identity, '+server.ip', '127.0.0.1', '+server.port', str(port),
         '+server.queryport', str(port+2), '+rcon.ip', '127.0.0.1', '+rcon.port', str(port+1),
         '+rcon.password', secrets.token_hex(32), '+server.maxplayers', '1',
         '+server.encryption', '1',
         '+server.hostname', 'Ruster Local Live Preview', '+server.levelurl', url,
+        '+ai.ocean_patrol_path_iterations', '512',
         '+server.saveinterval', '86400', '+app.listenip', '127.0.0.1', '+app.port', '0']
 
 
