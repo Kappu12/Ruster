@@ -84,6 +84,18 @@ class RustEditPrefab:
         return [label for number, label in FAMILIES.items()
                 if any(f.number == number and f.wire == 2 and f.value for f in self.fields)]
 
+    def set_terrain_options(self, width, fade):
+        """Set RustEdit's stamp diameter and enabled channel masks."""
+        from .rustedit_terrain import SPLAT_MASK, BIOME_MASK, TOPOLOGY_MASK
+        if type(width) is not int or not 2 <= width <= 32768:
+            raise FormatError('Terrain width must be an integer from 2 to 32768 metres')
+        if type(fade) is not int or not 1 <= fade < width / 2:
+            raise FormatError('Terrain edge fade must be positive and smaller than half the width')
+        options = wire.parse(wire.get(self.fields, 1, b''))
+        for number, value in enumerate((width, fade, SPLAT_MASK, BIOME_MASK, TOPOLOGY_MASK), 1):
+            options = wire.replace(options, number, 0, value)
+        self.fields = wire.replace(self.fields, 1, 2, wire.serialize(options))
+
     def replace_prefabs(self, records):
         records = list(records)
         validate_records(records)

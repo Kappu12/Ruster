@@ -1,5 +1,6 @@
 """Rust-focused prefab composition and interchange tools."""
 import base64
+import json
 import math
 import struct
 import time
@@ -12,9 +13,8 @@ from mathutils import Matrix, Vector
 
 from . import app, scene, placement
 from .assets import catalog
-from .core import wire
+from .core import rustedit_terrain, wire
 from .core.asset_categories import GROUPS
-from .core.project import atomic_write
 from .core.rust_map import prefab_transform, update_transform
 from .core.rustedit_prefab import RustEditPrefab
 from .ui_style import invoke_dialog
@@ -181,6 +181,7 @@ def prefab_records(roots, origin):
 def import_prefab(path):
     path = Path(path)
     data = RustEditPrefab.load(path)  # Validate everything before creating objects.
+    companions = rustedit_terrain.read_companions(path)
     cursor = bpy.context.scene.cursor.location.copy()
     collection = bpy.data.collections.get('Prefabs') or scene.new_collection('Prefabs')
     io_positions = set()
@@ -214,6 +215,11 @@ def import_prefab(path):
         text = bpy.data.texts.new('RustEdit source: ' + path.name)
         text.write(base64.b64encode(data.original).decode('ascii'))
         root['ruster_prefab_source'] = text.name
+        if companions:
+            images = bpy.data.texts.new('RustEdit companion files: ' + path.name)
+            images.write(json.dumps({suffix:base64.b64encode(value).decode('ascii')
+                                     for suffix,value in companions.items()}))
+            root['ruster_prefab_companions'] = images.name
         app.request_missing_visuals(created)
         return root
     except Exception:
@@ -223,7 +229,24 @@ def import_prefab(path):
         raise
 
 
-def export_prefab(path, selected=True):
+def _terrain_width(roots, origin, fade):
+    from . import mcp_building
+    children=mcp_building.hierarchy()
+    bounds={}
+    radius=1.
+    for obj in roots:
+        box=mcp_building.object_bounds(obj,children,bounds)
+        if box:
+            x,y=(max(abs(box[edge][axis]-origin[axis]) for edge in ('min','max'))
+                 for axis in (0,1))
+        else:
+            x,y=(obj.matrix_world.translation-origin)[:2]
+        radius=max(radius,math.hypot(x,y))
+    return math.ceil(2*(radius+fade))
+
+
+def export_prefab(path, selected=True, *, include_terrain=None, terrain_width=0,
+                  terrain_fade=5, preview_png=None, overwrite=True):
     # Properties/file-browser contexts do not always expose selected_objects.
     # Read actual view-layer flags so empty-selection fallback is unambiguous.
     layer=bpy.context.view_layer
@@ -239,10 +262,16 @@ def export_prefab(path, selected=True):
     if not source_group and any(obj.get('ruster_linked_extensions') for obj in roots):
         raise ValueError('The imported prefab group is missing; restore it before exporting linked metadata')
     source = None
+    companions = {}
     if source_group:
         text = bpy.data.texts.get(source_group.get('ruster_prefab_source', ''))
         if not text:raise ValueError('The imported prefab metadata is missing')
         source = RustEditPrefab.read(base64.b64decode(text.as_string(), validate=True))
+        if key := source_group.get('ruster_prefab_companions'):
+            images = bpy.data.texts.get(key)
+            if not images:raise ValueError('The imported RustEdit companion files are missing')
+            companions = {suffix:base64.b64decode(value, validate=True)
+                          for suffix,value in json.loads(images.as_string()).items()}
         roots.sort(key=lambda o: int(o.get('ruster_prefab_index', -1)))
         origin = source_group.matrix_world.translation.copy()
     else:
@@ -251,7 +280,25 @@ def export_prefab(path, selected=True):
     records = prefab_records(roots, origin)
     if source:source.replace_prefabs(records)
     else:source = RustEditPrefab.create(records)
-    atomic_write(Path(path).with_suffix('.prefab'), source.write())
+    state = bpy.context.scene.ruster
+    has_ground = state.mode=='MAP' and state.native_ground
+    if include_terrain is None:include_terrain=has_ground
+    if type(include_terrain) is not bool:raise ValueError('Include map terrain must be a boolean')
+    if include_terrain:
+        if not has_ground:raise ValueError('Open or create a map with native ground to export terrain masks')
+        if type(terrain_width) is not int or terrain_width<0:
+            raise ValueError('Terrain width must be a positive whole number or zero for automatic sizing')
+        if type(terrain_fade) is not int or terrain_fade<1:
+            raise ValueError('Terrain edge fade must be a positive whole number')
+        from . import editing
+        document=editing.terrain()
+        width=terrain_width or _terrain_width(roots,origin,terrain_fade)
+        source.set_terrain_options(width,terrain_fade)
+        companions.update(rustedit_terrain.capture(document,origin,width))
+    if preview_png:
+        companions['.png']=rustedit_terrain.read_png(preview_png)
+    return rustedit_terrain.write_bundle(Path(path).with_suffix('.prefab'), source.write(),
+                                         companions, overwrite=overwrite)
 
 
 def menu_signature():
@@ -383,12 +430,36 @@ class RUSTER_OT_prefab_import(bpy.types.Operator, ImportHelper):
 class RUSTER_OT_prefab_export(bpy.types.Operator, ExportHelper):
     bl_idname = 'ruster.prefab_export'
     bl_label = 'Export RustEdit Prefab'
-    bl_description = 'Export highlighted prefabs/groups, or the whole composition when nothing is selected'
+    bl_description = 'Export prefab placements and the companion terrain masks from a map with native ground'
     filename_ext = '.prefab'
     filter_glob: StringProperty(default='*.prefab', options={'HIDDEN'})
     selected_only: BoolProperty(name='Use Selection When Available', description='Export highlighted prefabs/groups; export everything when nothing is highlighted', default=True)
+    include_terrain: BoolProperty(name='Include Map Terrain', description='Save heights, splat, biome, alpha and topology beside the prefab', default=True)
+    terrain_width: IntProperty(name='Terrain Width (m)', description='Width of the terrain stamp around the prefab pivot; zero fits the placements', default=0, min=0, max=32768)
+    terrain_fade: IntProperty(name='Terrain Edge Fade (m)', description='Blend distance inside the terrain stamp edge', default=5, min=1, max=16383)
+    preview_png: StringProperty(name='Preview PNG', description='Optional PNG thumbnail for the RustEdit prefab browser', subtype='FILE_PATH')
+
+    def draw(self, context):
+        self.layout.prop(self, 'selected_only')
+        if context.scene.ruster.mode=='MAP' and context.scene.ruster.native_ground:
+            self.layout.prop(self, 'include_terrain')
+            if self.include_terrain:
+                self.layout.prop(self, 'terrain_width')
+                self.layout.prop(self, 'terrain_fade')
+        self.layout.prop(self, 'preview_png')
+
     def execute(self, context):
-        try:export_prefab(self.filepath, self.selected_only);return {'FINISHED'}
+        try:
+            state=context.scene.ruster
+            files=export_prefab(
+                self.filepath, self.selected_only,
+                include_terrain=self.include_terrain and state.mode=='MAP' and state.native_ground,
+                terrain_width=self.terrain_width, terrain_fade=self.terrain_fade,
+                preview_png=bpy.path.abspath(self.preview_png) if self.preview_png else None,
+                overwrite=Path(self.filepath).with_suffix('.prefab').is_file(),
+            )
+            if len(files)>1:self.report({'INFO'}, f'Exported prefab and {len(files)-1} companion files')
+            return {'FINISHED'}
         except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
 
 

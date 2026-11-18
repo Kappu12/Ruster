@@ -232,7 +232,14 @@ def dispatch(server,kind,p,bridge):
                 placement.select(objects)
                 if kind=='export_prefab':
                     from . import studio
-                    target=bridge.file_target(p['path'],'.prefab',p.get('overwrite') is True);studio.export_prefab(target,selected=True)
+                    overwrite=p.get('overwrite') is True
+                    target=bridge.file_target(p['path'],'.prefab',overwrite)
+                    thumbnail=p.get('preview_png')
+                    if thumbnail is not None:thumbnail=bridge.file_target(thumbnail,'.png',True)
+                    files=studio.export_prefab(target,include_terrain=p.get('include_terrain'),
+                        terrain_width=p.get('terrain_width',0),terrain_fade=p.get('terrain_fade',5),
+                        preview_png=thumbnail,overwrite=overwrite)
+                    return {'path':str(files[-1]),'companions':[str(file) for file in files[:-1]]}
                 else:
                     from . import model_export
                     format_=p.get('format','GLB')

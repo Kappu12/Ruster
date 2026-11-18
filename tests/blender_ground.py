@@ -10,7 +10,8 @@ import bpy
 import numpy as np
 import ruster
 from ruster import app,scene,studio,ground,editing,map_prefabs,mcp_bridge,live_preview
-from ruster.core import wire,project
+from ruster.core import wire,project,rustedit_terrain
+from ruster.core.rustedit_prefab import RustEditPrefab
 from ruster.core.rust_map import RustMap
 from ruster.core.ground import validate_ground
 
@@ -45,6 +46,21 @@ def run():
         world=RustMap.load(output);validate_ground(world)
         assert len(world.prefabs)==1 and 'terrain' in world.layers
         assert not map_prefabs.validate()[0]
+        # The normal export command includes painted masks in a native map.
+        prefab=root/'ground.prefab'
+        assert bpy.ops.ruster.prefab_export(filepath=str(prefab))=={'FINISHED'}
+        assert len(RustEditPrefab.load(prefab).prefabs)==1
+        companions=rustedit_terrain.read_companions(prefab)
+        assert set(companions)==set(rustedit_terrain.TERRAIN_SUFFIXES)
+        thumbnail=root/'thumbnail.png';thumbnail.write_bytes(companions['.biome'])
+        mcp_prefab=root/'mcp-ground.prefab'
+        exported=server.dispatch('export_prefab',{'path':str(mcp_prefab),'names':[obj.name],
+                                                   'preview_png':str(thumbnail)})
+        assert len(exported['companions'])==7
+        assert rustedit_terrain.read_companions(mcp_prefab)==dict(companions,**{'.png':thumbnail.read_bytes()})
+        result=server.dispatch('export_prefab',{'path':str(prefab),'names':[obj.name],
+                                               'include_terrain':False,'overwrite':True})
+        assert not result['companions'] and not rustedit_terrain.read_companions(prefab)
         extra=bpy.data.objects.new('Unrelated custom mesh',bpy.data.meshes.new('Custom mesh'))
         bpy.context.scene.collection.objects.link(extra)
         assert any('custom objects' in error for error in map_prefabs.validate()[0])
@@ -69,6 +85,11 @@ def run():
         live_preview._job=previous
         studio.new_prefab()
         assert not ground.enabled() and not bpy.context.scene.ruster.source_map
+        studio.import_prefab(mcp_prefab)
+        app.save_project(root/'imported.ruster');app.open_path(root/'imported.ruster')
+        saved=root/'saved-prefab.prefab';studio.export_prefab(saved)
+        assert saved.read_bytes()==mcp_prefab.read_bytes()
+        assert rustedit_terrain.read_companions(saved)==rustedit_terrain.read_companions(mcp_prefab)
         ruster.unregister()
     print('RUSTER_NATIVE_GROUND_OK',flush=True)
 

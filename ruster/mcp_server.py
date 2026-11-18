@@ -283,7 +283,7 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, prefab mesh edits, material replacement, arbitrary Python, path tools or procedural map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
 15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. An active live preview stays running in the same Ruster window: its old scene is cleared and the new project is synchronized/recentered. Project replacement is not undoable.
 16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
-17. add_ground adds one centred native terrain patch while preserving the composition. paint_ground brushes full-resolution height, water, splat, biome, alpha and topology data; get_ground_status inspects it. Current .map output stores five biome channels including Jungle. Prefab exports omit ground; .map exports and preview startup include it. Restart preview after painting ground. The generated terrain mesh is a viewport preview, never a custom prefab asset.
+17. add_ground adds a native terrain patch. paint_ground brushes height, water, splat, biome, alpha and topology; get_ground_status inspects it. export_prefab writes RustEdit terrain masks beside the prefab in maps with native ground. terrain_width=0 fits the selection around its prefab pivot. Current .map exports and preview startup include the whole terrain, including water and Jungle. Restart preview after painting ground.
 """
 BUILDING_GUIDE+='17. '+ROTATION_GUIDANCE+'\n'
 BUILDING_GUIDE+='18. Read ruster://guide/headless for headless authoring, validation, one-shot .map exports, and .docx project reports. get_editor_status lists unavailable_tools. Save projects explicitly before stopping the host.\n'
@@ -373,9 +373,12 @@ def get_export_formats()->dict:
     return command('get_export_formats')
 
 @mcp.tool(annotations=DESTRUCTIVE)
-def export_prefab(names:list[str],path:str,overwrite:bool=False)->dict:
-    """Export native RustEdit .prefab preserving supported imported metadata. Absolute destination; overwrite=True replaces existing files. Preserves selection/source."""
-    return command('export_prefab',names=names,path=path,overwrite=overwrite)
+def export_prefab(names:list[str],path:str,overwrite:bool=False,include_terrain:bool|None=None,
+                  terrain_width:int=0,terrain_fade:int=5,preview_png:str|None=None)->dict:
+    """Export a RustEdit .prefab and companion images to one folder. Native map terrain is included by default. Width 0 fits the selection around its pivot. Width and fade are in metres. An optional absolute preview_png adds a browser thumbnail. overwrite=True replaces the bundle."""
+    return command('export_prefab',names=names,path=path,overwrite=overwrite,
+        include_terrain=include_terrain,terrain_width=terrain_width,terrain_fade=terrain_fade,
+        preview_png=preview_png)
 
 @mcp.tool(annotations=EDIT)
 def import_prefab(path:str,position:list[float]|None=None)->dict:

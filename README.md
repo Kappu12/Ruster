@@ -52,7 +52,7 @@ Original prefab geometry stays read-only in the composition. Shape changes come 
 | Format | Purpose |
 | --- | --- |
 | `.ruster` | Save a Ruster project and resume editing it later. |
-| `.prefab` | Import or export a RustEdit prefab composition. |
+| `.prefab` | Import or export a RustEdit prefab composition with companion terrain masks in native map projects. |
 | `.map` | Import prefab placements; export placements plus native terrain when Rust Ground has been added. |
 | `.blend` | Export a standalone Blender scene for rendering and model work. |
 | `.docx` | Export a Word report with map validation, ground status and a prefab inventory through the CLI or MCP. |
@@ -75,6 +75,11 @@ See [native ground](docs/native-ground.md) for data and verification details.
 
 **Export Prefab** exports highlighted prefabs/groups. With nothing highlighted,
 it exports the whole composition as a RustEdit `.prefab`.
+
+In a map with native ground, **Export RustEdit Prefab** includes height, both
+splat textures, biome, alpha, and topology masks beside the `.prefab` by
+default. Keep the files together when moving the prefab to RustEdit. The export
+dialog offers a terrain width, an edge fade, and an optional PNG preview.
 
 Save your working project before testing an export in RustEdit or Rust. Viewport previews show assets and placement; gameplay behavior is determined by the game.
 
