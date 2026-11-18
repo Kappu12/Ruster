@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 
 PLATFORMS = ('windows-x64', 'linux-x64')
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,7 +83,14 @@ def upload(repo, tag, platform, directory=Path('dist')):
     archive = Path(directory) / asset_name(tag, platform)
     if not archive.is_file() or not 0 < archive.stat().st_size < 2 ** 31:
         raise ValueError(f'Expected a nonempty release ZIP smaller than 2 GiB: {archive}')
-    release = get_release(repo, tag)
+    # A newly created draft may take a few seconds to appear in the list API.
+    for delay in (1, 2, 4):
+        release = get_release(repo, tag, missing_ok=True)
+        if release is not None:
+            break
+        time.sleep(delay)
+    else:
+        release = get_release(repo, tag)
     if release.get('tag_name') != tag or not release.get('draft'):
         raise ValueError('Packages may only be uploaded to this version\'s draft release')
     # Only a draft's own platform asset is replaced when a failed job is retried.

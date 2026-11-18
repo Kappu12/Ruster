@@ -75,11 +75,14 @@ def test_upload_uses_direct_release_assets_and_can_retry_a_draft(monkeypatch, tm
     archive = tmp_path / release.asset_name(TAG, 'windows-x64')
     archive.write_bytes(b'package')
     calls = []
-    monkeypatch.setattr(release, 'get_release', lambda *_args: downloads(draft=True))
+    release_states = iter([None, downloads(draft=True), downloads()])
+    delays = []
+    monkeypatch.setattr(release, 'get_release', lambda *_args, **_kwargs: next(release_states))
+    monkeypatch.setattr(release.time, 'sleep', delays.append)
     monkeypatch.setattr(release, 'gh', lambda *args: calls.append(args))
     release.upload(REPO, TAG, 'windows-x64', tmp_path)
+    assert delays == [1]
     assert calls == [('release', 'upload', TAG, str(archive), '--repo', REPO, '--clobber')]
-    monkeypatch.setattr(release, 'get_release', lambda *_args: downloads())
     with pytest.raises(ValueError, match='draft'):
         release.upload(REPO, TAG, 'windows-x64', tmp_path)
     assert len(calls) == 1
