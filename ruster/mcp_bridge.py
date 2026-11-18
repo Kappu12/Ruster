@@ -279,7 +279,8 @@ def startup():
 
 def client_config():
     root=Path(__file__).resolve().parent.parent
-    entry={'command':app.worker_python(),'args':[str(root/'mcp_server.py')]}
+    args=['-B'] if sys.platform=='darwin' else []
+    entry={'command':app.worker_python(),'args':[*args,str(root/'mcp_server.py')]}
     if 'RUSTER_USER_DIR' in __import__('os').environ:entry['env']={'RUSTER_USER_DIR':str(settings.user_root())}
     return {'mcpServers':{'ruster':entry}}
 

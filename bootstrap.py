@@ -1,8 +1,13 @@
 """Entry point executed by Blender inside the isolated Ruster process."""
-import json
 import os
-from pathlib import Path
 import sys
+
+if sys.platform == 'darwin' and os.environ.get('PYTHONDONTWRITEBYTECODE') == '1':
+    # Blender's isolated interpreter does not apply Python environment flags.
+    sys.dont_write_bytecode = True
+
+import json
+from pathlib import Path
 import bpy
 
 ROOT = Path(__file__).resolve().parent

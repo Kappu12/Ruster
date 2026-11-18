@@ -11,6 +11,8 @@ import json
 import os
 from pathlib import Path
 import platform
+import plistlib
+import runpy
 import shutil
 import subprocess
 import sys
@@ -114,9 +116,61 @@ def stage_runtime(archive, runtime):
     return runtime/binary, runtime
 
 
+def finish_macos_app(app, payload):
+    contents = app/'Contents'
+    engine = payload/'runtime/Blender.app'
+    with (engine/'Contents/Info.plist').open('rb') as stream:
+        minimum_macos = plistlib.load(stream)['LSMinimumSystemVersion']
+    version = runpy.run_path(str(payload/'ruster/__init__.py'))['__version__']
+    bundle_version = version.split('-', 1)[0].split('+', 1)[0]
+    with (contents/'Info.plist').open('wb') as stream:
+        plistlib.dump({
+            'CFBundleExecutable': 'Ruster',
+            'CFBundleIconFile': 'Ruster',
+            'CFBundleIdentifier': 'io.github.kappu12.ruster',
+            'CFBundleInfoDictionaryVersion': '6.0',
+            'CFBundleName': 'Ruster',
+            'CFBundlePackageType': 'APPL',
+            'CFBundleShortVersionString': bundle_version,
+            'CFBundleVersion': bundle_version,
+            'LSMinimumSystemVersion': minimum_macos,
+            'LSUIElement': True,
+        }, stream)
+
+    launcher = contents/'MacOS/Ruster'
+    launcher.parent.mkdir()
+    subprocess.run(['xcrun', 'clang', '-arch', 'arm64', f'-mmacosx-version-min={minimum_macos}',
+                    '-fobjc-arc', '-Wall', '-Wextra', '-framework', 'Foundation',
+                    str(ROOT/'tools/macos_launcher.m'), '-o', str(launcher)], check=True)
+
+    with tempfile.TemporaryDirectory(prefix='ruster-icon-') as temporary:
+        iconset = Path(temporary)/'Ruster.iconset'
+        iconset.mkdir()
+        source_icon = payload/'ruster/branding/icon-black.png'
+        for size in (16, 32, 128, 256, 512):
+            for scale, suffix in ((1, ''), (2, '@2x')):
+                pixels = str(size * scale)
+                image = iconset/f'icon_{size}x{size}{suffix}.png'
+                subprocess.run(['sips', '-z', pixels, pixels, str(source_icon), '--out', str(image)],
+                               stdout=subprocess.DEVNULL, check=True)
+        subprocess.run(['iconutil', '-c', 'icns', '-o', str(contents/'Resources/Ruster.icns'),
+                        str(iconset)], check=True)
+
+    # Keep Blender in a standard nested-code location without altering its signature.
+    bundled_engine = contents/'Helpers/Blender.app'
+    bundled_engine.parent.mkdir()
+    engine.rename(bundled_engine)
+    engine.symlink_to(os.path.relpath(bundled_engine, engine.parent), target_is_directory=True)
+    for cache in payload.rglob('__pycache__'):
+        shutil.rmtree(cache)
+    subprocess.run(['codesign', '--sign', '-', str(app)], check=True)
+    subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--archive', action='store_true', help='Also create a distributable ZIP')
+    parser.add_argument('--macos-app', action='store_true', help='Build a Finder-launchable macOS app')
     parser.add_argument('--output-name', help='Distribution folder name for side-by-side builds')
     parser.add_argument('--output-dir', type=Path, default=ROOT/'dist', help='Parent directory for the package and ZIP')
     args = parser.parse_args()
@@ -129,6 +183,11 @@ def main():
         target = f'{system.lower()}-x64'
     else:
         parser.error('Packaging supports Windows x64, Linux x64 and macOS Apple Silicon (native arm64 Python).')
+    if args.macos_app and system != 'Darwin':
+        parser.error('--macos-app requires macOS Apple Silicon')
+    if args.macos_app:
+        # Package checks run the vendor-signed engine before sealing the app.
+        os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     python_version = lock['python_version']
     if sys.version_info[:2] != tuple(map(int, python_version.split('.'))):
         raise SystemExit(f'Use Python {python_version} to package dependencies for Blender {lock["series"]}.')
@@ -140,11 +199,14 @@ def main():
     output_name = args.output_name or f'Ruster-{target}'
     if output_name in ('.', '..') or Path(output_name).name != output_name:
         parser.error('--output-name must be a folder name')
-    output = args.output_dir.resolve()/output_name
-    if output.exists():
-        shutil.rmtree(output)
+    distribution = args.output_dir.resolve()/output_name
+    if distribution.exists():
+        shutil.rmtree(distribution)
+    app = distribution/'Ruster.app' if args.macos_app else None
+    output = app/'Contents/Resources/Ruster' if app else distribution
     output.mkdir(parents=True)
     executable, engine_resources = stage_runtime(archive, output/'runtime')
+    engine_bytecode = set(engine_resources.rglob('*.pyc')) if app else set()
     for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Ruster.cmd','Ruster.sh','LICENSE',
                  'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name
@@ -176,11 +238,17 @@ def main():
                         str(ROOT/'launch.py')], check=True)
     else:
         (output/'Ruster.sh').chmod(0o755)
+    if app:
+        # Blender's embedded Python can compile modules during the fixtures.
+        for cache in set(engine_resources.rglob('*.pyc')) - engine_bytecode:
+            cache.unlink()
+        finish_macos_app(app, output)
     if args.archive and system == 'Darwin':
-        subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(output), f'{output}.zip'], check=True)
+        subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent',
+                        str(app or output), f'{distribution}.zip'], check=True)
     elif args.archive:
         shutil.make_archive(str(output), 'zip', output.parent, output.name)
-    print(f'Ready: {output}')
+    print(f'Ready: {app or output}')
 
 
 if __name__ == '__main__':

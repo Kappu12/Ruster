@@ -12,7 +12,7 @@ from mcp.client.stdio import stdio_client
 
 async def run():
     with tempfile.TemporaryDirectory(prefix='ruster-stdio-') as directory:
-        params=StdioServerParameters(command=sys.executable,args=[str(root/'mcp_server.py')],env={'RUSTER_USER_DIR':directory,'PYTHONIOENCODING':'utf-8'})
+        params=StdioServerParameters(command=sys.executable,args=['-B',str(root/'mcp_server.py')],env={'RUSTER_USER_DIR':directory,'PYTHONIOENCODING':'utf-8'})
         async with stdio_client(params) as streams:
             async with ClientSession(*streams) as session:
                 await session.initialize()

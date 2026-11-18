@@ -10,11 +10,11 @@ The editor works with whole prefab placements: choose assets, arrange them in th
 
 ## Start with a packaged build
 
-Open [Releases](https://github.com/Kappu12/Ruster/releases) and download the Windows or Linux ZIP from the version you want. Extract the ZIP into its own application folder.
+Open [Releases](https://github.com/Kappu12/Ruster/releases), download the ZIP for your platform, and extract it.
 
 - **Windows x64:** open `Ruster.exe`.
 - **Linux x64:** run `./Ruster.sh` from the extracted application folder. If needed, run `chmod +x Ruster.sh` first.
-- **macOS Apple Silicon:** [build a package locally](#create-an-application-package) and run `./Ruster.sh` from the packaged folder.
+- **macOS Apple Silicon:** open `Ruster.app` from the macOS ZIP.
 
 Keep the application folder together. The package includes its Blender runtime and Python dependencies, so a separate Blender installation is unnecessary.
 
@@ -221,7 +221,7 @@ On the target operating system, use Python 3.13. On a Mac, use native arm64 Pyth
 python tools/package.py --archive --output-dir artifacts
 ```
 
-The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, and runs the package checks. Use `--output-name` to give the folder and ZIP a versioned name. On macOS, the default package is `artifacts/Ruster-macos-arm64/` and its launcher is `artifacts/Ruster-macos-arm64/Ruster.sh`. The Windows Live Preview client module requires Windows.
+The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, and runs the package checks. Use `--output-name` to give the folder and ZIP a versioned name. On macOS, add `--macos-app` to build `Ruster.app` as the ZIP's top-level item. The app bundle is ad-hoc signed. The Windows Live Preview client module requires Windows.
 
 ### Publish a version
 
@@ -242,7 +242,7 @@ python tools/release.py upload --repo Kappu12/Ruster --tag v1.2.3 --platform win
 python tools/release.py publish --repo Kappu12/Ruster --tag v1.2.3
 ```
 
-Publication verifies both downloads. A Mac builder can check out the same tag, use `--output-name Ruster-macos-arm64-v1.2.3`, and attach the tested ZIP separately. Tags such as `v1.2.3-rc.1` create prereleases.
+Publication verifies the Windows and Linux downloads. A Mac builder can check out the release source, use `--macos-app --output-name Ruster-macos-arm64-v1.2.3` with the packaging command above, and attach the tested ZIP to the release. Tags such as `v1.2.3-rc.1` create prereleases.
 
 ## Local files
 

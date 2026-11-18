@@ -12,6 +12,27 @@ EDITOR_MEMORY = 8192 * MIB
 _handles = []  # Job handles must stay open for the lifetime of the process.
 
 
+def _darwin_virtual_size():
+    import ctypes
+
+    class ProcTaskInfo(ctypes.Structure):
+        # Layout from <sys/proc_info.h> through the final task counter.
+        _fields_ = [('virtual_size', ctypes.c_uint64),
+                    ('resident_size', ctypes.c_uint64),
+                    ('cpu_times', ctypes.c_uint64 * 4),
+                    ('policy_and_counters', ctypes.c_int32 * 12)]
+
+    proc_pidinfo = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True).proc_pidinfo
+    proc_pidinfo.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                            ctypes.c_void_p, ctypes.c_int)
+    info = ProcTaskInfo()
+    size = ctypes.sizeof(info)
+    proc_pidtaskinfo = 4
+    if proc_pidinfo(os.getpid(), proc_pidtaskinfo, 0, ctypes.byref(info), size) != size:
+        raise OSError('Could not read the macOS process virtual-memory size')
+    return info.virtual_size
+
+
 def protect_process(memory_bytes, parent_pid=None, *, allow_breakaway=False):
     if sys.platform == 'win32':
         import ctypes
@@ -65,6 +86,10 @@ def protect_process(memory_bytes, parent_pid=None, *, allow_breakaway=False):
             threading.Thread(target=watch, daemon=True).start()
     else:
         import resource
+        if sys.platform == 'darwin':
+            # The shared cache and allocator reserve address space before startup.
+            # Apply the budget to additional mappings with a hard kernel limit.
+            memory_bytes += _darwin_virtual_size()
         _, hard = resource.getrlimit(resource.RLIMIT_AS)
         cap = memory_bytes if hard == resource.RLIM_INFINITY else min(memory_bytes, hard)
         resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
