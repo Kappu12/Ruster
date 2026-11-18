@@ -8,6 +8,7 @@ import re
 import subprocess
 
 PLATFORMS = ('windows-x64', 'linux-x64')
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def validate_tag(tag):
@@ -63,8 +64,14 @@ def prepare(repo, tag):
             raise ValueError('This version is already published; push a new version tag')
         print(f'Resuming draft release {tag}')
         return
+    engine_version = json.loads((ROOT/'engine.lock.json').read_text(encoding='utf-8'))['version']
+    ruster_source = f'https://github.com/{repo}/tree/{tag}'
+    blender_source = f'https://download.blender.org/source/blender-{engine_version}.tar.xz'
+    notes = ('The Windows x64 ZIP contains `Ruster.exe`. Extract the ZIP before opening the app. '
+             'On Ubuntu x64, extract the Linux ZIP and run `./Ruster.sh`.\n\n'
+             f'Corresponding source: [Ruster]({ruster_source}) and [Blender {engine_version}]({blender_source}).')
     args = ['release', 'create', tag, '--repo', repo, '--verify-tag', '--draft',
-            '--title', f'Ruster {tag}', '--generate-notes']
+            '--title', f'Ruster {tag}', '--generate-notes', '--notes', notes]
     if '-' in tag:
         args.append('--prerelease')
     gh(*args)
@@ -97,6 +104,7 @@ def main(argv=None):
     parser.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY'))
     parser.add_argument('--tag', default=os.environ.get('RELEASE_TAG'))
     parser.add_argument('--platform', choices=PLATFORMS)
+    parser.add_argument('--directory', type=Path, default=Path('dist'), help='Directory containing the release ZIP')
     args = parser.parse_args(argv)
     if not args.repo or args.repo.count('/') != 1:
         parser.error('Set --repo or GITHUB_REPOSITORY to owner/repository')
@@ -104,7 +112,7 @@ def main(argv=None):
     if args.command == 'upload':
         if not args.platform:
             parser.error('Uploading requires --platform')
-        upload(args.repo, args.tag, args.platform)
+        upload(args.repo, args.tag, args.platform, args.directory)
     else:
         {'prepare': prepare, 'publish': publish}[args.command](args.repo, args.tag)
 

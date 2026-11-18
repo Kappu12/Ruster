@@ -53,9 +53,13 @@ def test_prepare_creates_only_a_draft_from_an_existing_tag(monkeypatch, tag):
     monkeypatch.setattr(release, 'get_release', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(release, 'gh', lambda *args: calls.append(args))
     release.prepare(REPO, tag)
-    assert calls == [('release', 'create', tag, '--repo', REPO, '--verify-tag', '--draft',
-                      '--title', f'Ruster {tag}', '--generate-notes',
-                      *(['--prerelease'] if '-rc' in tag else []))]
+    call, = calls
+    assert call[:10] == ('release', 'create', tag, '--repo', REPO, '--verify-tag', '--draft',
+                        '--title', f'Ruster {tag}', '--generate-notes')
+    assert call[10] == '--notes'
+    assert f'https://github.com/{REPO}/tree/{tag}' in call[11]
+    assert 'https://download.blender.org/source/blender-' in call[11]
+    assert call[12:] == (('--prerelease',) if '-rc' in tag else ())
 
 
 def test_prepare_reuses_draft_and_refuses_published_version(monkeypatch):

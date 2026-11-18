@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.request
 import zipfile
 
@@ -27,13 +28,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def fetch(url, target, digest):
-    if not target.exists() or hashlib.file_digest(target.open('rb'), 'sha256').hexdigest() != digest:
-        print(f'Downloading {url}', flush=True)
-        urllib.request.urlretrieve(url, target)
-    actual = hashlib.file_digest(target.open('rb'), 'sha256').hexdigest()
-    if actual != digest:
-        target.unlink()
-        raise ValueError('Blender archive SHA256 verification failed')
+    if target.is_file():
+        with target.open('rb') as cached:
+            if hashlib.file_digest(cached, 'sha256').hexdigest() == digest:
+                return
+    print(f'Downloading {url}', flush=True)
+    with tempfile.TemporaryDirectory(dir=target.parent) as temporary:
+        downloaded = Path(temporary)/target.name
+        urllib.request.urlretrieve(url, downloaded)
+        with downloaded.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
+                raise ValueError('Blender archive SHA256 verification failed')
+        downloaded.replace(target)
 
 
 def brand_windows_runtime(executable, icon):
@@ -75,16 +81,46 @@ def brand_windows_runtime(executable, icon):
     return {'executable':str(executable),'icon':str(icon),'icon_groups':len(targets),'images':len(source.images)}
 
 
+def stage_runtime(archive, runtime):
+    if archive.suffix == '.dmg':
+        runtime.mkdir()
+        with tempfile.TemporaryDirectory(prefix='ruster-blender-') as mount:
+            subprocess.run(['hdiutil', 'attach', '-readonly', '-nobrowse', '-mountpoint', mount, str(archive)], check=True)
+            try:
+                subprocess.run(['ditto', str(Path(mount)/'Blender.app'), str(runtime/'Blender.app')], check=True)
+            finally:
+                subprocess.run(['hdiutil', 'detach', mount], check=True)
+        return runtime/'Blender.app/Contents/MacOS/Blender', runtime/'Blender.app/Contents/Resources'
+    with tempfile.TemporaryDirectory(prefix='engine-', dir=archive.parent) as staging:
+        extract = Path(staging)
+        if archive.suffix == '.zip':
+            with zipfile.ZipFile(archive) as stream:
+                stream.extractall(extract)
+            binary = 'blender.exe'
+        else:
+            with tarfile.open(archive) as stream:
+                stream.extractall(extract, filter='data')
+            binary = 'blender'
+        engine = next(p for p in extract.iterdir() if p.is_dir())
+        shutil.move(str(engine), runtime)
+    return runtime/binary, runtime
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--archive', action='store_true', help='Also create a distributable ZIP')
-    parser.add_argument('--output-name', help='Distribution folder name inside dist (for side-by-side builds)')
+    parser.add_argument('--output-name', help='Distribution folder name for side-by-side builds')
+    parser.add_argument('--output-dir', type=Path, default=ROOT/'dist', help='Parent directory for the package and ZIP')
     args = parser.parse_args()
     lock = json.loads((ROOT/'engine.lock.json').read_text())
     system = platform.system()
-    target = {'Windows':'windows-x64', 'Linux':'linux-x64'}.get(system)
-    if target is None or platform.machine().lower() not in ('amd64','x86_64'):
-        raise SystemExit('Packaging currently supports Windows x64 and Linux x64. macOS support is pending.')
+    machine = platform.machine().lower()
+    if system == 'Darwin' and machine == 'arm64':
+        target = 'macos-arm64'
+    elif system in ('Windows', 'Linux') and machine in ('amd64', 'x86_64'):
+        target = f'{system.lower()}-x64'
+    else:
+        parser.error('Packaging supports Windows x64, Linux x64 and macOS Apple Silicon (native arm64 Python).')
     python_version = lock['python_version']
     if sys.version_info[:2] != tuple(map(int, python_version.split('.'))):
         raise SystemExit(f'Use Python {python_version} to package dependencies for Blender {lock["series"]}.')
@@ -96,45 +132,32 @@ def main():
     output_name = args.output_name or f'Ruster-{target}'
     if output_name in ('.', '..') or Path(output_name).name != output_name:
         parser.error('--output-name must be a folder name')
-    output = ROOT/'dist'/output_name
+    output = args.output_dir.resolve()/output_name
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
-    extract = build/'engine'
-    if extract.exists():
-        shutil.rmtree(extract)
-    extract.mkdir()
-    if archive.suffix == '.zip':
-        with zipfile.ZipFile(archive) as stream:
-            stream.extractall(extract)
-    else:
-        with tarfile.open(archive) as stream:
-            stream.extractall(extract, filter='data')
-    engine = next(p for p in extract.iterdir() if p.is_dir())
-    shutil.move(str(engine), output/'runtime')
-    if system == 'Windows':
-        # Compile our own native source; Rust/SteamCMD/Carbon stay first-run
-        # downloads and are never included in the application archive.
-        if __package__:from .build_preview_client import build as build_preview
-        else:from build_preview_client import build as build_preview
-        build_preview()
+    executable, engine_resources = stage_runtime(archive, output/'runtime')
     for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Ruster.cmd','Ruster.sh','LICENSE',
                  'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name
         if source.is_dir():
-            shutil.copytree(source, destination, ignore=shutil.ignore_patterns('__pycache__','*.pyc','*.pdb','*.lib'))
+            shutil.copytree(source, destination, ignore=shutil.ignore_patterns('__pycache__','*.pyc','*.pdb','*.lib','bin'))
         else:
             shutil.copy2(source, destination)
+    if system == 'Windows':
+        # Build into the package so existing copies of the DLL stay untouched.
+        if __package__:from .build_preview_client import build as build_preview
+        else:from build_preview_client import build as build_preview
+        build_preview(output=output/'ruster/preview_native/bin/RusterPreview.dll')
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--only-binary=:all:', '--no-binary=tpk_ar',
                     '--target', str(output/'python_modules'), '-r', str(ROOT/'requirements-assets.txt'),
                     '-r',str(ROOT/'requirements-mcp.txt')], check=True)
-    executable = output/'runtime'/('blender.exe' if system == 'Windows' else 'blender')
     if system == 'Windows':
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller==6.16.0'], check=True)
         print('Runtime identity:',brand_windows_runtime(executable,output/'ruster/branding/ruster.ico'),flush=True)
     # Exercise the exact distribution with the same prefab contract as CI.
     run_suite(executable, app_root=output)
-    python=next(p for p in sorted((output/'runtime').glob('*/python/bin/python*'))
+    python=next(p for p in sorted(engine_resources.glob('*/python/bin/python*'))
         if p.is_file() and '-config' not in p.name and (system!='Windows' or p.name=='python.exe'))
     subprocess.run([str(python),str(ROOT/'tests/mcp_stdio_smoke.py'),str(output)],check=True)
     if system == 'Windows':
@@ -145,7 +168,9 @@ def main():
                         str(ROOT/'launch.py')], check=True)
     else:
         (output/'Ruster.sh').chmod(0o755)
-    if args.archive:
+    if args.archive and system == 'Darwin':
+        subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(output), f'{output}.zip'], check=True)
+    elif args.archive:
         shutil.make_archive(str(output), 'zip', output.parent, output.name)
     print(f'Ready: {output}')
 

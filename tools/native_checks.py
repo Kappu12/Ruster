@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,17 +29,17 @@ GRAPHICAL_TESTS = (
 )
 
 
-def run_suite(executable, suite='background', app_root=None, xvfb=False):
+def run_suite(executable, suite='background', app_root=None, xvfb=False, shard=(0, 1)):
     graphical = suite == 'graphical'
     if graphical and app_root is not None:
         raise ValueError('Staged app roots are supported by the background suite only')
     tests = GRAPHICAL_TESTS if graphical else BACKGROUND_TESTS
-    for test in tests:
+    for test in tests[shard[0]::shard[1]]:
         print(f'Running {suite} fixture: {test}', flush=True)
         command = [str(executable), '-t', '2', '--factory-startup',
                    '--disable-autoexec', '--python-exit-code', '1']
         if graphical:
-            command += ['--gpu-backend', 'opengl', '--enable-event-simulate',
+            command += ['--gpu-backend', 'metal' if sys.platform == 'darwin' else 'opengl', '--enable-event-simulate',
                         '--window-geometry', '0', '0', '1240', '900']
         else:
             command += ['-b']
@@ -52,7 +53,6 @@ def run_suite(executable, suite='background', app_root=None, xvfb=False):
             env={**os.environ,'BLENDER_USER_CONFIG':str(config),'RUSTER_PREVIEW_TEST_NO_DISCOVERY':'1'}
             subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=150 if graphical else 120)
     if not graphical:
-        import sys
         print('Running persistent headless MCP round trip', flush=True)
         subprocess.run([sys.executable, str(ROOT/'tests/headless_roundtrip.py'), str(executable), str(app_root or ROOT)],
                        cwd=ROOT, check=True, timeout=150)
@@ -64,6 +64,7 @@ def main():
                         help='Blender executable, or directory containing the pinned extracted Linux runtime')
     parser.add_argument('--suite', choices=('background', 'graphical'), default='background')
     parser.add_argument('--xvfb', action='store_true', help='Give each fixture a disposable X display')
+    parser.add_argument('--shard', type=int, choices=(1, 2, 3), help='Run one of three graphical fixture shards')
     args = parser.parse_args()
     executable = args.engine.resolve()
     if executable.is_dir():
@@ -72,9 +73,13 @@ def main():
         executable = executable/folder/'blender'
     if not executable.is_file():
         parser.error(f'Blender executable does not exist: {executable}')
-    if args.suite == 'graphical':
+    graphical = args.suite == 'graphical'
+    if args.shard and not graphical:
+        parser.error('--shard requires --suite graphical')
+    if graphical and sys.platform != 'darwin':
         os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
-    run_suite(executable, args.suite, xvfb=args.xvfb)
+    shard = (args.shard - 1, 3) if args.shard else (0, 1)
+    run_suite(executable, args.suite, xvfb=args.xvfb, shard=shard)
 
 
 if __name__ == '__main__':

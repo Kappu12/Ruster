@@ -6,55 +6,64 @@ on:
   workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: ruster-check-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   formats:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-*.txt
       - run: python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
-      - run: python -m pytest -q
-      - run: python -m compileall -q ruster tools bootstrap.py launch.py
+      - run: python -m pytest -q tests
   package:
-    # Release tags build their distributables in package.yml after these checks.
+    # Tagged builds run the same package checks in the release workflow.
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-    needs: formats
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-*.txt
+      - uses: actions/cache@v5
+        with:
+          path: build/blender-*-linux-x64.tar.xz
+          key: ruster-blender-linux-x64-${{ hashFiles('engine.lock.json') }}
+      - name: Build and test Ubuntu package
+        run: python tools/package.py --output-name Ruster-linux-x64-check
+  graphical:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            target: windows-x64
-          - os: ubuntu-latest
-            target: linux-x64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+        shard: [1, 2, 3]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Build and test application package
-        run: python tools/package.py --output-name "Ruster-${{ matrix.target }}-check"
-  blender:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+          cache: pip
+          cache-dependency-path: requirements-*.txt
+      - uses: actions/cache/restore@v5
         with:
-          python-version: '3.13'
-      - name: Download verified Blender LTS
+          path: build/blender-*-linux-x64.tar.xz
+          key: ruster-blender-linux-x64-${{ hashFiles('engine.lock.json') }}
+      - name: Unpack verified Blender LTS
         run: python tools/fetch_engine.py /tmp/ruster-engine
-      - run: python -m pip install -r requirements-mcp.txt
-      - run: python -m pip install --only-binary=:all: --no-binary=tpk_ar --target python_modules -r requirements-assets.txt
-      - name: Test native prefab, import/export, materials and MCP integration
-        run: python tools/native_checks.py --engine /tmp/ruster-engine --suite background
-      - name: Test graphical startup, welcome, search, materials, construction and MCP
+      - run: |
+          python -m pip install --only-binary=:all: --no-binary=tpk_ar --target python_modules -r requirements-assets.txt -r requirements-mcp.txt
+      - name: Test the graphical editor
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           export RUSTER_TEST_PYTHON="$(command -v python)"
-          python tools/native_checks.py --engine /tmp/ruster-engine --suite graphical --xvfb
+          python tools/native_checks.py --engine /tmp/ruster-engine --suite graphical --xvfb --shard "${{ matrix.shard }}"

@@ -10,13 +10,12 @@ these remain part of the licensed Blender runtime, with no external icon font.
 
 - Upstream: https://projects.blender.org/blender/blender
 - Exact source reference: `v5.2.3` (`engine.lock.json`)
-- Source archive: https://projects.blender.org/blender/blender/archive/v5.2.3.tar.gz
+- Source archive: https://download.blender.org/source/blender-5.2.3.tar.xz
 - License: https://www.blender.org/about/license/
 
-When distributing binaries, provide the corresponding Ruster and Blender source
-in a GPL-compliant manner. An upstream URL alone is not a substitute for complying
-with source-distribution requirements. This repository and its private build
-artifacts are a development workflow, not a public binary/source release process.
+Ruster release notes identify the matching Ruster source tag and Blender source
+archive beside the package downloads. The Ruster source includes the packaging
+and Windows icon replacement scripts.
 
 ## Community Blender MCP
 

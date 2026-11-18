@@ -10,7 +10,9 @@ lock = json.loads((root/'engine.lock.json').read_text())
 target = Path(sys.argv[1])
 target.mkdir(parents=True, exist_ok=True)
 entry = lock['archives']['linux-x64']
-archive = target/entry['file']
+cache = root/'build'
+cache.mkdir(exist_ok=True)
+archive = cache/entry['file']
 fetch(lock['base_url']+'/'+entry['file'], archive, entry['sha256'])
 with tarfile.open(archive) as stream:
     stream.extractall(target, filter='data')

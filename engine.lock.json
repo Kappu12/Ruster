@@ -14,6 +14,10 @@
     "linux-x64": {
       "file": "blender-5.2.3-linux-x64.tar.xz",
       "sha256": "78486c018b4443efe5e75ab54c290ed8c15abafd249b862c2c9ce2530a918eec"
+    },
+    "macos-arm64": {
+      "file": "blender-5.2.3-macos-arm64.dmg",
+      "sha256": "acc05374485a272342d4b323c15ac01953e7f697da2f1bad8af9c3bf087267a4"
     }
   }
 }

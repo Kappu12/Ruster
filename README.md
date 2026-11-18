@@ -10,8 +10,9 @@ Open [Releases](https://github.com/Kappu12/Ruster/releases) and download the Win
 
 - **Windows x64:** open `Ruster.exe`.
 - **Linux x64:** run `./Ruster.sh` from the extracted application folder. If needed, run `chmod +x Ruster.sh` first.
+- **macOS Apple Silicon:** [build a package locally](#create-an-application-package) and run `./Ruster.sh` from the packaged folder.
 
-Keep the application folder together. The package includes its Blender runtime and Python dependencies; a separate Blender installation is unnecessary. Packaging currently targets Windows and Linux on x64.
+Keep the application folder together. The package includes its Blender runtime and Python dependencies, so a separate Blender installation is unnecessary.
 
 ### Make your first composition
 
@@ -195,7 +196,7 @@ In a Python 3.13 development environment:
 
 ```sh
 python -m pip install pytest lz4 numpy -r requirements-assets.txt -r requirements-mcp.txt
-python -m pytest -q
+python -m pytest -q tests
 python -m compileall -q ruster tools bootstrap.py launch.py
 ```
 
@@ -210,24 +211,34 @@ On Linux, `--xvfb` gives the graphical suite a disposable virtual display when X
 
 ### Create an application package
 
-On the target operating system, using Python 3.13:
+On the target operating system, use Python 3.13. On a Mac, use native arm64 Python and install the Xcode Command Line Tools (`xcode-select --install`) if they are missing.
 
 ```sh
-python tools/package.py --archive
+python tools/package.py --archive --output-dir artifacts
 ```
 
-The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, runs the package checks, and writes the application and ZIP into `dist/`. Use `--output-name` to choose a different distribution folder name.
+The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, and runs the package checks. Use `--output-name` to give the folder and ZIP a versioned name. On macOS, the default package is `artifacts/Ruster-macos-arm64/` and its launcher is `artifacts/Ruster-macos-arm64/Ruster.sh`. The Windows Live Preview client module requires Windows.
 
 ### Publish a version
 
-Ordinary branch pushes and pull requests run the unit, native Blender, and graphical tests, then build and test the Windows and Linux packages without uploading application artifacts. To publish a version, update the application version in `ruster/__init__.py`, commit the changes, then push a new version tag such as `v1.2.3`:
+Branch pushes and pull requests run tests and check an Ubuntu build. The tag workflow runs the same tests, builds the Ubuntu ZIP, and uploads it to a draft GitHub release. Windows and macOS packages are built locally.
+
+To release a version, update `ruster/__init__.py` and commit the changes. On Windows, build the package from the commit you plan to tag.
 
 ```sh
+python tools/package.py --archive --output-dir artifacts --output-name Ruster-windows-x64-v1.2.3
 git tag v1.2.3
-git push origin v1.2.3
+git push origin main v1.2.3
 ```
 
-The tag workflow runs the same tests, creates a draft GitHub Release, and builds and tests the Windows and Linux packages. Each ZIP uploads directly to the draft release, without intermediate Actions artifacts. The workflow publishes only after both downloads are complete, then removes the old Ruster Actions artifacts. A failed test or build leaves existing downloads intact. Tags such as `v1.2.3-rc.1` create prereleases.
+Wait for the **Release Ruster App** run for that tag to succeed. Then upload the Windows ZIP and publish with the authenticated GitHub CLI.
+
+```sh
+python tools/release.py upload --repo Kappu12/Ruster --tag v1.2.3 --platform windows-x64 --directory artifacts
+python tools/release.py publish --repo Kappu12/Ruster --tag v1.2.3
+```
+
+Publication verifies both downloads. A Mac builder can check out the same tag, use `--output-name Ruster-macos-arm64-v1.2.3`, and attach the tested ZIP separately. Tags such as `v1.2.3-rc.1` create prereleases.
 
 ## Local files
 
@@ -237,6 +248,7 @@ Ruster reads the installed game files without changing them. Its settings, asset
 | --- | --- |
 | Windows | `%LOCALAPPDATA%\Ruster` |
 | Linux | `$XDG_DATA_HOME/ruster`, or `~/.local/share/ruster` when unset |
+| macOS | `~/Library/Application Support/Ruster` |
 
 Set `RUSTER_USER_DIR` to choose another user data folder. Projects and exports are saved to the locations you select.
 

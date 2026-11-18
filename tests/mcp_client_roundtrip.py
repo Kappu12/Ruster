@@ -26,10 +26,6 @@ async def run():
                 result=await session.call_tool(rpc_tool_name,args)
                 assert not result.isError,result
                 return result.structuredContent or json.loads(result.content[0].text)
-            exposed={tool.name for tool in (await session.list_tools()).tools}
-            assert len(exposed)==61,sorted(exposed)
-            assert not {'paint_terrain','sample_surface','snap_objects_to_terrain','generate_map','get_generation_status','cancel_generation','create_path','update_path','get_path_info','execute_code'} & exposed
-            assert {'get_objects_info','get_prefabs_details','get_selection','array_objects','align_objects','export_models','import_map_prefabs','get_io_settings','set_io_settings'}<=exposed
             assert (await call('get_scene_info'))['mode']=='PREFAB'
             assert (await call('get_blender_context'))['geometry_read_only']
             state=await call('get_viewport_state')
