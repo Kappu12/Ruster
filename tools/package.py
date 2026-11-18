@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -32,10 +33,17 @@ def fetch(url, target, digest):
         with target.open('rb') as cached:
             if hashlib.file_digest(cached, 'sha256').hexdigest() == digest:
                 return
-    print(f'Downloading {url}', flush=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as temporary:
         downloaded = Path(temporary)/target.name
-        urllib.request.urlretrieve(url, downloaded)
+        print(f'Downloading {url}', flush=True)
+        try:
+            urllib.request.urlretrieve(url, downloaded)
+        except (urllib.error.URLError, TimeoutError) as error:
+            mirror = url.replace('https://download.blender.org/', 'https://mirror.blender.org/', 1)
+            if mirror == url:
+                raise
+            print(f'Blender download failed ({error}). Retrying via {mirror}', flush=True)
+            urllib.request.urlretrieve(mirror, downloaded)
         with downloaded.open('rb') as stream:
             if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
                 raise ValueError('Blender archive SHA256 verification failed')
