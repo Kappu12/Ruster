@@ -225,7 +225,7 @@ The packager downloads the pinned Blender archive, verifies its SHA256, installs
 
 ### Publish a version
 
-Branch pushes and pull requests run tests and check an Ubuntu build. The tag workflow runs the same tests, builds the Ubuntu ZIP, and uploads it to a draft GitHub release. Windows and macOS packages are built locally.
+Branch pushes and pull requests run the unit and graphical tests. Version tag pushes also build and test the Ubuntu package and upload its ZIP to a draft GitHub release. Windows and macOS packages are built locally.
 
 To release a version, update `ruster/__init__.py` and commit the changes. On Windows, build the package from the commit you plan to tag.
 
