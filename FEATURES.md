@@ -1,6 +1,6 @@
-# Ruster 0.11.2 feature coverage
+# Rustmatics feature coverage
 
-Ruster is a **prefab composition editor** built on Blender 5.2 LTS. This checklist
+Rustmatics is a **prefab composition editor** built on Blender 5.2 LTS. This checklist
 covers the active product and its verification limits, not complete RustEdit or
 Rust-engine parity.
 
@@ -8,7 +8,7 @@ Rust-engine parity.
 
 | Area | Support |
 | --- | --- |
-| Startup | Empty Prefab workspace; New / Open popup; recent projects and recovery; original Ruster branding; isolated Blender preferences. |
+| Startup | Empty Prefab workspace; New / Open popup; recent projects and recovery; original Rustmatics branding; isolated Blender preferences. |
 | Preferences | Assets and MCP in the same native preferences navigation as Interface, Themes and other Blender settings; theme/UI scale retained across New Prefab. |
 | Local Rust assets | Validated Steam install discovery and manual fallback; game scene manifest and local RustEdit string pool; on-demand dependency/GUID resolution without launching either program. No shipped game assets. |
 | Browser | Compact native Shift+A category menu with Search All Prefabs and immediate typing across the complete catalog; one shared, incrementally warmed metadata index prevents repeated category scans. Descriptive tokens in any order and prioritized IO/glow aliases; sidebar categories, favorites, 48 recent placements, local availability, filter reset, inspect-before-place details with Copy ID/Path, and paginated counts. |

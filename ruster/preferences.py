@@ -1,4 +1,4 @@
-"""Ruster sections inside Blender's existing Preferences editor and navigation."""
+"""Rustmatics sections inside Blender's existing Preferences editor and navigation."""
 import bpy
 from bpy.props import EnumProperty,PointerProperty,StringProperty
 from bpy.app.handlers import persistent
@@ -147,7 +147,7 @@ class RUSTER_PT_preferences_assets(RustPreferences,CenterAlignMixIn,bpy.types.Pa
         row=fields.row(align=True);row.operator_context='EXEC_DEFAULT'
         action(row,'ruster.setup',text='Apply Installation')
         row.operator('ruster.detect_install',icon=I['search'])
-        wrapped(layout,context,'Ruster checks Steam libraries automatically. Game files stay on your computer and are read-only.',icon='locked',width=width)
+        wrapped(layout,context,'Rustmatics checks Steam libraries automatically. Game files stay on your computer and are read-only.',icon='locked',width=width)
         layout.separator()
         layout.label(text='Local Assets',icon=I['import'])
         from .loading import draw_status

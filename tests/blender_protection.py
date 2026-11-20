@@ -98,7 +98,7 @@ def run():
         parent=bpy.data.objects.new('Unsupported parent',None)
         bpy.context.scene.collection.objects.link(parent)
         duplicate.parent=parent;duplicate.matrix_world=matrix
-        rejected('parent must be a Ruster prefab group')
+        rejected('parent must be a Rustmatics prefab group')
         parent['ruster_kind']='GROUP'
         constraint=parent.constraints.new('LIMIT_LOCATION')
         rejected('constraints/modifiers/animation')

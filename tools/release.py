@@ -22,7 +22,7 @@ def asset_name(tag, platform):
     validate_tag(tag)
     if platform not in PLATFORMS:
         raise ValueError('Unsupported release platform')
-    return f'Ruster-{platform}-{tag}.zip'
+    return f'Rustmatics-{platform}-{tag}.zip'
 
 
 def gh(*args):
@@ -68,11 +68,11 @@ def prepare(repo, tag):
     engine_version = json.loads((ROOT/'engine.lock.json').read_text(encoding='utf-8'))['version']
     ruster_source = f'https://github.com/{repo}/tree/{tag}'
     blender_source = f'https://download.blender.org/source/blender-{engine_version}.tar.xz'
-    notes = ('The Windows x64 ZIP contains `Ruster.exe`. Extract the ZIP before opening the app. '
-             'On Ubuntu x64, extract the Linux ZIP and run `./Ruster.sh`.\n\n'
-             f'Corresponding source: [Ruster]({ruster_source}) and [Blender {engine_version}]({blender_source}).')
+    notes = ('The Windows x64 ZIP contains `Rustmatics.exe`. Extract the ZIP before opening the app. '
+             'On Ubuntu x64, extract the Linux ZIP and run `./Rustmatics.sh`.\n\n'
+             f'Corresponding source: [Rustmatics]({ruster_source}) and [Blender {engine_version}]({blender_source}).')
     args = ['release', 'create', tag, '--repo', repo, '--verify-tag', '--draft',
-            '--title', f'Ruster {tag}', '--generate-notes', '--notes', notes]
+            '--title', f'Rustmatics {tag}', '--generate-notes', '--notes', notes]
     if '-' in tag:
         args.append('--prerelease')
     gh(*args)

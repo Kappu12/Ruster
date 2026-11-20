@@ -2,9 +2,9 @@
 
 ## Blender
 
-Ruster is built on Blender. Packaged distributions retain Blender's `license`
+Rustmatics is built on Blender. Packaged distributions retain Blender's `license`
 directory, copyright notices and runtime dependencies. Blender is GPL software;
-Ruster's code is licensed GPL-3.0-or-later. See `LICENSE`.
+Rustmatics's code is licensed GPL-3.0-or-later. See `LICENSE`.
 The interface uses Blender's bundled RNA icons and toolbar `.dat` icon pack;
 these remain part of the licensed Blender runtime, with no external icon font.
 
@@ -13,19 +13,19 @@ these remain part of the licensed Blender runtime, with no external icon font.
 - Source archive: https://download.blender.org/source/blender-5.2.3.tar.xz
 - License: https://www.blender.org/about/license/
 
-Ruster release notes identify the matching Ruster source tag and Blender source
-archive beside the package downloads. The Ruster source includes the packaging
+Rustmatics release notes identify the matching Rustmatics source tag and Blender source
+archive beside the package downloads. The Rustmatics source includes the packaging
 and Windows icon replacement scripts.
 
 ## Community Blender MCP
 
-Ruster adapts selected bridge/inspection methods from `addon.py` and the
+Rustmatics adapts selected bridge/inspection methods from `addon.py` and the
 `BlenderConnection` class from `src/blender_mcp/server.py` of
 https://github.com/ahujasid/mcp-for-blender at commit
 `5a3618fccb2d982d0dd61e7a1879912c3100073b` (MIT, Copyright 2025 Siddharth Ahuja).
 The retained license is `ruster/vendor/BLENDER_MCP_LICENSE`; the pinned origin and
 edits are recorded in `ruster/vendor/upstream.json`. These files remain MIT code
-within the GPL-compatible application. Ruster's command policy, settings and
+within the GPL-compatible application. Rustmatics's command policy, settings and
 MCP tool registration are its own implementation. Upstream telemetry, arbitrary
 code execution, external asset services and addon installers are not included.
 
@@ -53,7 +53,7 @@ compiled libraries or copy their implementation.
 The reader optionally uses `python-lz4` (already supplied by UnityPy's
 dependencies) for native block decompression. Its Python bindings and bundled
 LZ4 library notices are retained in `python_modules` distribution metadata.
-Legacy stream framing, size checks and the Python fallback remain Ruster code.
+Legacy stream framing, size checks and the Python fallback remain Rustmatics code.
 
 - https://github.com/python-lz4/python-lz4
 
@@ -70,7 +70,7 @@ dependency notices are included in the packaged `python_modules` directory.
 
 ## Local live preview
 
-The preview client DLL is compiled from Ruster's GPL source with the official
+The preview client DLL is compiled from Rustmatics's GPL source with the official
 Zig 0.15.2 toolchain. The build verifies the compiler archive's SHA256; the
 compiler itself is not included in the application. Bundled LLVM C++ runtime
 notices are retained in `ruster/preview_native/LICENSES/` (Apache-2.0 with LLVM
@@ -78,7 +78,7 @@ exceptions and the accompanying legacy notices). The Zig compiler notice is
 retained there as well.
 
 SteamCMD, the Rust dedicated server and Carbon are downloaded separately on
-first use, rather than redistributed in Ruster's executable or application ZIP.
+first use, rather than redistributed in Rustmatics's executable or application ZIP.
 Carbon's Windows release digest is verified against its official GitHub release
 metadata. Original server and runtime notices remain in that installation.
 
@@ -90,7 +90,7 @@ metadata. Original server and runtime notices remain in that installation.
 ## Rust content
 
 Rust and its assets belong to Facepunch and their respective rights holders.
-Ruster is an independent community tool, not an official Facepunch product.
+Rustmatics is an independent community tool, not an official Facepunch product.
 The repository and application package contain no Rust game models/textures/maps.
 The user supplies a local installation. Generated caches and saved projects may
 contain game assets and must not be treated as redistributable open-source art.
@@ -98,7 +98,7 @@ contain game assets and must not be treated as redistributable open-source art.
 - https://facepunch.com/legal/tos
 - https://facepunch.com/legal/modding
 
-## Ruster branding
+## Rustmatics branding
 
 The user-requested Rust-derived mark and Rust-font raster wordmark are not GPL
 game content. Their credits and source references are retained in

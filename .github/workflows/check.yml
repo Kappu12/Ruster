@@ -1,4 +1,4 @@
-name: Check Ruster
+name: Check Rustmatics
 on:
   push:
     branches: ['**']

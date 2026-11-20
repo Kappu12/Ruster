@@ -266,7 +266,7 @@ class RUSTER_OT_launch_preview_rust(bpy.types.Operator):
 class RUSTER_OT_inject_preview(bpy.types.Operator):
     bl_idname = 'ruster.inject_preview'
     bl_label = 'Inject'
-    bl_description = 'Verify EAC is inactive, then load only Ruster\'s local preview module'
+    bl_description = 'Verify EAC is inactive, then load only Rustmatics\'s local preview module'
     def execute(self, context):
         try:
             if not _job or _job.status != 'RUNNING':raise ValueError('Wait for the preview server to become ready')
@@ -308,7 +308,7 @@ class RUSTER_OT_preview_owner(bpy.types.Operator):
             if not _job:raise ValueError('Start live preview first')
             owner = backend.owner_id(context.window_manager.ruster_live_preview.owner)
             if not owner:raise ValueError('Enter your SteamID64 first')
-            _job.send_command('ownerid '+owner+' "Ruster preview owner"')
+            _job.send_command('ownerid '+owner+' "Rustmatics preview owner"')
             self.report({'INFO'}, 'Owner ID sent; reconnect in Rust to apply permissions')
             return {'FINISHED'}
         except Exception as error:self.report({'ERROR'}, str(error));return {'CANCELLED'}
@@ -439,7 +439,7 @@ def register():
         bpy.utils.register_class(cls);_classes.append(cls)
     bpy.types.WindowManager.ruster_live_preview = PointerProperty(type=RUSTER_PG_live_preview)
     restore_settings()
-    _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='Ruster preview client')
+    _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='Rustmatics preview client')
     bpy.app.timers.register(tick, first_interval=1., persistent=True)
     bpy.app.handlers.load_post.append(after_load)
     for handlers in (bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre, bpy.app.handlers.load_pre):handlers.append(invalidate_capture)

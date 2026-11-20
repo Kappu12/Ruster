@@ -1,4 +1,4 @@
-"""Ruster savepoints follow document changes, never the private .blend flag."""
+"""Rustmatics savepoints follow document changes, never the private .blend flag."""
 import os, sys, tempfile, traceback
 from pathlib import Path
 import bpy

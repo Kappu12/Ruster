@@ -1,4 +1,4 @@
-"""Entry point executed by Blender inside the isolated Ruster process."""
+"""Entry point executed by Blender inside the isolated Rustmatics process."""
 import os
 import sys
 

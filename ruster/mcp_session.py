@@ -106,7 +106,7 @@ def dispatch(server,kind,p,bridge):
         owner=live_preview.backend.owner_id(p.get('steam_id'))
         if not owner:raise ValueError('Provide your 17-digit SteamID64')
         if not live_preview._job:raise ValueError('Start live preview first')
-        live_preview._job.send_command('ownerid '+owner+' "Ruster preview owner"')
+        live_preview._job.send_command('ownerid '+owner+' "Rustmatics preview owner"')
         return {'queued':True,'steam_id':owner,'message':'Reconnect in Rust after the server applies the owner ID.'}
     else:raise ValueError('Unsupported session command')
     return preview_status()

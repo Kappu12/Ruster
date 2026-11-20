@@ -31,7 +31,7 @@ def vector(values,label,nonzero=False):
 def map_object(name):
     obj=bpy.context.scene.objects.get(name)
     if not obj or obj.library or obj.get('ruster_kind') not in {'PREFAB','GROUP'}:
-        raise ValueError('Choose an editable Ruster prefab placement or group; original models are read-only')
+        raise ValueError('Choose an editable Rustmatics prefab placement or group; original models are read-only')
     return obj
 
 
@@ -141,7 +141,7 @@ class RusterMCPServer(BlenderMCPServer):
     def execute_command(self,command):
         try:
             if not isinstance(command,dict) or not isinstance(command.get('token'),str) or not hmac.compare_digest(command['token'],self.token):
-                raise ValueError('MCP authentication failed; use the Ruster MCP client configuration')
+                raise ValueError('MCP authentication failed; use the Rustmatics MCP client configuration')
             params=command.get('params',{})
             if not isinstance(params,dict):raise ValueError('Command parameters must be an object')
             # File loading replaces Window/Scene RNA. Never keep a temporary
@@ -151,7 +151,7 @@ class RusterMCPServer(BlenderMCPServer):
             if self.headless and command.get('type') in HEADLESS_UNAVAILABLE:
                 raise ValueError('This tool requires the desktop app; it is unavailable in headless mode')
             windows=list(bpy.context.window_manager.windows)
-            if not windows and not self.headless:raise ValueError('Ruster has no active window')
+            if not windows and not self.headless:raise ValueError('Rustmatics has no active window')
             window=next((w for w in windows if any(a.type=='VIEW_3D' for a in w.screen.areas)),windows[0] if windows else None)
             with nullcontext() if self.headless else bpy.context.temp_override(window=window):
                 selected=[obj.name for obj in bpy.context.selected_objects]
@@ -166,7 +166,7 @@ class RusterMCPServer(BlenderMCPServer):
         except Exception as error:return {'status':'error','message':str(error)}
 
     def dispatch(self,kind,params):
-        if kind=='ping':return {'pong':True,'application':'Ruster'}
+        if kind=='ping':return {'pong':True,'application':'Rustmatics'}
         if kind in ground.READ|ground.EDIT:return ground.dispatch(self,kind,params,sys.modules[__name__])
         if kind in mcp_session.READ|mcp_session.EDIT:return mcp_session.dispatch(self,kind,params,sys.modules[__name__])
         if kind in mcp_blender.READ|mcp_blender.EDIT:return mcp_blender.dispatch(self,kind,params,sys.modules[__name__])
@@ -194,7 +194,7 @@ class RusterMCPServer(BlenderMCPServer):
             return project_report.export(target,overwrite=overwrite)
         # There is deliberately no generic eval/exec or upstream asset downloader.
         if kind not in {'place_prefab','transform_object','duplicate_object','delete_object','save_project','export_map','undo','redo'}:
-            raise ValueError('Unsupported Ruster MCP command; arbitrary Python and prefab mesh editing are not exposed')
+            raise ValueError('Unsupported Rustmatics MCP command; arbitrary Python and prefab mesh editing are not exposed')
         require_idle()
         if kind in {'save_project','export_map'}:
             target=file_target(params.get('path'),'.ruster' if kind=='save_project' else '.map',params.get('overwrite') is True)
@@ -254,7 +254,7 @@ def update_port(state,context):
 
 
 class RUSTER_PG_mcp(bpy.types.PropertyGroup):
-    enabled:BoolProperty(name='Enable MCP',description='Allow local MCP clients to inspect Ruster and author prefab compositions',default=False,options={'SKIP_SAVE'},update=update_enabled)
+    enabled:BoolProperty(name='Enable MCP',description='Allow local MCP clients to inspect Rustmatics and author prefab compositions',default=False,options={'SKIP_SAVE'},update=update_enabled)
     port:IntProperty(name='Local Port',default=mcp_config.DEFAULT_PORT,min=1024,max=65535,options={'SKIP_SAVE'},update=update_port)
     status:StringProperty(default='Disabled',options={'SKIP_SAVE'})
 
@@ -310,7 +310,7 @@ def draw_settings(layout,context):
     if state.enabled and not running():action(layout,'ruster.mcp_retry')
     action(layout,'ruster.mcp_config')
     layout.separator()
-    wrapped(layout,context,'Connect an MCP client using the copied configuration. Keep Ruster open while connected.',width=width)
+    wrapped(layout,context,'Connect an MCP client using the copied configuration. Keep Rustmatics open while connected.',width=width)
     wrapped(layout,context,'Uses the community Blender MCP bridge with whole-prefab composition and export tools. Prefab geometry stays read-only.',icon='locked',width=width)
     wrapped(layout,context,'Connection settings are saved automatically on this computer.',width=width)
 

@@ -64,7 +64,7 @@ def realized_scene(roots, local_dependencies=False, pack_images=False):
     if not sources:raise ValueError('Selected prefabs have no readable mesh geometry')
     if len(sources) > 50000 or vertices > 2000000:
         raise ValueError('Export exceeds the bounded model budget; export a smaller selection')
-    temporary = bpy.data.scenes.new('Ruster Model Export')
+    temporary = bpy.data.scenes.new('Rustmatics Model Export')
     meshes = {}
     materials, images = {}, {}
     texture_directory = tempfile.TemporaryDirectory(prefix='ruster-export-textures-')

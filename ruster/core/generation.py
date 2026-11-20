@@ -134,7 +134,7 @@ class Generation:
 
     def start(self):
         if self._thread is not None:raise ValueError('Generation job already started')
-        self._thread=threading.Thread(target=self._run,name='Ruster map generation',daemon=True)
+        self._thread=threading.Thread(target=self._run,name='Rustmatics map generation',daemon=True)
         self._thread.start();return self
 
     @property

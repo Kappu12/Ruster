@@ -272,8 +272,8 @@ def schedule_quit():
 
 class RUSTER_OT_quit(bpy.types.Operator):
     bl_idname = 'ruster.quit'
-    bl_label = 'Quit Ruster'
-    bl_description = 'Close Ruster, offering to save changes to the .ruster project'
+    bl_label = 'Quit Rustmatics'
+    bl_description = 'Close Rustmatics, offering to save changes to the .ruster project'
 
     def invoke(self, context, event):
         global _dialog_open
@@ -304,7 +304,7 @@ class RUSTER_OT_quit(bpy.types.Operator):
 class RUSTER_OT_discard_and_quit(bpy.types.Operator):
     bl_idname = 'ruster.discard_and_quit'
     bl_label = "Don't Save"
-    bl_description = 'Close Ruster without saving the latest changes'
+    bl_description = 'Close Rustmatics without saving the latest changes'
 
     def execute(self, context):
         schedule_quit()

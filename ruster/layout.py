@@ -155,7 +155,7 @@ class RUSTER_PT_layout(bpy.types.Panel):
     bl_label = 'Prefab Layout'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Ruster'
+    bl_category = 'Rustmatics'
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 20
 
@@ -168,7 +168,7 @@ class RUSTER_PT_composition_checks(bpy.types.Panel):
     bl_parent_id = 'RUSTER_PT_layout'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Ruster'
+    bl_category = 'Rustmatics'
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):

@@ -96,7 +96,7 @@ def run():
             assert bpy.context.scene==original_scene
             assert counts==(len(bpy.data.scenes),len(bpy.data.objects),len(bpy.data.meshes)),format_+' leaked data'
         # The direct menu export defaults to the whole composition and offers
-        # selected-only export. Opening the result needs no Ruster/cache/addon.
+        # selected-only export. Opening the result needs no Rustmatics/cache/addon.
         assert not bpy.ops.ruster.blend_export.get_rna_type().properties['selected_only'].default
         selected_before = [obj.name for obj in bpy.context.selected_objects]
         target = directory/'direct.blend'

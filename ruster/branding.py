@@ -1,4 +1,4 @@
-"""Ruster splash and native Windows identity; semantic tool icons stay native."""
+"""Rustmatics splash and native Windows identity; semantic tool icons stay native."""
 import os
 from pathlib import Path
 import sys
@@ -24,10 +24,10 @@ def configure():
 
 
 def relaunch_properties():
-    """Taskbar identity points at the Ruster launcher, never a bare engine."""
+    """Taskbar identity points at the Rustmatics launcher, never a bare engine."""
     import subprocess
     root=ASSETS.parent.parent
-    launcher=root/'Ruster.exe'
+    launcher=root/'Rustmatics.exe'
     if launcher.is_file():command=subprocess.list2cmdline([str(launcher)])
     else:
         # Development checkouts have no frozen launcher. Bootstrap the same
@@ -35,7 +35,7 @@ def relaunch_properties():
         import bpy
         command=subprocess.list2cmdline([bpy.app.binary_path,'--factory-startup','--disable-autoexec',
                                         '--python',str(root/'bootstrap.py')])
-    return {2:command,3:str(ASSETS/'ruster.ico')+',0',4:'Ruster Prefab Studio',5:APP_ID}
+    return {2:command,3:str(ASSETS/'ruster.ico')+',0',4:'Rustmatics Prefab Studio',5:APP_ID}
 
 
 def _property_store(hwnd):
@@ -107,7 +107,7 @@ def _brand_window_properties(hwnd):
         wanted=relaunch_properties()
         for pid in wanted:original[pid]=store.get(pid)
         # Relaunch properties must precede AppID so Explorer groups/pins the
-        # host window using the complete Ruster identity from its first use.
+        # host window using the complete Rustmatics identity from its first use.
         for pid,value in wanted.items():store.string(pid,value)
         _window_properties[hwnd]=original
     except Exception:
@@ -189,7 +189,7 @@ def refresh_windows():
         title=('Preferences' if 'Preferences' in caption.value else getattr(getattr(bpy.context.scene,'ruster',None),'title','Prefab Studio'))
         from .quitting import save_status
         status='' if title=='Preferences' or not hasattr(bpy.context.scene,'ruster') else ' · '+save_status()
-        wanted=f'{title}{status} — Ruster {__version__}'
+        wanted=f'{title}{status} — Rustmatics {__version__}'
         if caption.value!=wanted:user.SetWindowTextW(hwnd,wanted)
         return True
     user.EnumWindows.argtypes=[callback_type,w.LPARAM];user.EnumWindows(update,0)

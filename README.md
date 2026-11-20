@@ -1,30 +1,30 @@
-# Ruster
+# Rustmatics
 
 **Everyone is welcome to fork this repository.**
 
-Ruster is a prefab editor built on Blender 5.2 LTS for AI agents working with Rust assets. Through MCP, agents can find, place, and arrange prefabs to build custom monuments and other scenes, then export those compositions for use in Rust. Ruster loads the original models and textures from your local Rust installation.
+Rustmatics is a prefab editor built on Blender 5.2 LTS for AI agents working with Rust assets. Through MCP, agents can find, place, and arrange prefabs to build custom monuments and other scenes, then export those compositions for use in Rust. Rustmatics loads the original models and textures from your local Rust installation.
 
 You can also build a composition from scratch by hand or fine-tune an agent's work in the desktop editor using Blender's viewport, object tools, and undo history.
 
 For general-purpose Rust map editing, we recommend [RustEdit](https://rustedit.rusthq.com/).
 
-## Ruster in action
+## Rustmatics in action
 
 https://github.com/user-attachments/assets/4dcc43d6-ee81-4d33-8e18-b2d898a37dec
 
 ## Start with a packaged build
 
-Open [Releases](https://github.com/Kappu12/Ruster/releases), download the ZIP for your platform, and extract it.
+Open [Releases](https://github.com/Kappu12/Rustmatics/releases), download the ZIP for your platform, and extract it.
 
-- **Windows x64:** open `Ruster.exe`.
-- **Linux x64:** run `./Ruster.sh` from the extracted application folder. If needed, run `chmod +x Ruster.sh` first.
-- **macOS Apple Silicon:** open `Ruster.app` from the macOS ZIP.
+- **Windows x64:** open `Rustmatics.exe`.
+- **Linux x64:** run `./Rustmatics.sh` from the extracted application folder. If needed, run `chmod +x Rustmatics.sh` first.
+- **macOS Apple Silicon:** open `Rustmatics.app` from the macOS ZIP.
 
 Keep the application folder together. The package includes its Blender runtime and Python dependencies, so a separate Blender installation is unnecessary.
 
 ### Make your first composition
 
-1. Open **Preferences > Assets**. Let Ruster find your Steam installation, or select the Rust game folder containing `Bundles`, then click **Apply Installation**.
+1. Open **Preferences > Assets**. Let Rustmatics find your Steam installation, or select the Rust game folder containing `Bundles`, then click **Apply Installation**.
 2. Create a new prefab composition from the welcome screen.
 3. Press **Shift+A** to browse Rust prefabs. The browser supports search, categories, favorites, and recently used assets. Enable **Hidden Assets** when looking for helpers such as volumes or spawners.
 4. Add a prefab and arrange it in the viewport. Models and materials load on demand, with progress shown in **Model Loading**.
@@ -60,7 +60,7 @@ Original prefab geometry stays read-only in the composition. Shape changes come 
 
 | Format | Purpose |
 | --- | --- |
-| `.ruster` | Save a Ruster project and resume editing it later. |
+| `.ruster` | Save a Rustmatics project and resume editing it later. |
 | `.prefab` | Import or export a RustEdit prefab composition with companion terrain masks in native map projects. |
 | `.map` | Import prefab placements; export placements plus native terrain when Rust Ground has been added. |
 | `.blend` | Export a standalone Blender scene for rendering and model work. |
@@ -101,11 +101,11 @@ EAC and is experimental; see [setup, checks and current limits](docs/live-previe
 
 ## Connect an MCP client
 
-Ruster includes an optional local MCP connection for inspecting the editor and authoring prefab compositions with an AI client.
+Rustmatics includes an optional local MCP connection for inspecting the editor and authoring prefab compositions with an AI client.
 
 1. Open **Preferences > MCP** and enable MCP.
 2. Click **Copy MCP Client Configuration**.
-3. Add the copied configuration to your client's MCP settings, then connect while Ruster remains open.
+3. Add the copied configuration to your client's MCP settings, then connect while Rustmatics remains open.
 
 The copied configuration uses the application's Python and `mcp_server.py` entry point. The editor bridge listens on `127.0.0.1`, uses a per-user authentication token, and defaults to port `9877`.
 
@@ -114,12 +114,12 @@ Start an automation session by reading `ruster://guide/building` and calling `ge
 Project tools expose the current path and unsaved state, recent projects, and
 `open_project`/`new_project`. Save current work first; discarding changes requires
 `discard_unsaved=True`. An active preview stays running across project switches
-in the same Ruster window, clearing the old scene and syncing the new project.
+in the same Rustmatics window, clearing the old scene and syncing the new project.
 `start_live_preview`, `stop_live_preview` and `get_live_preview_status` control the
 owned server and report progress, logs, connection details and client errors.
 Console and owner-ID tools queue commands on that server. Launch and Inject use
 the Live Preview panel's explicit client actions and EAC verification.
-After updating Ruster, refresh the MCP client's tool list/reconnect the adapter.
+After updating Rustmatics, refresh the MCP client's tool list/reconnect the adapter.
 
 ### Run an agent without a desktop window
 
@@ -127,9 +127,9 @@ For a saved project, validate, export a native map or generate a Word report in
 one command:
 
 ```bat
-Ruster.cmd "C:\maps\Project.ruster" --validate-map --require-ground
-Ruster.cmd "C:\maps\Project.ruster" --export-map "C:\maps\Project.map" --require-ground
-Ruster.cmd "C:\maps\Project.ruster" --export-report "C:\maps\Project Report.docx"
+Rustmatics.cmd "C:\maps\Project.ruster" --validate-map --require-ground
+Rustmatics.cmd "C:\maps\Project.ruster" --export-map "C:\maps\Project.map" --require-ground
+Rustmatics.cmd "C:\maps\Project.ruster" --export-report "C:\maps\Project Report.docx"
 ```
 
 One-shot commands use a temporary profile and exit when finished. For Linux,
@@ -140,10 +140,10 @@ source, machine-readable output and server handoff, see the
 Start the persistent headless host from CMD in the extracted application folder:
 
 ```bat
-Ruster.cmd --headless --rust-install "C:\Program Files (x86)\Steam\steamapps\common\Rust"
+Rustmatics.cmd --headless --rust-install "C:\Program Files (x86)\Steam\steamapps\common\Rust"
 ```
 
-On Linux use `./Ruster.sh --headless --rust-install "/path/to/Rust"`. From source,
+On Linux use `./Rustmatics.sh --headless --rust-install "/path/to/Rust"`. From source,
 use `python launch.py --headless --blender "/path/to/blender"`. Add an existing
 `.ruster`, `.prefab`, or `.map` path as the positional argument to open it at startup.
 The Rust path is saved for later runs; Steam detection is also available.
@@ -196,7 +196,7 @@ Pass an existing project or import file as the positional argument:
 python launch.py "/path/to/composition.ruster"
 ```
 
-The launcher uses a separate Blender process and a Ruster-specific configuration directory. Each desktop launch keeps its own `logs/startup-*.log`; `logs/latest-startup.txt` points to the latest run, and `logs/startup.log` contains the latest completed run. Errors link to that run's own log. Headless output stays in the terminal and can be redirected to a file.
+The launcher uses a separate Blender process and a Rustmatics-specific configuration directory. Each desktop launch keeps its own `logs/startup-*.log`; `logs/latest-startup.txt` points to the latest run, and `logs/startup.log` contains the latest completed run. Errors link to that run's own log. Headless output stays in the terminal and can be redirected to a file.
 
 ### Check changes
 
@@ -225,7 +225,7 @@ On the target operating system, use Python 3.13. On a Mac, use native arm64 Pyth
 python tools/package.py --archive --output-dir artifacts
 ```
 
-The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, and runs the package checks. Use `--output-name` to give the folder and ZIP a versioned name. On macOS, add `--macos-app` to build `Ruster.app` as the ZIP's top-level item. The app bundle is ad-hoc signed. The Windows Live Preview client module requires Windows.
+The packager downloads the pinned Blender archive, verifies its SHA256, installs application dependencies, and runs the package checks. Use `--output-name` to give the folder and ZIP a versioned name. On macOS, add `--macos-app` to build `Rustmatics.app` as the ZIP's top-level item. The app bundle is ad-hoc signed. The Windows Live Preview client module requires Windows.
 
 ### Publish a version
 
@@ -234,23 +234,23 @@ Branch pushes and pull requests run the unit and graphical tests. Version tag pu
 To release a version, update `ruster/__init__.py` and commit the changes. On Windows, build the package from the commit you plan to tag.
 
 ```sh
-python tools/package.py --archive --output-dir artifacts --output-name Ruster-windows-x64-v1.2.3
+python tools/package.py --archive --output-dir artifacts --output-name Rustmatics-windows-x64-v1.2.3
 git tag v1.2.3
 git push origin main v1.2.3
 ```
 
-Wait for the **Release Ruster App** run for that tag to succeed. Then upload the Windows ZIP and publish with the authenticated GitHub CLI.
+Wait for the **Release Rustmatics App** run for that tag to succeed. Then upload the Windows ZIP and publish with the authenticated GitHub CLI.
 
 ```sh
-python tools/release.py upload --repo Kappu12/Ruster --tag v1.2.3 --platform windows-x64 --directory artifacts
-python tools/release.py publish --repo Kappu12/Ruster --tag v1.2.3
+python tools/release.py upload --repo Kappu12/Rustmatics --tag v1.2.3 --platform windows-x64 --directory artifacts
+python tools/release.py publish --repo Kappu12/Rustmatics --tag v1.2.3
 ```
 
-Publication verifies the Windows and Linux downloads. A Mac builder can check out the release source, use `--macos-app --output-name Ruster-macos-arm64-v1.2.3` with the packaging command above, and attach the tested ZIP to the release. Tags such as `v1.2.3-rc.1` create prereleases.
+Publication verifies the Windows and Linux downloads. A Mac builder can check out the release source, use `--macos-app --output-name Rustmatics-macos-arm64-v1.2.3` with the packaging command above, and attach the tested ZIP to the release. Tags such as `v1.2.3-rc.1` create prereleases.
 
 ## Local files
 
-Ruster reads the installed game files without changing them. Its settings, asset cache, recovery files, and logs live separately:
+Rustmatics reads the installed game files without changing them. The rename keeps the existing locations for settings, the asset cache, recovery files, and logs:
 
 | Platform | Default user data folder |
 | --- | --- |
@@ -267,4 +267,4 @@ Set `RUSTER_USER_DIR` to choose another user data folder. Projects and exports a
 - [Architecture](docs/architecture.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-Ruster's application code is licensed under GPL-3.0-or-later. See [LICENSE](LICENSE). Rust game assets remain the property of their respective owners and are supplied by your local installation. Ruster is an independent community project.
+Rustmatics's application code is licensed under GPL-3.0-or-later. See [LICENSE](LICENSE). Rust game assets remain the property of their respective owners and are supplied by your local installation. Rustmatics is an independent community project.

@@ -45,7 +45,7 @@ def prepare():
             if mode=='setup':bpy.ops.ruster.setup('INVOKE_DEFAULT')
             elif mode=='settings':bpy.ops.ruster.preferences('INVOKE_DEFAULT',section='RUSTER_MCP')
             else:
-                next(r for r in area.regions if r.type=='UI').active_panel_category='Ruster'
+                next(r for r in area.regions if r.type=='UI').active_panel_category='Rustmatics'
                 area.tag_redraw()
                 bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP',iterations=2)
     return None

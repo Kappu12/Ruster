@@ -34,10 +34,10 @@ def run():
         user.GetWindowTextW.argtypes=[w.HWND,w.LPWSTR,ctypes.c_int]
         expected=branding.relaunch_properties();windows=[];originals={}
         app_root=Path(ruster.__file__).resolve().parent.parent
-        launcher=app_root/'Ruster.exe'
+        launcher=app_root/'Rustmatics.exe'
         if launcher.is_file():
             import subprocess
-            assert expected[2]==subprocess.list2cmdline([str(launcher)]),'Packaged relaunch command bypasses Ruster.exe'
+            assert expected[2]==subprocess.list2cmdline([str(launcher)]),'Packaged relaunch command bypasses Rustmatics.exe'
         else:
             assert bpy.app.binary_path in expected[2],'Development relaunch command bypasses the current Blender engine'
         for hwnd,icons in branding._windows.items():
@@ -47,7 +47,7 @@ def run():
             actual=[user.SendMessageW(hwnd,0x7f,index,0) for index in (0,1)]
             assert actual==branding._handles
             title=ctypes.create_unicode_buffer(512);user.GetWindowTextW(hwnd,title,len(title))
-            assert 'Ruster' in title.value and __version__ in title.value
+            assert 'Rustmatics' in title.value and __version__ in title.value
             old={pid:ctypes.wstring_at(value.pointer) if value.vt==31 and value.pointer else None
                  for pid,value in branding._window_properties[hwnd].items()}
             originals[hwnd]=(icons,old)

@@ -79,10 +79,10 @@ def verify_branding():
         assert process.value == os.getpid(), 'Branding tracked a different process window'
         title=ctypes.create_unicode_buffer(512);user.GetWindowTextW(hwnd,title,len(title))
         small=user.SendMessageW(hwnd,0x7f,0,0);big=user.SendMessageW(hwnd,0x7f,1,0)
-        assert [small,big] == list(branding._handles), 'Native WM_GETICON did not return the Ruster HICON handles'
-        assert 'Ruster' in title.value and __version__ in title.value
+        assert [small,big] == list(branding._handles), 'Native WM_GETICON did not return the Rustmatics HICON handles'
+        assert 'Rustmatics' in title.value and __version__ in title.value
         windows.append({'hwnd':int(hwnd),'title':title.value,'small_icon':int(small),'big_icon':int(big)})
-    assert windows, 'No native Ruster window was verified'
+    assert windows, 'No native Rustmatics window was verified'
     evidence['windows']=windows
     if destination := os.environ.get('RUSTER_BRANDING_EVIDENCE'):
         Path(destination).write_text(json.dumps(evidence,indent=2),encoding='utf8')

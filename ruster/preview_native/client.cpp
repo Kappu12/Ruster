@@ -819,7 +819,7 @@ DWORD WINAPI run(void*) {struct Finish{~Finish(){flushStatus();}} finish;try {
         Sleep(editQueued?16:50);
     }
     if(exists(L"server.blocked"))status("BLOCKED","The local server blocked this preview session. See server.blocked in Preview Logs.");
-    else status("STOPPED","The Ruster preview session ended or Stop was requested. Close Rust fully before starting a new injected session.");
+    else status("STOPPED","The Rustmatics preview session ended or Stop was requested. Close Rust fully before starting a new injected session.");
     stopping=true;postPreview();
     for(int i=0;i<40&&!stopped;i++)Sleep(50);
     UnhookWindowsHookEx(hook);return 0;

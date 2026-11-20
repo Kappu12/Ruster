@@ -67,7 +67,7 @@ def update_image(context,force=False):
     if force or not stored or stored[0]!=key or not image:
         pixels,meta=map_images.preview(editing.terrain(),state.layer,int(state.channel),int(state.resolution))
         size=meta['preview_resolution']
-        image_name=f'Ruster Map Preview: {context.scene.name}:{size}'
+        image_name=f'Rustmatics Map Preview: {context.scene.name}:{size}'
         image=bpy.data.images.get(image_name)
         if image and not image.get('ruster_map_preview'):raise ValueError('An unrelated image uses the map preview name; rename it first')
         if image is None:image=bpy.data.images.new(image_name,width=size,height=size,alpha=True)
@@ -129,7 +129,7 @@ class RUSTER_PT_maps(bpy.types.Panel):
     bl_label='Rust Maps'
     bl_space_type='IMAGE_EDITOR'
     bl_region_type='UI'
-    bl_category='Ruster'
+    bl_category='Rustmatics'
     @classmethod
     def poll(cls,context):return is_maps(context) and context.scene.ruster.mode=='MAP'
     def draw(self,context):

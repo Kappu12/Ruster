@@ -6,21 +6,21 @@ Startup and shutdown are asynchronous; poll status for readiness or completion.
 Status includes the current placement count, connection command, setup progress,
 server/client errors and bounded log output. Console responses confirm queuing;
 read the logs for Rust's result. Launch and Inject stay explicit panel actions.
-`open_project` and `new_project` protect unsaved work. In the same Ruster window,
+`open_project` and `new_project` protect unsaved work. In the same Rustmatics window,
 an active preview server and client bridge stay running across project switches.
 The previous scene is cleared and the new composition is synchronized and
 recentered without relaunching the server or reinjecting the client. Explicit
-Stop, closing Ruster and failed safety checks still end the preview session.
+Stop, closing Rustmatics and failed safety checks still end the preview session.
 
 The **Live Preview** panel has its own editor below **Placements** on the right,
 outside the viewport extension sidebar. The preview uses the actual Rust client
 and a separate local dedicated server. It does not emulate Rust or bundle the
-game/server in Ruster's executable.
+game/server in Rustmatics's executable.
 
 1. Set **Game Port** (28015 by default). The server also reserves the next two
    ports for local RCON and queries. Enter an optional 17-digit **Steam ID**.
 2. Click **Start Live Preview**. First use downloads official SteamCMD, installs
-   Rust dedicated server app 258550 anonymously, and installs Carbon and Ruster's
+   Rust dedicated server app 258550 anonymously, and installs Carbon and Rustmatics's
    companion plugin. Allow several GB for the server. Later starts reuse this
    separate installation. After a Rust update or server version mismatch, enable
    **Update Server on Start** under **Setup and EAC Checks** before starting.
@@ -106,7 +106,7 @@ module manifest records 64-bit handles, and the loader refuses older modules.
 
 The dedicated server starts with its native `-insecure` switch. The companion
 checks `Network.Net.sv.secure` before advertising readiness and on every update.
-Ruster validates a fresh heartbeat with the matching server PID and session
+Rustmatics validates a fresh heartbeat with the matching server PID and session
 identity before injection. A secure or non-loopback server is refused and
 stopped; no EAC setting is bypassed or patched.
 
@@ -245,7 +245,7 @@ runs before game-thread work. No full asset scan runs every 250 milliseconds.
 
 A rebuilt DLL cannot replace an already loaded preview module safely. Keep the
 owned server running, restart the Rust client through the explicit no-EAC setup,
-and use Inject for the new build; Ruster never hot-patches or unloads the old DLL.
+and use Inject for the new build; Rustmatics never hot-patches or unloads the old DLL.
 
 A newly introduced asset that Rust cannot load dynamically reports
 an error; restart preview with that asset in the initial composition. There is no
@@ -280,12 +280,12 @@ deactivation order and failed-retirement rollback using offline fixtures. The
 companion also compiles against the installed server assemblies. These checks
 do not prove player movement blocking or building denial in a running client.
 
-Sessions, downloads, logs, and the managed server live under Ruster's user-data
+Sessions, downloads, logs, and the managed server live under Rustmatics's user-data
 `live-preview` folder. Existing Rust installations, maps, server profiles and saves
 are not changed. The client DLL is loaded in memory only after the explicit
 action. The server, map HTTP service, RCON and query listeners use loopback.
 Only owned child processes are stopped. Server processes have their own cleanup
-job and do not share the editor's 8 GB memory cap. Multiple Ruster instances
+job and do not share the editor's 8 GB memory cap. Multiple Rustmatics instances
 cannot use or update the same managed server installation concurrently. Opening
 or creating another composition stops its current preview.
 

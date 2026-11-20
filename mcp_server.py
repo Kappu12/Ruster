@@ -12,7 +12,7 @@ if (ROOT/'python_modules').is_dir():
 if __name__=='__main__':
     import argparse
     from ruster.core.headless import configure_user_dir
-    parser=argparse.ArgumentParser(description='Connect an MCP client to a running Ruster session')
+    parser=argparse.ArgumentParser(description='Connect an MCP client to a running Rustmatics session')
     parser.add_argument('--headless',action='store_true',help='Connect to the separate headless profile')
     parser.add_argument('--user-dir',help='Match the host settings/cache directory')
     args=parser.parse_args()

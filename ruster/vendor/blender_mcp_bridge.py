@@ -29,7 +29,7 @@ class BlenderMCPServer:
 
     def start(self, *, manual_pump=False):
         if bpy.app.background and not manual_pump:
-            raise ValueError('Background MCP requires the main-thread pump; launch Ruster with --headless')
+            raise ValueError('Background MCP requires the main-thread pump; launch Rustmatics with --headless')
 
         if self.running:
             print("Server is already running")

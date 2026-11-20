@@ -206,7 +206,7 @@ def run():
         try:
             if sys.platform == 'win32':
                 # CMD automation must preserve failures without waiting at PAUSE.
-                invalid_cli = subprocess.run(['cmd.exe', '/d', '/c', str(APP / 'Ruster.cmd'),
+                invalid_cli = subprocess.run(['cmd.exe', '/d', '/c', str(APP / 'Rustmatics.cmd'),
                     '--headless', '--mcp-port', '1'], input='', capture_output=True, text=True, timeout=10)
                 assert invalid_cli.returncode == 2, (invalid_cli.stdout, invalid_cli.stderr)
             # A second owner cannot alter credentials or settings of the first.

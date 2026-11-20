@@ -6,22 +6,22 @@
 int main(int argc, char *argv[]) {
     (void)argc;
     @autoreleasepool {
-        NSURL *script = [[NSBundle.mainBundle resourceURL] URLByAppendingPathComponent:@"Ruster/Ruster.sh"];
+        NSURL *script = [[NSBundle.mainBundle resourceURL] URLByAppendingPathComponent:@"Rustmatics/Rustmatics.sh"];
         const char *path = script.fileSystemRepresentation;
         if (path == NULL) {
-            fprintf(stderr, "Ruster could not locate its bundled launcher.\n");
+            fprintf(stderr, "Rustmatics could not locate its bundled launcher.\n");
             return EXIT_FAILURE;
         }
 
         // Python modules live in the sealed application bundle.
         if (setenv("PYTHONDONTWRITEBYTECODE", "1", 1) != 0) {
-            perror("Ruster could not configure Python");
+            perror("Rustmatics could not configure Python");
             return EXIT_FAILURE;
         }
 
         argv[0] = (char *)path;
         execv(path, argv);
-        perror("Ruster could not start its bundled launcher");
+        perror("Rustmatics could not start its bundled launcher");
         return EXIT_FAILURE;
     }
 }

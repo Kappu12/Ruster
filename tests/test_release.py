@@ -18,7 +18,7 @@ def downloads(draft=False):
 
 @pytest.mark.parametrize('tag', ['v1.2.3', 'v1.2.3-rc.1', 'v1.2.3+build.1'])
 def test_version_tags_produce_versioned_platform_downloads(tag):
-    assert release.asset_name(tag, 'linux-x64') == f'Ruster-linux-x64-{tag}.zip'
+    assert release.asset_name(tag, 'linux-x64') == f'Rustmatics-linux-x64-{tag}.zip'
 
 
 @pytest.mark.parametrize('tag', [None, '', 'main', 'v1', 'v1.2.3/extra', 'v1.2.3";echo unexpected'])
@@ -55,7 +55,7 @@ def test_prepare_creates_only_a_draft_from_an_existing_tag(monkeypatch, tag):
     release.prepare(REPO, tag)
     call, = calls
     assert call[:10] == ('release', 'create', tag, '--repo', REPO, '--verify-tag', '--draft',
-                        '--title', f'Ruster {tag}', '--generate-notes')
+                        '--title', f'Rustmatics {tag}', '--generate-notes')
     assert call[10] == '--notes'
     assert f'https://github.com/{REPO}/tree/{tag}' in call[11]
     assert 'https://download.blender.org/source/blender-' in call[11]

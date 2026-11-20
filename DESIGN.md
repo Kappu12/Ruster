@@ -1,8 +1,8 @@
-# Ruster interface
+# Rustmatics interface
 
 ## Product scope
 
-Ruster is a prefab composition editor built on Blender 5.2 LTS. Its active
+Rustmatics is a prefab composition editor built on Blender 5.2 LTS. Its active
 workspace is **Prefab Studio**. Users compose whole original Rust assets, save
 editable `.ruster` projects, and export native RustEdit `.prefab` files,
 prefab-only `.map` files, assemblies or standalone models.
@@ -17,14 +17,14 @@ prefab composition. See [FEATURES.md](FEATURES.md) for verification limits.
 
 Use Blender's native theme and UI components: typography, spacing, icons, panel
 hierarchy, selection colors, fields, tooltips and keyboard conventions. All
-Ruster menus, dialogs and panels share semantic icons and action labels in
+Rustmatics menus, dialogs and panels share semantic icons and action labels in
 `ruster/ui_style.py`. Toolbar tools use distinct `.dat` icons from the pinned
 runtime. Do not introduce an external icon font or a fixed UI palette.
 
 Keep advanced options in native collapsible sections and retain normal row
 heights. Hints wrap for sidebar width and UI scale. Use a progress bar only when
 the worker supplies a real total; otherwise show the current phase. Both dark
-and light themes must work. New Prefab preserves user preferences. Ruster uses an
+and light themes must work. New Prefab preserves user preferences. Rustmatics uses an
 isolated configuration and never changes an ordinary Blender installation's
 preferences.
 
@@ -35,14 +35,14 @@ status, no-EAC launch/injection controls and console use the shared UI vocabular
 Installation displays measured phase progress and an explicitly approximate
 overall percentage. Preview compositions are centered in a void without moving
 the authored objects. Keep viewport Overlays and Volumes as icon-only toggles,
-and place the app identity before the Ruster menu in the far-left corner.
+and place the app identity before the Rustmatics menu in the far-left corner.
 
 ## Entry and discovery
 
 Start with an empty Prefab Studio workspace. The centered **New / Open** popup
 offers New Prefab, Open Map/Prefab/Project, recent projects and recovery. Its
 placement is independent of the pointer. Keep project actions accessible in the
-Ruster menu and sidebar after dismissal.
+Rustmatics menu and sidebar after dismissal.
 
 Discover validated Rust installations from the saved folder, standard Steam
 paths, the Windows registry and secondary Steam libraries. Do not recursively

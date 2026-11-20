@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build crisp app graphics from a vector mark and a locally supplied Rust font.
 
-The font is a build input only; its font software is never shipped with Ruster.
+The font is a build input only; its font software is never shipped with Rustmatics.
 """
 import argparse
 from pathlib import Path
@@ -30,9 +30,9 @@ def mark(size,color):
 
 def lettering(font_path,width,color):
     font=ImageFont.truetype(str(font_path),300)
-    box=font.getbbox('RUSTER')
+    box=font.getbbox('RUSTMATICS')
     image=Image.new('RGBA',(box[2]-box[0]+4,box[3]-box[1]+4))
-    ImageDraw.Draw(image).text((2-box[0],2-box[1]),'RUSTER',font=font,fill=color)
+    ImageDraw.Draw(image).text((2-box[0],2-box[1]),'RUSTMATICS',font=font,fill=color)
     height=round(image.height*width/image.width)
     return image.resize((width,height),Image.Resampling.LANCZOS)
 

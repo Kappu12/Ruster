@@ -10,7 +10,7 @@
   "changes": [
     "Removed telemetry, consent prompts, third-party asset services and arbitrary code execution.",
     "Added bounded requests/queue/responses, local connection timeout, token field and socket cleanup.",
-    "Added an explicit manually pumped background listener and bounded command draining for Ruster's headless host.",
+    "Added an explicit manually pumped background listener and bounded command draining for Rustmatics's headless host.",
     "Rust commands, settings, MCP tool registration and authentication are implemented outside these files."
   ]
 }

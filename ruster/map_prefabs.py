@@ -33,7 +33,7 @@ def import_map(path, *, replace=False, max_prefabs=None):
     world, records = read_map(path, max_prefabs=max_prefabs)
     # Stage only empty placement roots. A malformed record or failed object
     # creation must not discard the user's current composition.
-    staging = bpy.data.collections.new('Ruster map import')
+    staging = bpy.data.collections.new('Rustmatics map import')
     staging.use_fake_user = True
     created = []
     try:
@@ -100,7 +100,7 @@ def validate_placements(roots):
                 raise ValueError('Invalid source transform matrix')
             parents = list(parent_chain(root))
             if any(parent.get('ruster_kind') != 'GROUP' for parent in parents):
-                errors.append(f'{root.name}: parent must be a Ruster prefab group')
+                errors.append(f'{root.name}: parent must be a Rustmatics prefab group')
             if any(obj.constraints or obj.modifiers or obj.animation_data for obj in (root, *parents)):
                 errors.append(f'{root.name}: bake constraints/modifiers/animation before exporting')
             matrix = root.matrix_world

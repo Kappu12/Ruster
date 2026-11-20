@@ -17,7 +17,7 @@ for material in bpy.data.materials:
             if node.type == 'TEX_IMAGE' and node.image:
                 assert node.image.library is None and node.image.packed_file
 
-# Users can add these in normal Blender; the Ruster editor exposes neither.
+# Users can add these in normal Blender; the Rustmatics editor exposes neither.
 scene = bpy.context.scene
 corners = [obj.matrix_world @ Vector(corner) for obj in objects for corner in obj.bound_box]
 low = Vector(tuple(min(point[i] for point in corners) for i in range(3)))

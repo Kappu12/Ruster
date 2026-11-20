@@ -283,8 +283,8 @@ def attach_visual(root,force=False,prepared=False):
         # Already linked/packed projects keep their offline models above.
         from . import app
         updated=app.updated_version()
-        message=(f'Ruster {updated} is installed; save your project and restart Ruster to load these models.' if updated else
-                 'This model cache was made by a different Ruster version. Save and restart Ruster, then use Assets > Load Selected Models.')
+        message=(f'Rustmatics {updated} is installed; save your project and restart Rustmatics to load these models.' if updated else
+                 'This model cache was made by a different Rustmatics version. Save and restart Rustmatics, then use Assets > Load Selected Models.')
         root['ruster_model_error']=message;root['ruster_model_error_kind']='CACHE_VERSION'
         root['ruster_model_status']='Model cache version mismatch'
         return False
@@ -566,7 +566,7 @@ def validate():
                 errors.append(f'{obj.name}: prefab ID differs from the source record')
             from .placement import parent_chain
             if any(parent.get('ruster_kind')!='GROUP' for parent in parent_chain(obj)):
-                errors.append(f'{obj.name}: parent must be a Ruster prefab group')
+                errors.append(f'{obj.name}: parent must be a Rustmatics prefab group')
             if obj.constraints or obj.modifiers or obj.animation_data:
                 errors.append(f'{obj.name}: bake constraints/modifiers/animation before exporting')
             loc, rot, scale = obj.matrix_world.decompose()

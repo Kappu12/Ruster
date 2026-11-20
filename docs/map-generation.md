@@ -1,6 +1,6 @@
 # Rust map generation
 
-Choose **Generate Rust Map** from the welcome screen, File/Map menu or Ruster
+Choose **Generate Rust Map** from the welcome screen, File/Map menu or Rustmatics
 sidebar. Set a seed (0–2147483647) and world size (1000–6000 metres). The sidebar
 shows elapsed time, cancellation, logs and **Open Generated Map** when ready.
 Completion never replaces your current project; opening uses the ordinary
@@ -11,10 +11,10 @@ unsaved-work confirmation.
 The installed RustEdit 1.2.19 runs its procedural components **inside Unity**;
 it does not use RustDedicated for that workflow. See the
 [installed-runtime findings](rustedit-runtime.md). The backend described below
-is Ruster's separate optional implementation, and does not establish RustEdit
+is Rustmatics's separate optional implementation, and does not establish RustEdit
 generation parity.
 
-Ruster looks for **Rust Dedicated Server**, Steam app 258550, in standard Steam
+Rustmatics looks for **Rust Dedicated Server**, Steam app 258550, in standard Steam
 libraries and their app manifests. A custom/SteamCMD installation can be selected
 in the existing **Blender Preferences → Rust Assets → Procedural Map Generator**
 section. Choose `RustDedicated.exe` on Windows or `RustDedicated` on Linux and
@@ -57,12 +57,12 @@ benchmark or a guarantee for other machines/maps.
   The probe uses Windows exclusive-open sharing rules or the owned Linux child's
   file descriptors, so a parseable prefix cannot pass merely by pausing writes.
   If process-descriptor access is restricted, generation fails closed with an
-  explicit error; Ruster does not bypass the restriction or accept uncertain output.
+  explicit error; Rustmatics does not bypass the restriction or accept uncertain output.
 - Unchanged old caches are deliberately rejected, since matching filenames alone
   cannot establish current game-build compatibility. If Rust reuses a cache without
   rewriting it, this job can fail with a clear log message. It never deletes or
   overwrites the cache to force regeneration. Current-build cache reuse is future work.
-- The exact validated map bytes and logs are retained in Ruster's user-data
+- The exact validated map bytes and logs are retained in Rustmatics's user-data
   `generated/ruster_gen_…` job folder. Originals in Rust's map cache are retained.
 - Cancel, timeout (30 minutes by default) and app shutdown terminate/reap only the
   owned child. Blender does not wait for generation on its UI thread.

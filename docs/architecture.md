@@ -2,7 +2,7 @@
 
 `launch.py` starts a pinned or user-selected Blender 5.2 executable in its own
 process with isolated user configuration, factory startup and automatic scripts
-disabled. `bootstrap.py` registers the Ruster application. Packaged builds ship
+disabled. `bootstrap.py` registers the Rustmatics application. Packaged builds ship
 Blender's runtime; users do not install an add-on manually.
 
 | Module | Responsibility |

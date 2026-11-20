@@ -108,7 +108,7 @@ def start_job(action, ids=None):
     if _job is not None:
         raise ValueError('An asset operation is already running')
     if version:=updated_version():
-        raise ValueError(f'Ruster {version} was installed while this editor was open. Save your project and restart Ruster before loading models.')
+        raise ValueError(f'Rustmatics {version} was installed while this editor was open. Save your project and restart Rustmatics before loading models.')
     config = settings.load()
     root = settings.validate_install(config.get('rust_install', ''))
     cache = scene.cache_dir()
@@ -429,7 +429,7 @@ def welcome_popup_position(window,ui_scale,config):
 
 class RUSTER_OT_welcome(bpy.types.Operator):
     bl_idname = 'ruster.welcome'
-    bl_label = 'Ruster'
+    bl_label = 'Rustmatics'
 
     def invoke(self, context, event):
         # Native splash blocks deliberately KEEP_OPEN after operator buttons.
@@ -460,7 +460,7 @@ class RUSTER_OT_welcome(bpy.types.Operator):
             title.label(text='Build with your local Rust assets')
             layout.separator(factor=.7)
         else:
-            branding.label(layout,text=f'Ruster {__version__}',context=context)
+            branding.label(layout,text=f'Rustmatics {__version__}',context=context)
         split = layout.split(factor=.5)
         col = split.column()
         col.label(text='Create or Open')
@@ -567,11 +567,11 @@ def open_path(path):
         from . import ui
         if not bpy.app.background:bpy.app.timers.register(ui.start_workspace, first_interval=.1)
     else:
-        raise ValueError('Choose a Rust .map, RustEdit .prefab or Ruster .ruster file')
+        raise ValueError('Choose a Rust .map, RustEdit .prefab or Rustmatics .ruster file')
     # File import and post-load source relocation must be an undo baseline.
     # Otherwise the first brush undo can restore the old scene or a stale source.
     if bpy.context.preferences.edit.use_global_undo:
-        if bpy.ops.ed.undo_push.poll():bpy.ops.ed.undo_push(message='Open Ruster Project')
+        if bpy.ops.ed.undo_push.poll():bpy.ops.ed.undo_push(message='Open Rustmatics Project')
         elif not bpy.app.background and not bpy.app.timers.is_registered(open_undo_baseline):
             # A freshly loaded .blend has not initialized its undo context until
             # the next UI cycle. Finish opening, then establish the baseline.
@@ -590,7 +590,7 @@ def open_undo_baseline():
         region=next((region for region in area.regions if region.type=='WINDOW'),None)
         with bpy.context.temp_override(window=window,area=area,region=region):
             if bpy.ops.ed.undo_push.poll():
-                bpy.ops.ed.undo_push(message='Open Ruster Project');return None
+                bpy.ops.ed.undo_push(message='Open Rustmatics Project');return None
     return .1
 
 
@@ -817,7 +817,7 @@ class RUSTER_OT_catalog_page(bpy.types.Operator):
 
 class RUSTER_FH_project(bpy.types.FileHandler):
     bl_idname='RUSTER_FH_project'
-    bl_label='Ruster Map, Prefab or Project'
+    bl_label='Rustmatics Map, Prefab or Project'
     bl_import_operator='ruster.open'
     bl_file_extensions='.map;.prefab;.ruster'
     @classmethod
@@ -943,7 +943,7 @@ class RUSTER_OT_report(bpy.types.Operator):
                 uid=int(obj['ruster_uid'])
                 if obj.get('ruster_model_error') and uid not in reported:
                     entries.append((obj.name,str(obj['ruster_model_error'])));reported.add(uid)
-            block=bpy.data.texts.get('Ruster Asset Report') or bpy.data.texts.new('Ruster Asset Report')
+            block=bpy.data.texts.get('Rustmatics Asset Report') or bpy.data.texts.new('Rustmatics Asset Report')
             block.clear();block.write(context.scene.ruster.asset_status+'\n\n'+
                 '\n\n'.join(name+'\n'+error for name,error in entries))
             self.entries=json.dumps(entries[:5])
@@ -976,7 +976,7 @@ class RUSTER_OT_copy_asset_report(bpy.types.Operator):
     bl_idname='ruster.copy_asset_report'
     bl_label='Copy Full Asset Report'
     def execute(self,context):
-        block=bpy.data.texts.get('Ruster Asset Report')
+        block=bpy.data.texts.get('Rustmatics Asset Report')
         if not block:self.report({'ERROR'},'Open the asset report first');return {'CANCELLED'}
         context.window_manager.clipboard=block.as_string()
         self.report({'INFO'},'Asset report copied');return {'FINISHED'}

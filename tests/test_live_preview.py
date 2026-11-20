@@ -414,7 +414,7 @@ def test_completed_session_and_conflicting_installation_cannot_be_used(tmp_path)
     (tmp_path/'stop.flag').touch()
     with pytest.raises(ValueError, match='not active'):server.verify_session(tmp_path)
     with server.installation_lease(tmp_path):
-        with pytest.raises(ValueError, match='Another Ruster'):
+        with pytest.raises(ValueError, match='Another Rustmatics'):
             with server.installation_lease(tmp_path):raise AssertionError('Acquired twice')
     with server.installation_lease(tmp_path):pass
 

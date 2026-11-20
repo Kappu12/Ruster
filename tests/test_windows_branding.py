@@ -76,7 +76,7 @@ def test_runtime_icon_groups_and_default_extraction(tmp_path):
     from PyInstaller.utils.win32.icon import IconFile
     runtime=Path(os.environ.get('RUSTER_TEST_RUNTIME',ROOT/'dist/Ruster-windows-x64-5.2/runtime/blender.exe'))
     if not runtime.is_file():pytest.skip('A packaged Windows runtime fixture is required')
-    target=tmp_path/'Ruster-engine-icon-test.exe';shutil.copy2(runtime,target)
+    target=tmp_path/'Rustmatics-engine-icon-test.exe';shutil.copy2(runtime,target)
     before_code=code_sections(target);before=resources(target);ico=ROOT/'ruster/branding/ruster.ico';source=IconFile(str(ico))
     result=brand_windows_runtime(target,ico);after=resources(target)
     assert code_sections(target)==before_code

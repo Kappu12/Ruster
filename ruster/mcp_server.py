@@ -14,7 +14,7 @@ _lock=threading.Lock()
 ROTATION_GUIDANCE=('Verify every placement\'s orientation and intended facing direction using the loaded model and multiple viewport angles. '
     'Do not assume its forward axis or the sign of a rotation. Confirm it faces the correct way and is not reversed, inverted or upside down '
     'before duplicating it or finishing the composition.')
-mcp=FastMCP('Ruster',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/design and ruster://guide/building, then get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, radial arrays, spacing, grid and bounds snapping. Inspect Blender context, control viewport and cursor, and measure compositions. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only: never create custom mesh primitives, including triangles. Existing triangular Rust prefabs and triangular arrangements are allowed. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations. '+ROTATION_GUIDANCE)
+mcp=FastMCP('Rustmatics',instructions='Author custom prefab compositions using original local Rust assets. Read ruster://guide/design and ruster://guide/building, then get_editor_status first. Discover assets with paginated search_prefabs including hidden helpers. Inspect cached model bounds; request missing assets and poll status. Use atomic placement/transform batches, groups, radial arrays, spacing, grid and bounds snapping. Inspect Blender context, control viewport and cursor, and measure compositions. World metres: Z up, XYZ Euler degrees. Original geometry/materials remain linked and read-only: never create custom mesh primitives, including triangles. Existing triangular Rust prefabs and triangular arrangements are allowed. Enable Preferences MCP. Inspect the scene before retrying timed-out mutations. '+ROTATION_GUIDANCE)
 READ=ToolAnnotations(readOnlyHint=True,destructiveHint=False,openWorldHint=False)
 EDIT=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False)
 DESTRUCTIVE=ToolAnnotations(readOnlyHint=False,destructiveHint=True,openWorldHint=False)
@@ -71,7 +71,7 @@ def transform_object(name:str,position:list[float]|None=None,rotation_degrees:li
 
 @mcp.tool(annotations=EDIT)
 def duplicate_object(name:str)->dict:
-    """Duplicate a whole placement or group using native Ruster operations."""
+    """Duplicate a whole placement or group using native Rustmatics operations."""
     return command('duplicate_object',name=name)
 
 
@@ -131,7 +131,7 @@ def start_live_preview(port:int|None=None,owner_id:str|None=None,update_server:b
 
 @mcp.tool(annotations=DESTRUCTIVE)
 def stop_live_preview()->dict:
-    """Request stopping only Ruster's owned preview server and bridge. Returns immediately: poll until inactive before starting another session. Does not close Rust or other servers."""
+    """Request stopping only Rustmatics's owned preview server and bridge. Returns immediately: poll until inactive before starting another session. Does not close Rust or other servers."""
     return command('stop_live_preview')
 
 
@@ -266,7 +266,7 @@ def import_assembly(path:str,position:list[float],name:str|None=None)->dict:
     return command('import_assembly',path=path,position=position,name=name)
 
 
-BUILDING_GUIDE="""Ruster prefab authoring workflow
+BUILDING_GUIDE="""Rustmatics prefab authoring workflow
 1. get_editor_status reports actual version, converter_version, restart_required, visible and unloaded placements. Enable Preferences MCP and open a prefab composition. Wait for extraction/visual loading before requesting more assets.
 2. list_prefab_categories discovers taxonomy. search_prefabs includes hidden/IO helpers and supports descriptive tokens in any word order and aliases. Empty query browses all; follow next_offset. Never guess IDs. Local availability does not guarantee successful model extraction.
 3. get_prefab_details/get_prefabs_details inspect original cached model dimensions and enclosing bounds. request_prefab_assets queues up to 100 real IDs; poll status then retry details. No full-engine scan is needed.
@@ -281,7 +281,7 @@ BUILDING_GUIDE="""Ruster prefab authoring workflow
 12. transform_objects_relative applies world-axis scale, then XYZ rotation around a shared pivot, then world translation. Omitted pivot is the mean selected root origin; shear is rejected rather than approximated. radial_array_objects makes count NEW independent copies about an explicit world center/axis using a per-copy angle step; for a ring of 8 including the source use count=7, angle_degrees=45. Existing array limits, rollback and metadata preservation apply.
 13. distribute_objects uses the supplied names order; the first root stays fixed. ORIGIN makes signed origin steps; BOUNDS_GAP leaves the requested signed gap between successive loaded world bounds. snap_objects_to_grid rounds root origins to a world grid, half steps away from zero relative to origin. measure_objects reports origin distance and optionally axis-aligned render bounds separation, never certified collision clearance. Turn off live Radial Symmetry before batch layout of linked symmetry members.
 14. Read ruster://guide/design (the dedicated docs/design.md resource file) before building. Move, rotate and duplicate whole real prefabs. Scale static decorations with verification; networked doors, IO and deployables ignore scale in Rust. No custom triangle/cube mesh creation, prefab mesh edits, material replacement, arbitrary Python, path tools or procedural map generation are exposed. Existing triangular Rust assets and triangular compositions are valid. After timeout inspect the scene before replaying a mutation.
-15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. An active live preview stays running in the same Ruster window: its old scene is cleared and the new project is synchronized/recentered. Project replacement is not undoable.
+15. Project switching: get_project_status and list_recent_projects identify the active/recent .ruster files. save_project before open_project/new_project; unsaved work is protected unless discard_unsaved=True is explicitly requested. An active live preview stays running in the same Rustmatics window: its old scene is cleared and the new project is synchronized/recentered. Project replacement is not undoable.
 16. Live preview: start_live_preview starts only the owned local EAC-disabled server. Poll get_live_preview_status for setup progress, placement count, readiness, client errors, logs and the F1 connect command. stop_live_preview requests owned-session cleanup. send_live_preview_command and grant_live_preview_owner queue server commands; inspect logs for results. Launch Rust Without EAC and Inject are explicit Live Preview panel actions with the existing EAC checks.
 17. add_ground adds a native terrain patch. paint_ground brushes height, water, splat, biome, alpha and topology; get_ground_status inspects it. export_prefab writes RustEdit terrain masks beside the prefab in maps with native ground. terrain_width=0 fits the selection around its prefab pivot. Current .map exports and preview startup include the whole terrain, including water and Jungle. Restart preview after painting ground.
 """

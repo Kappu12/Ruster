@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble a standalone Ruster distribution around a pinned official Blender.
+"""Assemble a standalone Rustmatics distribution around a pinned official Blender.
 
 Run on the target OS with the Python version in engine.lock.json.
 Official downloads are SHA256-verified.
@@ -66,7 +66,7 @@ def brand_windows_runtime(executable, icon):
     source=IconFile(str(icon))
     if source.header.idType!=1 or not 1<=len(source.images)<=256 or any(
             len(image)!=entry.dwBytesInRes or not image for image,entry in zip(source.images,source.entries)):
-        raise ValueError('Invalid Ruster ICO resource')
+        raise ValueError('Invalid Rustmatics ICO resource')
     module=win32api.LoadLibraryEx(str(executable),0,2)
     try:
         try:groups=win32api.EnumResourceNames(module,14)
@@ -125,11 +125,11 @@ def finish_macos_app(app, payload):
     bundle_version = version.split('-', 1)[0].split('+', 1)[0]
     with (contents/'Info.plist').open('wb') as stream:
         plistlib.dump({
-            'CFBundleExecutable': 'Ruster',
-            'CFBundleIconFile': 'Ruster',
+            'CFBundleExecutable': 'Rustmatics',
+            'CFBundleIconFile': 'Rustmatics',
             'CFBundleIdentifier': 'io.github.kappu12.ruster',
             'CFBundleInfoDictionaryVersion': '6.0',
-            'CFBundleName': 'Ruster',
+            'CFBundleName': 'Rustmatics',
             'CFBundlePackageType': 'APPL',
             'CFBundleShortVersionString': bundle_version,
             'CFBundleVersion': bundle_version,
@@ -137,14 +137,14 @@ def finish_macos_app(app, payload):
             'LSUIElement': True,
         }, stream)
 
-    launcher = contents/'MacOS/Ruster'
+    launcher = contents/'MacOS/Rustmatics'
     launcher.parent.mkdir()
     subprocess.run(['xcrun', 'clang', '-arch', 'arm64', f'-mmacosx-version-min={minimum_macos}',
                     '-fobjc-arc', '-Wall', '-Wextra', '-framework', 'Foundation',
                     str(ROOT/'tools/macos_launcher.m'), '-o', str(launcher)], check=True)
 
     with tempfile.TemporaryDirectory(prefix='ruster-icon-') as temporary:
-        iconset = Path(temporary)/'Ruster.iconset'
+        iconset = Path(temporary)/'Rustmatics.iconset'
         iconset.mkdir()
         source_icon = payload/'ruster/branding/icon-black.png'
         for size in (16, 32, 128, 256, 512):
@@ -153,7 +153,7 @@ def finish_macos_app(app, payload):
                 image = iconset/f'icon_{size}x{size}{suffix}.png'
                 subprocess.run(['sips', '-z', pixels, pixels, str(source_icon), '--out', str(image)],
                                stdout=subprocess.DEVNULL, check=True)
-        subprocess.run(['iconutil', '-c', 'icns', '-o', str(contents/'Resources/Ruster.icns'),
+        subprocess.run(['iconutil', '-c', 'icns', '-o', str(contents/'Resources/Rustmatics.icns'),
                         str(iconset)], check=True)
 
     # Keep Blender in a standard nested-code location without altering its signature.
@@ -196,18 +196,18 @@ def main():
     build.mkdir(exist_ok=True)
     archive = build/entry['file']
     fetch(lock['base_url']+'/'+entry['file'], archive, entry['sha256'])
-    output_name = args.output_name or f'Ruster-{target}'
+    output_name = args.output_name or f'Rustmatics-{target}'
     if output_name in ('.', '..') or Path(output_name).name != output_name:
         parser.error('--output-name must be a folder name')
     distribution = args.output_dir.resolve()/output_name
     if distribution.exists():
         shutil.rmtree(distribution)
-    app = distribution/'Ruster.app' if args.macos_app else None
-    output = app/'Contents/Resources/Ruster' if app else distribution
+    app = distribution/'Rustmatics.app' if args.macos_app else None
+    output = app/'Contents/Resources/Rustmatics' if app else distribution
     output.mkdir(parents=True)
     executable, engine_resources = stage_runtime(archive, output/'runtime')
     engine_bytecode = set(engine_resources.rglob('*.pyc')) if app else set()
-    for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Ruster.cmd','Ruster.sh','LICENSE',
+    for name in ('ruster','bootstrap.py','launch.py','mcp_server.py','Rustmatics.cmd','Rustmatics.sh','LICENSE',
                  'README.md','FEATURES.md','THIRD_PARTY_NOTICES.md','engine.lock.json','docs'):
         source, destination = ROOT/name, output/name
         if source.is_dir():
@@ -232,12 +232,12 @@ def main():
     subprocess.run([str(python),str(ROOT/'tests/mcp_stdio_smoke.py'),str(output)],check=True)
     if system == 'Windows':
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',
-                        '--name', 'Ruster', '--distpath', str(output),
+                        '--name', 'Rustmatics', '--distpath', str(output),
                         '--icon',str(ROOT/'ruster/branding/ruster.ico'),
                         '--workpath', str(build/'launcher'), '--specpath', str(build),
                         str(ROOT/'launch.py')], check=True)
     else:
-        (output/'Ruster.sh').chmod(0o755)
+        (output/'Rustmatics.sh').chmod(0o755)
     if app:
         # Blender's embedded Python can compile modules during the fixtures.
         for cache in set(engine_resources.rglob('*.pyc')) - engine_bytecode:

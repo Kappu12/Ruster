@@ -80,7 +80,7 @@ def step():
             stage = state['stage']
             print('Prefab startup regression stage', stage, flush=True)
             if stage == 0:
-                assert state['welcome'], 'Native Ruster welcome panel did not draw'
+                assert state['welcome'], 'Native Rustmatics welcome panel did not draw'
                 prefab_workspace(window)
                 assert not window.scene.objects, 'Startup did not create an empty prefab composition'
                 window.event_simulate(type='ESC', value='PRESS')
@@ -92,7 +92,7 @@ def step():
                 assert state['start'], 'Persistent start controls did not draw'
                 area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
                 region = next(r for r in area.regions if r.type == 'UI')
-                assert area.spaces.active.show_region_ui and region.active_panel_category == 'Ruster'
+                assert area.spaces.active.show_region_ui and region.active_panel_category == 'Rustmatics'
                 prefab_workspace(window)
                 assert not window.scene.objects
                 assert area.spaces.active.show_region_toolbar
@@ -116,7 +116,7 @@ def step():
                 props=next(a for a in window.screen.areas if a.type=='PROPERTIES')
                 props.spaces.active.context='SCENE'
             elif 4 <= stage <= 8:
-                # Only Ruster's preview belongs in Properties; native Scene,
+                # Only Rustmatics's preview belongs in Properties; native Scene,
                 # World and Render panels must remain hidden in every context.
                 props=next(a for a in window.screen.areas if a.type=='PROPERTIES')
                 props.spaces.active.context=('SCENE','WORLD','VIEW_LAYER','RENDER','OUTPUT')[stage-4]

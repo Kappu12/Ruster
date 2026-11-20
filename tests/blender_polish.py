@@ -39,7 +39,7 @@ def run():
         (scene.cache_dir()/'asset-report.json').write_text(json.dumps([{'uid':1,'error':error}]))
         assert bpy.ops.ruster.asset_report()=={'FINISHED'}
         assert bpy.ops.ruster.copy_asset_report()=={'FINISHED'}
-        report=bpy.data.texts['Ruster Asset Report'].as_string()
+        report=bpy.data.texts['Rustmatics Asset Report'].as_string()
         assert error in report and 'Material conversion warning' in report
         assert not quitting.has_unsaved_changes(),'Inspection changed the editable document'
         with closing(catalog.connect(scene.cache_dir())) as db:

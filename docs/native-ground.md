@@ -27,7 +27,7 @@ these can be painted or erased.
 Current Rust map files store five planar biome channels, including Jungle;
 their weights sum to 255. Rust's RGBA biome **textures** reconstruct Jungle
 from the other four channels, which is different from the native map byte
-layout. Ruster reads legacy four-channel data and expands it to five channels
+layout. Rustmatics reads legacy four-channel data and expands it to five channels
 when exporting ground or baking a preview map, preserving other layers.
 The layout and explicit fifth channel were checked against the installed
 server's `TerrainBiomeMap.Setup`, `TerrainMap<T>.FromByteArray` and

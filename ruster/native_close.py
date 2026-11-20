@@ -1,4 +1,4 @@
-"""Route the Windows titlebar close/Alt+F4 through the Ruster save workflow.
+"""Route the Windows titlebar close/Alt+F4 through the Rustmatics save workflow.
 
 Window callbacks only queue a request. Blender UI operators run on the regular
 main-thread timer, outside the native message callback. Other windows retain
@@ -49,7 +49,7 @@ def hook_window(hwnd):
         _api = user, common
         _callback = dispatch  # Keep the ctypes callback alive until hooks are removed.
     if not _api[1].SetWindowSubclass(hwnd, _callback, SUBCLASS_ID, 0):
-        raise OSError('Could not install the Ruster window close handler')
+        raise OSError('Could not install the Rustmatics window close handler')
     _hooks.add(hwnd)
 
 
@@ -83,6 +83,6 @@ def unregister():
         user, common = _api
         for hwnd in tuple(_hooks):
             if user.IsWindow(hwnd) and not common.RemoveWindowSubclass(hwnd, _callback, SUBCLASS_ID):
-                raise OSError('Could not remove the Ruster window close handler')
+                raise OSError('Could not remove the Rustmatics window close handler')
             _hooks.discard(hwnd)
     _pending = None

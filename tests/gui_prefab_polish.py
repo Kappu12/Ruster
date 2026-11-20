@@ -20,7 +20,7 @@ class RUSTER_PT_polish_test(bpy.types.Panel):
     bl_label='Polish Verification'
     bl_space_type='VIEW_3D'
     bl_region_type='UI'
-    bl_category='Ruster'
+    bl_category='Rustmatics'
     bl_order=-100
     def draw(self,context):
         try:

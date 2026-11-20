@@ -192,7 +192,7 @@ class RUSTER_OT_restore_models(bpy.types.Operator):
 
 
 class RUSTER_MT_commands(bpy.types.Menu):
-    bl_label='Ruster Commands'
+    bl_label='Rustmatics Commands'
     def draw(self,context):
         from .ui_style import ICONS as I,action,tool_button
         layout=self.layout
@@ -214,7 +214,7 @@ class RUSTER_MT_commands(bpy.types.Menu):
 
 class RUSTER_OT_commands(bpy.types.Operator):
     bl_idname='ruster.commands'
-    bl_label='Ruster Commands'
+    bl_label='Rustmatics Commands'
     @classmethod
     def poll(cls,context):
         return bool(context.scene and context.scene.ruster.mode in {'MAP','PREFAB'})

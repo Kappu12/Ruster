@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch a separate Ruster application process using a bundled or local Blender."""
+"""Launch a separate Rustmatics application process using a bundled or local Blender."""
 import argparse
 import json
 import os
@@ -27,7 +27,7 @@ def check_exit(code, log_path):
         with Path(log_path).open('a',encoding='utf-8') as stream:
             stream.write('\nRUSTER_STOPPED: editor stopped after successful startup (exit -1).\n')
         return 0
-    action='Ruster stopped unexpectedly' if ready else 'Ruster could not start'
+    action='Rustmatics stopped unexpectedly' if ready else 'Rustmatics could not start'
     raise OSError(f'{action} (exit {code}). Details: {log_path}')
 
 
@@ -51,7 +51,7 @@ def find_blender(explicit=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Ruster — Rust prefab studio')
+    parser = argparse.ArgumentParser(description='Rustmatics — Rust prefab studio')
     parser.add_argument('project', nargs='?', help='A .prefab, prefab-only .map import, or .ruster project')
     parser.add_argument('--blender', help='Path to Blender 5.2 LTS')
     parser.add_argument('--background', action='store_true', help='Launch without a window (development)')
@@ -162,14 +162,14 @@ def main():
             except OSError:pass  # An older launcher can still have startup.log open.
             return check_exit(code,log_path)
         if code and not batch:
-            raise OSError(f'Ruster could not start (exit {code}). See the terminal output above.')
+            raise OSError(f'Rustmatics could not start (exit {code}). See the terminal output above.')
         return code
     except (FileNotFoundError, OSError) as error:
         if sys.stderr is not None:
-            print(f'Ruster: {error}', file=sys.stderr)
+            print(f'Rustmatics: {error}', file=sys.stderr)
         elif sys.platform == 'win32':
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, str(error), 'Ruster application error', 0x10)
+            ctypes.windll.user32.MessageBoxW(None, str(error), 'Rustmatics application error', 0x10)
         return 1
     finally:
         if scratch:

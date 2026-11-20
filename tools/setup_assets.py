@@ -20,4 +20,4 @@ subprocess.run([python,'-m','ensurepip'],check=True)
 subprocess.run([python,'-m','pip','install','--only-binary=:all:','--no-binary=tpk_ar',
                 '--target',str(ROOT/'python_modules'),'-r',str(ROOT/'requirements-assets.txt'),
                 '-r',str(ROOT/'requirements-mcp.txt')],check=True)
-print('Asset reader ready. Launch Ruster with launch.py.')
+print('Asset reader ready. Launch Rustmatics with launch.py.')

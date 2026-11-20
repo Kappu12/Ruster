@@ -114,7 +114,7 @@ def any_member_regressions(uid, directory):
     refresh()
     canonical = construction.radial_matrix(desired, center, -driver['ruster_symmetry_angle'])
     assert len(assert_set(source_id, canonical, center)) == 3
-    # Both Ruster deletion and direct Blender removal expand from any member.
+    # Both Rustmatics deletion and direct Blender removal expand from any member.
     for direct in (False, True):
         for original in (False, True):
             source, peers = new_set(uid)

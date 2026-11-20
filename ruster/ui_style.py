@@ -49,7 +49,7 @@ ACTIONS={
     'ruster.preferences':('Preferences…','settings'),
     'ruster.mcp_config':('Copy MCP Client Configuration','duplicate'),
     'ruster.mcp_retry':('Retry MCP Connection','refresh'),
-    'ruster.quit':('Quit Ruster','quit'),
+    'ruster.quit':('Quit Rustmatics','quit'),
     'ruster.start_live_preview':('Start Live Preview','play'),
     'ruster.stop_live_preview':('Stop Live Preview','stop'),
     'ruster.launch_preview_rust':('Launch Rust Without EAC','play'),

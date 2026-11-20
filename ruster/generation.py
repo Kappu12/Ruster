@@ -59,11 +59,11 @@ class RUSTER_OT_generate_map(bpy.types.Operator):
     def draw(self,context):
         state=context.window_manager.ruster_generation
         fields=properties(self.layout.column());fields.prop(state,'seed');fields.prop(state,'size')
-        wrapped(self.layout,context,'RustDedicated runs headlessly until it writes a valid map. Your current project stays open. See progress in the Ruster sidebar.')
+        wrapped(self.layout,context,'RustDedicated runs headlessly until it writes a valid map. Your current project stays open. See progress in the Rustmatics sidebar.')
     def execute(self,context):
         try:
             state=context.window_manager.ruster_generation;start(state.seed,state.size)
-            self.report({'INFO'},'Map generation started. Progress is in the Ruster sidebar.');return {'FINISHED'}
+            self.report({'INFO'},'Map generation started. Progress is in the Rustmatics sidebar.');return {'FINISHED'}
         except Exception as error:self.report({'ERROR'},str(error));return {'CANCELLED'}
 
 
@@ -86,7 +86,7 @@ class RUSTER_PT_generation(bpy.types.Panel):
     bl_label='Rust Map Generation'
     bl_space_type='VIEW_3D'
     bl_region_type='UI'
-    bl_category='Ruster'
+    bl_category='Rustmatics'
     bl_options={'DEFAULT_CLOSED'}
     @classmethod
     def poll(cls,context):return context.scene.ruster.mode=='MAP' or bool(_job and _job.active)

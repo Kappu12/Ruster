@@ -223,15 +223,15 @@ def verify_module(dll):
         if not 0 < dll.stat().st_size <= 16*1024*1024:raise ValueError('Invalid preview DLL size')
         manifest = json.loads(dll.with_suffix('.json').read_text())
         if manifest.get('gc_handle_bits') != 64:
-            raise ValueError('This preview DLL predates the Unity 6 object-handle fix. Rebuild or use the updated Ruster build.')
+            raise ValueError('This preview DLL predates the Unity 6 object-handle fix. Rebuild or use the updated Rustmatics build.')
         if (manifest.get('protocol') != 1 or manifest.get('platform') != 'windows-x64'
                 or hashlib.sha256(dll.read_bytes()).hexdigest() != manifest.get('sha256')):
-            raise ValueError('Preview DLL integrity check failed; rebuild or reinstall Ruster')
+            raise ValueError('Preview DLL integrity check failed; rebuild or reinstall Rustmatics')
         source = dll.parent.parent/'client.cpp'
         if source.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() != manifest.get('source_sha256'):
             raise ValueError('Preview module source changed; rebuild the client module before starting preview')
     except (OSError, KeyError, json.JSONDecodeError) as error:
-        raise ValueError('The preview module or its build manifest is missing or invalid; rebuild or reinstall Ruster') from error
+        raise ValueError('The preview module or its build manifest is missing or invalid; rebuild or reinstall Rustmatics') from error
     return manifest
 
 

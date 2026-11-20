@@ -108,7 +108,7 @@ def terrain(context_scene=None,fresh=False):
 
 
 def commit(document):
-    snapshot=bpy.data.texts.new('Ruster Terrain '+uuid.uuid4().hex[:12])
+    snapshot=bpy.data.texts.new('Rustmatics Terrain '+uuid.uuid4().hex[:12])
     snapshot.write(document.snapshot())
     bpy.context.scene.ruster.terrain_state=snapshot
     clear_cache()

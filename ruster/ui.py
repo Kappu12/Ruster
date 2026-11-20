@@ -19,7 +19,7 @@ def is_map(context):
 class MapPanel:
     bl_space_type='VIEW_3D'
     bl_region_type='UI'
-    bl_category='Ruster'
+    bl_category='Rustmatics'
     icon='world'
     @classmethod
     def poll(cls,context):return is_map(context)
@@ -30,7 +30,7 @@ class RUSTER_PT_start(bpy.types.Panel):
     bl_label='Prefab Studio'
     bl_space_type='VIEW_3D'
     bl_region_type='UI'
-    bl_category='Ruster'
+    bl_category='Rustmatics'
 
     @classmethod
     def poll(cls,context):return not is_map(context)
@@ -39,7 +39,7 @@ class RUSTER_PT_start(bpy.types.Panel):
         from . import __version__
         layout=self.layout
         from . import branding
-        branding.label(layout,text=f'Ruster {__version__}',context=context)
+        branding.label(layout,text=f'Rustmatics {__version__}',context=context)
         wrapped(layout,context,context.scene.ruster.title,icon='prefab')
         from .quitting import save_status
         layout.label(text=save_status(),icon=I['save'])
@@ -55,7 +55,7 @@ class RUSTER_PT_start(bpy.types.Panel):
 
 
 class RUSTER_MT_file(bpy.types.Menu):
-    bl_label='Ruster'
+    bl_label='Rustmatics'
     def draw(self,context):
         layout=self.layout
         for op in ('ruster.welcome','ruster.new','ruster.open'):action(layout,op)
@@ -120,7 +120,7 @@ class RUSTER_PT_map(MapPanel,bpy.types.Panel):
         row=layout.row()
         row.label(text=f'{state.map_size:,} m')
         row.label(text=f'{len(scene.prefab_roots()):,} prefabs',icon=I['prefab'])
-        layout.label(text='F3: Ruster Commands',icon=I['info'])
+        layout.label(text='F3: Rustmatics Commands',icon=I['info'])
         layout.separator()
         action(layout,'ruster.save')
         row=layout.row(align=True)
@@ -279,7 +279,7 @@ class RUSTER_PT_properties(bpy.types.Panel):
         layout.label(text=f'{state.map_size:,} m')
         layout.separator()
         action(layout,'ruster.validate');action(layout,'ruster.export_map')
-        wrapped(layout,context,'Edit terrain, paths and prefab placements in the Ruster sidebar.')
+        wrapped(layout,context,'Edit terrain, paths and prefab placements in the Rustmatics sidebar.')
 
 
 class RUSTER_PT_terrain(MapPanel,bpy.types.Panel):
@@ -325,7 +325,7 @@ class RUSTER_PT_terrain(MapPanel,bpy.types.Panel):
             for operator in ('ruster.mask_import','ruster.mask_export'):
                 op=action(controls,operator)
                 preset_from_brush(op,context)
-            wrapped(body,context,'Edit grayscale masks outside Ruster. Import changes one channel at full resolution.')
+            wrapped(body,context,'Edit grayscale masks outside Rustmatics. Import changes one channel at full resolution.')
         body=section(layout,'ruster_terrain_preview','Viewport Preview','overlay')
         if body is not None:
             body.prop(brush,'display',text='Overlay')
@@ -496,8 +496,8 @@ def close_map_timeline():
                 area.spaces.active.show_region_toolbar=True
                 area.spaces.active.show_region_ui=True
                 region=next((r for r in area.regions if r.type=='UI'),None)
-                if region and region.active_panel_category!='Ruster':
-                    try:region.active_panel_category='Ruster';area.tag_redraw()
+                if region and region.active_panel_category!='Rustmatics':
+                    try:region.active_panel_category='Rustmatics';area.tag_redraw()
                     except RuntimeError:pass  # Category list needs its first draw.
                     retry=True
     return .2 if retry else None
@@ -567,7 +567,7 @@ def splash(self,context):
 
 
 class RUSTER_PT_welcome(bpy.types.Panel):
-    bl_label = 'Ruster'
+    bl_label = 'Rustmatics'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'HIDE_HEADER'}

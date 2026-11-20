@@ -145,7 +145,7 @@ def installation_lease(root):
             else:
                 import fcntl
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as error:raise ValueError('Another Ruster preview is using this local server; stop it first') from error
+        except OSError as error:raise ValueError('Another Rustmatics preview is using this local server; stop it first') from error
         try:yield
         finally:
             handle.seek(0)
@@ -183,7 +183,7 @@ def extract_zip(archive, destination, limit=512*1024*1024):
 
 def download(url, path, cancel, *, maximum=128*1024*1024, digest=None, progress=None):
     path = Path(path);temporary = path.with_suffix(path.suffix+'.download')
-    request = urllib.request.Request(url, headers={'User-Agent': 'Ruster-Live-Preview', 'Accept': 'application/octet-stream'})
+    request = urllib.request.Request(url, headers={'User-Agent': 'Rustmatics-Live-Preview', 'Accept': 'application/octet-stream'})
     checksum = hashlib.sha256();total = 0
     try:
         with urllib.request.urlopen(request, timeout=30) as response, temporary.open('wb') as out:
@@ -210,7 +210,7 @@ def command(binary, identity, port, url, log):
         '+server.queryport', str(port+2), '+rcon.ip', '127.0.0.1', '+rcon.port', str(port+1),
         '+rcon.password', secrets.token_hex(32), '+server.maxplayers', '1',
         '+server.encryption', '1',
-        '+server.hostname', 'Ruster Local Live Preview', '+server.levelurl', url,
+        '+server.hostname', 'Rustmatics Local Live Preview', '+server.levelurl', url,
         '+ai.ocean_patrol_path_iterations', '512',
         '+server.saveinterval', '86400', '+app.listenip', '127.0.0.1', '+app.port', '0']
 
@@ -271,7 +271,7 @@ class PreviewSession:
 
     def start(self):
         if self.thread is not None:raise ValueError('This preview session has already been started')
-        self.thread = threading.Thread(target=self._run, name='Ruster live preview', daemon=True)
+        self.thread = threading.Thread(target=self._run, name='Rustmatics live preview', daemon=True)
         self.thread.start();return self
 
     def _serve_map(self):
@@ -287,7 +287,7 @@ class PreviewSession:
         self.http.daemon_threads = True
         self.url = f'http://127.0.0.1:{self.http.server_port}{route}'
         atomic_write(self.directory/'map.url', self.url.encode())
-        threading.Thread(target=self.http.serve_forever, name='Ruster local preview map', daemon=True).start()
+        threading.Thread(target=self.http.serve_forever, name='Rustmatics local preview map', daemon=True).start()
 
     def _install(self):
         binary = self.install/'RustDedicated.exe'
@@ -320,7 +320,7 @@ class PreviewSession:
         if self.cancel.is_set():raise InterruptedError()
         self.note('DOWNLOADING', 'Installing the Carbon server plugin loader')
         self.installation_progress('Checking Carbon server plugin loader', .9)
-        request = urllib.request.Request(CARBON_RELEASE, headers={'User-Agent': 'Ruster-Live-Preview', 'Accept': 'application/vnd.github+json'})
+        request = urllib.request.Request(CARBON_RELEASE, headers={'User-Agent': 'Rustmatics-Live-Preview', 'Accept': 'application/vnd.github+json'})
         with urllib.request.urlopen(request, timeout=30) as response:release = json.loads(response.read(2*1024*1024))
         asset = next((a for a in release['assets'] if a['name'] == 'Carbon.Windows.Release.zip'), None)
         if asset is None:raise ValueError('The official Carbon release has no Windows server archive')
@@ -391,7 +391,7 @@ class PreviewSession:
             self._serve_map()
             atomic_write(self.directory/'config.json', json.dumps({'owner': self.owner, 'url': self.url, 'token': self.token, 'origin': self.origin}).encode())
             atomic_write(self.directory/'session.token', self.token.encode('ascii'))
-            atomic_write(self.directory/'active.flag', b'Ruster local preview\n')
+            atomic_write(self.directory/'active.flag', b'Rustmatics local preview\n')
             env = {**os.environ, 'RUSTER_PREVIEW_DIR': str(self.directory)}
             self.note('STARTING', 'Starting the private Rust server; waiting for the preview plugin')
             self._spawn(command(binary, self.identity, self.port, self.url, self.log),
@@ -490,7 +490,7 @@ class PreviewSession:
         # Stop uses an independent marker as well as removing active.flag.
         # Concurrent Windows deletion can report ACCESS_DENIED while a file is
         # delete-pending. That must never skip owned-process cleanup.
-        try:atomic_write(self.directory/'stop.flag', b'Stop Ruster preview\n')
+        try:atomic_write(self.directory/'stop.flag', b'Stop Rustmatics preview\n')
         except OSError:pass
         try:(self.directory/'active.flag').unlink(missing_ok=True)
         except OSError:pass

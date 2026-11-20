@@ -1,4 +1,4 @@
-"""Write an editable Word summary of the current Ruster composition."""
+"""Write an editable Word summary of the current Rustmatics composition."""
 from collections import Counter
 from io import BytesIO
 import re
@@ -39,8 +39,8 @@ def export(path, *, overwrite):
             labels[uid] = collection['ruster_asset_name']
 
     document = Document()
-    document.core_properties.title = 'Ruster Project Report'
-    document.core_properties.author = 'Ruster'
+    document.core_properties.title = 'Rustmatics Project Report'
+    document.core_properties.author = 'Rustmatics'
     section = document.sections[0]
     section.left_margin = section.right_margin = Inches(.85)
     section.top_margin = section.bottom_margin = Inches(.75)
@@ -52,7 +52,7 @@ def export(path, *, overwrite):
     if border is not None:
         title_properties.remove(border)
 
-    document.add_heading('Ruster Project Report', 0)
+    document.add_heading('Rustmatics Project Report', 0)
     document.add_paragraph(xml_text(state.title or 'Untitled'), style='Subtitle')
     document.add_paragraph(
         f'This composition contains {len(roots):,} prefab placements across {len(counts):,} prefab IDs. '

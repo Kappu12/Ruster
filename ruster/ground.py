@@ -139,7 +139,7 @@ class RUSTER_OT_add_ground(bpy.types.Operator):
 
 class RUSTER_PT_ground(bpy.types.Panel):
     bl_label='Rust Ground'
-    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Ruster'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Rustmatics'
     def draw(self,context):
         layout=self.layout
         if not enabled():layout.operator('ruster.add_ground',icon='MESH_PLANE');return

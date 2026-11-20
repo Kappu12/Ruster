@@ -1,4 +1,4 @@
-// Ruster's local Carbon/Oxide companion. GPL-3.0-or-later.
+// Rustmatics's local Carbon/Oxide companion. GPL-3.0-or-later.
 // Installation appends PreviewProtocol.cs for Carbon's single-file compiler.
 using System;
 using System.Collections;
@@ -12,7 +12,7 @@ using UnityEngine;
 using Ruster.Preview;
 namespace Oxide.Plugins
 {
-    [Info("RusterPreview", "Ruster", "0.3.7")]
+    [Info("RusterPreview", "Rustmatics", "0.3.7")]
     [Description("Applies editor placements only inside an owned loopback preview session")]
     public class RusterPreview : RustPlugin
     {
@@ -66,7 +66,7 @@ namespace Oxide.Plugins
             directory=Environment.GetEnvironmentVariable("RUSTER_PREVIEW_DIR");
             try
             {
-                if(string.IsNullOrWhiteSpace(directory)||!Active())throw new Exception("No active Ruster-owned preview session");
+                if(string.IsNullOrWhiteSpace(directory)||!Active())throw new Exception("No active Rustmatics-owned preview session");
                 if(ConVar.Server.ip!="127.0.0.1"||Network.Net.sv.secure)throw new Exception("Preview requires a loopback-only insecure server");
                 config=JsonConvert.DeserializeObject<SessionConfig>(ReadText(Path.Combine(directory,"config.json"),4096));
                 if(config==null||config.url!=World.Url||config.token==null||config.token.Length!=64)throw new Exception("Preview map URL or session identity does not match");
@@ -105,7 +105,7 @@ namespace Oxide.Plugins
                 ClearDetachedWarmups();InstallPreviewSpawn();
                 timer.Once(.1f,ClearDetachedWarmups);timer.Once(2f,ClearDetachedWarmups);
                 if(!string.IsNullOrEmpty(config.owner)&&config.owner.Length==17&&config.owner.All(c=>c>='0'&&c<='9'))
-                    ConsoleSystem.Run(ConsoleSystem.Option.Server,"ownerid "+config.owner+" \"Ruster preview owner\"");
+                    ConsoleSystem.Run(ConsoleSystem.Option.Server,"ownerid "+config.owner+" \"Rustmatics preview owner\"");
                 initialized=true;Tick();timer.Every(0.25f,Tick);
                 Puts("Local preview bridge ready. Rust client preview requires explicit no-EAC injection.");
             }

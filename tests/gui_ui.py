@@ -132,7 +132,7 @@ def perform():
     elif 1<=stage<=6:
         if stage==1:
             region=next(r for r in state['area'].regions if r.type=='UI')
-            if region.active_panel_category!='Ruster' or bpy.app.timers.is_registered(ui.close_map_timeline):
+            if region.active_panel_category!='Rustmatics' or bpy.app.timers.is_registered(ui.close_map_timeline):
                 state['focus_attempts']=state.get('focus_attempts',0)+1
                 assert state['focus_attempts']<25,'Map did not focus its Rust controls'
                 return .2

@@ -1,7 +1,7 @@
 # RustEdit custom prefab interchange
 
 The `.prefab` format targets the RustEdit 1.2.19 serializer. RustEdit 2.0.16
-also reads these bundles through its legacy monument importer. Ruster ships
+also reads these bundles through its legacy monument importer. Rustmatics ships
 its own implementation of the format.
 
 Files start with little-endian uint32 version 1, followed by the legacy LZ4Stream
@@ -42,7 +42,7 @@ the edge fade. Set **Terrain Width (m)** to include a larger area. RustEdit's
 terrain modifier controls apply these masks after placement.
 
 **Include Map Terrain** controls capture from the current map. Imported RustEdit
-companion images are kept in saved Ruster projects for re-export at the
+companion images are kept in saved Rustmatics projects for re-export at the
 imported prefab's pivot. In MCP, `export_prefab` accepts `include_terrain`,
 `terrain_width`, `terrain_fade`, and `preview_png`. Omit `include_terrain` for
 automatic capture on native map projects. The result lists the actual companion
