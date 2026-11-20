@@ -2,11 +2,11 @@
 
 **Everyone is welcome to fork this repository.**
 
-Ruster is intended specifically for creating prefabs such as custom monuments. For editing a Rust map itself, we recommend [RustEdit](https://rustedit.rusthq.com/).
+Ruster is a prefab editor built on Blender 5.2 LTS for AI agents working with Rust assets. Through MCP, agents can find, place, and arrange prefabs to build custom monuments and other scenes, then export those compositions for use in Rust. Ruster loads the original models and textures from your local Rust installation.
 
-Ruster is a desktop prefab editor for Rust, built on Blender 5.2 LTS. It lets you assemble structures and scenes from the game's original prefabs, using models and textures read from your own Rust installation.
+You can also build a composition from scratch by hand or fine-tune an agent's work in the desktop editor using Blender's viewport, object tools, and undo history.
 
-The editor works with whole prefab placements: choose assets, arrange them in the viewport, and export their IDs and transforms for Rust. Blender supplies the viewport, navigation, object tools, and undo history.
+For general-purpose Rust map editing, we recommend [RustEdit](https://rustedit.rusthq.com/).
 
 ## Ruster in action
 
