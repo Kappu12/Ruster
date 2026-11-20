@@ -8,6 +8,10 @@ Ruster is a desktop prefab editor for Rust, built on Blender 5.2 LTS. It lets yo
 
 The editor works with whole prefab placements: choose assets, arrange them in the viewport, and export their IDs and transforms for Rust. Blender supplies the viewport, navigation, object tools, and undo history.
 
+## Ruster in action
+
+https://github.com/user-attachments/assets/4dcc43d6-ee81-4d33-8e18-b2d898a37dec
+
 ## Start with a packaged build
 
 Open [Releases](https://github.com/Kappu12/Ruster/releases), download the ZIP for your platform, and extract it.
